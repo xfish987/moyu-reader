@@ -6,6 +6,7 @@ const chardet = require('chardet')
 const iconv = require('iconv-lite')
 const JSZip = require('jszip')
 const { DOMParser } = require('@xmldom/xmldom')
+const { modelValues, nextModelPage } = require('./modelCatalog.cjs')
 
 let mainWindow
 let bossHidden = false
@@ -931,26 +932,39 @@ ipcMain.handle('ai:delete-provider', async (_event, providerId) => {
   return publicAiConfig(config)
 })
 
-ipcMain.handle('ai:refresh-provider', async (event, providerId) => {
+ipcMain.handle('ai:refresh-provider', async (_event, providerId) => {
   const config = await loadAiConfig()
   const provider = config.providers.find((item) => item.id === providerId)
   if (!provider) return { ok: false, error: { stage: 'models', status: 0, code: 'PROVIDER_NOT_FOUND', message: '没有找到该 AI 供应商' } }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30000)
   try {
-    const response = await requestProvider(provider, 'models', { method: 'GET' }, 'models', controller.signal)
-    const models = (Array.isArray(response?.data) ? response.data : [])
-      .map((item) => typeof item === 'string' ? item : item?.id)
-      .filter((value) => typeof value === 'string' && value.trim())
-      .map((value) => value.trim().slice(0, 160))
-      .filter((value, index, items) => items.indexOf(value) === index)
-      .sort((a, b) => a.localeCompare(b))
-    provider.models = models
+    const models = []
+    const seenPages = new Set()
+    let endpoint = 'models'
+    for (let page = 0; page < 100; page += 1) {
+      const response = await requestProvider(provider, endpoint, { method: 'GET' }, 'models', controller.signal)
+      models.push(...modelValues(response))
+      const next = nextModelPage(response, seenPages)
+      if (!next) break
+      const marker = next.type === 'url' ? next.value : `${next.key}:${next.value}`
+      if (seenPages.has(marker)) break
+      seenPages.add(marker)
+      if (next.type === 'url') {
+        const base = new URL(provider.baseUrl)
+        const url = new URL(next.value, providerEndpoint(provider.baseUrl, 'models'))
+        const basePath = base.pathname.replace(/\/+$/, '') || '/'
+        if (url.origin !== base.origin || !(url.pathname === basePath || url.pathname.startsWith(`${basePath}/`))) throw Object.assign(new Error('供应商分页地址跨越了不同主机或路径'), { aiError: { stage: 'models', status: 0, code: 'PAGINATION_ORIGIN_BLOCKED', message: '供应商返回了不安全的分页地址' } })
+        endpoint = `${url.pathname}${url.search}`
+      } else endpoint = `models?${encodeURIComponent(next.parameter)}=${encodeURIComponent(next.value)}`
+    }
+    const uniqueModels = [...new Set(models)].sort((a, b) => a.localeCompare(b))
+    provider.models = uniqueModels
     provider.lastCheckedAt = Date.now()
     provider.lastStatus = 'ok'
-    if (!provider.model && models.length) provider.model = models[0]
+    if (!provider.model && uniqueModels.length) provider.model = uniqueModels[0]
     await queueAiConfigWrite()
-    return { ok: true, models, settings: publicAiConfig(config) }
+    return { ok: true, models: uniqueModels, settings: publicAiConfig(config) }
   } catch (error) {
     const aiError = error.aiError || { stage: 'models', status: 0, code: error.code || 'UNKNOWN_ERROR', message: sanitizeAiErrorText(error.message) }
     provider.lastCheckedAt = Date.now()
