@@ -1,6 +1,6 @@
 {
   "name": "moyu-reader",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "A quiet local TXT and EPUB reader for Windows",
   "author": "xfish987",

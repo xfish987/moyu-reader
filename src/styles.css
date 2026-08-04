@@ -881,8 +881,15 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 }
 
 @media (max-width: 540px) {
+  .shelf-actions .shelf-book-command { width: 38px; min-width: 38px; padding: 0; flex: 0 0 38px; }
+  .shelf-book-command .command-label { display: none; }
   .share-body { grid-template-columns: 1fr; }
   .share-preview { width: min(240px, 100%); margin: 0 auto; }
+}
+
+@media (max-width: 460px) {
+  .shelf-view { padding: 32px 18px 44px; }
+  .category-books .book-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, shell } = require('electron')
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, screen, shell } = require('electron')
 const path = require('path')
 const fs = require('fs/promises')
 const { createHash } = require('crypto')
@@ -11,6 +11,8 @@ let mainWindow
 let bossHidden = false
 let windowPinned = false
 let pendingExternalFiles = []
+let windowBoundsTimer = null
+let closingWindow = false
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 const largeTextCache = new Map()
 const epubMetadataCache = new Map()
@@ -33,6 +35,7 @@ const STORE_KEYS = new Set([
   'reader:book-status',
   'reader:bookmarks',
   'reader:book-metadata',
+  'reader:window-bounds',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -347,10 +350,46 @@ function toggleBossKey() {
   bossHidden = !bossHidden
 }
 
-function createWindow() {
+function restoredWindowBounds(saved) {
+  if (!saved || typeof saved !== 'object') return { width: 1240, height: 820, maximized: false }
+  const candidate = {
+    x: Number.isFinite(saved.x) ? saved.x : 0,
+    y: Number.isFinite(saved.y) ? saved.y : 0,
+    width: Math.max(360, Number(saved.width) || 1240),
+    height: Math.max(260, Number(saved.height) || 820),
+  }
+  const workArea = screen.getDisplayMatching(candidate).workArea
+  const width = Math.min(candidate.width, workArea.width)
+  const height = Math.min(candidate.height, workArea.height)
+  return {
+    width,
+    height,
+    x: Math.max(workArea.x, Math.min(candidate.x, workArea.x + workArea.width - Math.min(80, width))),
+    y: Math.max(workArea.y, Math.min(candidate.y, workArea.y + workArea.height - Math.min(50, height))),
+    maximized: Boolean(saved.maximized),
+  }
+}
+
+async function saveWindowBounds() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const store = await loadStore()
+  store.data['reader:window-bounds'] = { ...mainWindow.getNormalBounds(), maximized: mainWindow.isMaximized() }
+  await queueStoreWrite()
+}
+
+function scheduleWindowBoundsSave() {
+  clearTimeout(windowBoundsTimer)
+  windowBoundsTimer = setTimeout(() => saveWindowBounds().catch(() => {}), 250)
+}
+
+async function createWindow() {
+  const store = await loadStore()
+  const restored = restoredWindowBounds(store.data['reader:window-bounds'])
   mainWindow = new BrowserWindow({
-    width: 1240,
-    height: 820,
+    width: restored.width,
+    height: restored.height,
+    x: restored.x,
+    y: restored.y,
     minWidth: 360,
     minHeight: 260,
     frame: false,
@@ -374,12 +413,29 @@ function createWindow() {
   }
 
   mainWindow.once('ready-to-show', () => {
+    if (restored.maximized) mainWindow.maximize()
     mainWindow.show()
     setTimeout(() => flushExternalFiles().catch(() => {}), 250)
   })
-  const emitMaximized = () => mainWindow?.webContents.send('window:maximized', mainWindow.isMaximized())
+  const emitMaximized = () => {
+    mainWindow?.webContents.send('window:maximized', mainWindow.isMaximized())
+    scheduleWindowBoundsSave()
+  }
   mainWindow.on('maximize', emitMaximized)
   mainWindow.on('unmaximize', emitMaximized)
+  mainWindow.on('resize', scheduleWindowBoundsSave)
+  mainWindow.on('move', scheduleWindowBoundsSave)
+  mainWindow.on('close', (event) => {
+    if (closingWindow) return
+    event.preventDefault()
+    closingWindow = true
+    clearTimeout(windowBoundsTimer)
+    saveWindowBounds().catch(() => {}).finally(() => mainWindow?.destroy())
+  })
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    closingWindow = false
+  })
 }
 
 function supportedBookPaths(values = []) {
@@ -720,9 +776,9 @@ if (!hasSingleInstanceLock) {
     bossHidden = false
     queueExternalFiles(argv)
   })
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     queueExternalFiles(process.argv.slice(1))
-    createWindow()
+    await createWindow()
     globalShortcut.register('F10', toggleBossKey)
   })
 }
@@ -735,5 +791,5 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  if (BrowserWindow.getAllWindows().length === 0) createWindow().catch(() => {})
 })

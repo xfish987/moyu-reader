@@ -184,8 +184,8 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
           <button className="icon-command" onClick={onImportData} title="导入阅读数据" aria-label="导入阅读数据"><FileInput size={16} /></button>
           <button className="icon-command" onClick={onExportData} title="导出阅读数据" aria-label="导出阅读数据"><DatabaseBackup size={16} /></button>
           {directory ? <button className="icon-command" onClick={onRefresh} disabled={loading} title="刷新书架"><RefreshCw size={17} className={loading ? 'spinning' : ''} /></button> : null}
-          <button className="secondary-command" onClick={onAddBooks}><Plus size={17} /> 添加书籍</button>
-          <button className="primary-command" onClick={onChooseDirectory}><FolderOpen size={17} /> {directory ? '更换目录' : '选择目录'}</button>
+          <button className="secondary-command shelf-book-command" onClick={onAddBooks} title="添加书籍" aria-label="添加书籍"><Plus size={17} /><span className="command-label">添加书籍</span></button>
+          <button className="primary-command shelf-book-command" onClick={onChooseDirectory} title={directory ? '更换目录' : '选择目录'} aria-label={directory ? '更换目录' : '选择目录'}><FolderOpen size={17} /><span className="command-label">{directory ? '更换目录' : '选择目录'}</span></button>
         </div>
       </div>
 
