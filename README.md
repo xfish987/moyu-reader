@@ -5,7 +5,7 @@
 ## 下载与使用
 
 1. 打开项目的 **Releases** 页面。
-2. 下载最新版本的 `墨读阅读器.exe`。
+2. 下载最新版本的 `MoyuReader-版本号.exe`。
 3. 双击运行，无需安装。
 4. 点击“添加书籍”选择 TXT / EPUB，或点击“选择目录”扫描整个书籍文件夹。
 
@@ -71,7 +71,7 @@ npm run build
 npm run dist
 ```
 
-构建结果位于 `release/墨读阅读器.exe`。
+构建结果位于 `release/MoyuReader-版本号.exe`。
 
 ## 项目结构
 

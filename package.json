@@ -49,11 +49,11 @@
       "target": [
         "portable"
       ],
-      "artifactName": "墨读阅读器.exe",
+      "artifactName": "MoyuReader-${version}.exe",
       "icon": "assets/icon.ico"
     },
     "portable": {
-      "artifactName": "墨读阅读器.exe"
+    "artifactName": "MoyuReader-${version}.exe"
     },
     "directories": {
       "output": "release"
