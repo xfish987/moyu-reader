@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, ChevronLeft, ChevronRight, List, Maximize, Minimize2, NotebookPen, Search, Settings2, Trash2 } from 'lucide-react'
+import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, ChevronLeft, ChevronRight, List, Maximize, Minimize2, NotebookPen, Search, Settings2, Trash2, X } from 'lucide-react'
 import EpubReader from './EpubReader'
 import LargeTextReader from './LargeTextReader'
 import ReaderSettings from './ReaderSettings'
 import TextReader from './TextReader'
+import EntityProfileModal from './EntityProfileModal'
+import EntityIdentityModal from './EntityIdentityModal'
+import EntityDetails from './EntityDetails'
+import EntityRelations from './EntityRelations'
 import { searchVariants, useChineseConversionReady } from '../chineseConversion'
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange }) {
+export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias }) {
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
@@ -21,6 +25,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [searchProgress, setSearchProgress] = useState(0)
   const [searchTruncated, setSearchTruncated] = useState(false)
   const [chromeZone, setChromeZone] = useState(null)
+  const [entitySelection, setEntitySelection] = useState(null)
+  const [profileQuery, setProfileQuery] = useState('')
+  const [profileType, setProfileType] = useState('全部')
+  const [selectedProfileId, setSelectedProfileId] = useState('')
+  const [identityProfile, setIdentityProfile] = useState(null)
   const chromeTimerRef = useRef(null)
 
   const updateProgress = useCallback((next) => {
@@ -130,6 +139,43 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const activeChapter = activeChapterIndex >= 0 ? chapters[activeChapterIndex] : null
   const footerVisible = scrubProgress !== null || chromeZone === 'bottom'
 
+  const openEntityLookup = (selection) => setEntitySelection({
+    ...selection,
+    readPosition: source.kind === 'text-large' ? (Number(selection.readPosition) || Number(progress.absolutePosition) || 0) : (Number(progress.percent) || 0),
+    readPercent: Number(progress.percent) || 0,
+  })
+
+  const loadEntityContext = async (names) => {
+    if (!entitySelection) return { excerpts: [], totalMatches: 0 }
+    const terms = Array.isArray(names) ? names : [names]
+    if (source.kind === 'text') return readerRef.current?.lookupEntity?.(terms, entitySelection) || { excerpts: [], totalMatches: 0 }
+    if (source.kind === 'epub') return readerRef.current?.lookupEntity?.(terms, entitySelection) || { excerpts: [], totalMatches: 0 }
+    const before = Number(entitySelection.readPosition) || 0
+    const responses = await Promise.all(terms.flatMap((name) => searchVariants(name, settings.scriptConversion)).filter((value, index, items) => items.indexOf(value) === index).map((name) => window.readerAPI.searchText(book.path, name)))
+    const matches = responses.flatMap((response) => response.results || []).filter((item) => item.matchOffset < Math.max(0, before - 32)).filter((item, index, items) => items.findIndex((candidate) => candidate.matchOffset === item.matchOffset) === index).sort((a, b) => a.matchOffset - b.matchOffset)
+    const excerpts = matches.map((item, index) => {
+      let chapter = '此前内容'
+      for (const candidate of chapters) {
+        if ((candidate.offset || 0) > item.matchOffset) break
+        chapter = candidate.label
+      }
+      return { order: index + 1, chapter, text: item.label }
+    })
+    if (entitySelection.currentExcerpt && terms.some((term) => entitySelection.currentExcerpt.includes(term))) excerpts.push({ order: excerpts.length + 1, chapter: entitySelection.chapterLabel || activeChapter?.label || '当前位置', text: entitySelection.currentExcerpt })
+    return { excerpts, totalMatches: excerpts.length, truncated: responses.some((response) => response.truncated) }
+  }
+  const profileTypes = ['全部', ...['人物', '物品', '地点', '组织', '能力', '事件', '未分类'].filter((type) => entityProfiles.some((item) => (item.type || '未分类') === type))]
+  const filteredProfiles = entityProfiles.filter((item) => (profileType === '全部' || (item.type || '未分类') === profileType) && (!profileQuery.trim() || `${item.name}\n${(item.aliases || []).join(' ')}\n${item.summary}\n${(item.relations || []).map((relation) => `${relation.targetName} ${relation.label}`).join(' ')}`.toLocaleLowerCase('zh-CN').includes(profileQuery.trim().toLocaleLowerCase('zh-CN'))))
+  const selectedProfile = entityProfiles.find((item) => item.id === selectedProfileId) || filteredProfiles[0]
+  const resolveProfile = (name) => entityProfiles.find((item) => [item.name, ...(item.aliases || [])].some((value) => value?.toLocaleLowerCase('zh-CN') === name?.toLocaleLowerCase('zh-CN')))
+  const inboundRelations = selectedProfile ? entityProfiles.flatMap((sourceProfile) => (sourceProfile.relations || []).filter((relation) => resolveProfile(relation.targetName)?.id === selectedProfile.id).map((relation) => ({ ...relation, targetName: sourceProfile.name, label: relation.relation === 'owned_by' ? '持有' : relation.relation === 'member_of' ? '成员' : relation.relation === 'located_in' ? '包含地点' : `反向·${relation.label || '相关'}` }))) : []
+  const relationGroup = (profile) => {
+    if (profileType === '全部') return profile.type || '未分类'
+    const desired = profileType === '人物' ? 'member_of' : profileType === '物品' ? 'owned_by' : profileType === '地点' ? 'located_in' : null
+    return (desired && (profile.relations || []).find((relation) => relation.relation === desired)?.targetName) || '未归属'
+  }
+  const groupedProfiles = filteredProfiles.reduce((groups, profile) => { const key = relationGroup(profile); (groups[key] ||= []).push(profile); return groups }, {})
+
   const commitSeek = (event) => {
     const value = Number(event.currentTarget.value)
     readerRef.current?.seek(value / 1000)
@@ -219,6 +265,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
             <button className="toolbar-button" onClick={addBookmark} title="添加书签"><BookmarkPlus size={17} /></button>
             <button className={`toolbar-button ${panel === 'bookmarks' ? 'active' : ''}`} onClick={() => setPanel(panel === 'bookmarks' ? null : 'bookmarks')} title="书签"><BookMarked size={17} /></button>
             <button className={`toolbar-button ${panel === 'notes' ? 'active' : ''}`} onClick={() => setPanel(panel === 'notes' ? null : 'notes')} title="摘录与笔记"><NotebookPen size={17} /></button>
+            <button className={`toolbar-button ${panel === 'profiles' ? 'active' : ''}`} onClick={() => setPanel(panel === 'profiles' ? null : 'profiles')} title="本书设定集"><BookOpenCheck size={17} /></button>
             <button className={`toolbar-button ${panel === 'search' ? 'active' : ''}`} onClick={() => setPanel(panel === 'search' ? null : 'search')} title="全书搜索"><Search size={17} /></button>
             <button className={`toolbar-button ${panel === 'settings' ? 'active' : ''}`} onClick={() => setPanel(panel === 'settings' ? null : 'settings')} title="阅读设置"><Settings2 size={18} /></button>
             <button className="toolbar-button" onClick={onToggleImmersive} title="沉浸阅读 (F11)"><Maximize size={17} /></button>
@@ -226,13 +273,13 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         </header>
       ) : null}
 
-      <section className="reading-stage" onClick={() => panel && setPanel(null)} onWheel={handlePageWheel}>
+      <section className="reading-stage" onClick={() => panel && panel !== 'profiles' && setPanel(null)} onWheel={handlePageWheel}>
         {source.kind === 'text' ? (
-          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} />
+          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} />
         ) : source.kind === 'text-large' ? (
-          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} />
+          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} />
         ) : (
-          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} />
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} />
         )}
 
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
@@ -327,6 +374,14 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
+      {panel === 'profiles' && !immersive ? (
+        <aside className="profile-collection-panel">
+          <header><div><BookOpenCheck size={17} /><strong>《{book.title}》设定集</strong><span>{entityProfiles.length} 条</span></div><button onClick={() => setPanel(null)} title="关闭设定集"><X size={16} /></button></header>
+          <label className="profile-collection-search"><Search size={14} /><input value={profileQuery} onChange={(event) => setProfileQuery(event.target.value)} placeholder="搜索人物、物品、地点或资料内容" /></label>
+          <nav className="profile-type-tabs" aria-label="资料类型">{profileTypes.map((type) => <button className={profileType === type ? 'active' : ''} key={type} onClick={() => { setProfileType(type); setSelectedProfileId('') }}>{type}<span>{type === '全部' ? entityProfiles.length : entityProfiles.filter((item) => (item.type || '未分类') === type).length}</span></button>)}</nav>
+          {filteredProfiles.length ? <div className="profile-collection-content"><nav>{Object.entries(groupedProfiles).map(([group, profiles]) => <section key={group}><h3>{group}</h3>{profiles.map((profile) => <button className={selectedProfile?.id === profile.id ? 'active' : ''} key={profile.id} onClick={() => setSelectedProfileId(profile.id)}><strong>{profile.name}</strong><span>{profile.aliases?.length ? `别名 ${profile.aliases.slice(0, 2).join('、')} · ` : ''}总结至 {Math.round((profile.readPercent || 0) * 100)}%</span></button>)}</section>)}</nav>{selectedProfile ? <article><header><div><strong>{selectedProfile.name}</strong><span>{selectedProfile.type || '未分类'} · 已读范围内找到 {selectedProfile.totalMatches} 处{selectedProfile.identityLocked ? ' · 人工关联已锁定' : ''}</span>{selectedProfile.aliases?.length ? <em>别名：{selectedProfile.aliases.join('、')}</em> : null}</div><button onClick={() => setIdentityProfile(selectedProfile)}>管理关联</button></header><div>{selectedProfile.summary}</div><EntityDetails details={selectedProfile.details} /><EntityRelations relations={selectedProfile.relations} inbound={inboundRelations} resolveProfile={resolveProfile} onOpen={(profile) => setSelectedProfileId(profile.id)} /><footer>{selectedProfile.providerName} / {selectedProfile.model} · 更新于 {new Date(selectedProfile.createdAt).toLocaleString('zh-CN')}</footer></article> : null}</div> : <div className="profiles-empty"><BookOpenCheck size={28} /><strong>{entityProfiles.length ? '没有匹配的资料' : '本书还没有资料卡'}</strong><span>{entityProfiles.length ? '换个关键词或类型试试' : '选中人物、物品或地点，右键选择“查看资料”'}</span></div>}
+        </aside>
+      ) : null}
       {panel === 'search' && !immersive ? (
         <aside className="search-panel">
           <form className="book-search" onSubmit={runSearch}>
@@ -345,6 +400,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
+      {entitySelection ? <EntityProfileModal selection={entitySelection} loadContext={loadEntityContext} cachedProfile={[...entityProfiles].reverse().find((item) => item.name === entitySelection.text || item.aliases?.includes(entitySelection.text))} entityProfiles={entityProfiles} onSave={onSaveEntityProfile} onClose={() => setEntitySelection(null)} /> : null}
+      {identityProfile ? <EntityIdentityModal profile={entityProfiles.find((item) => item.id === identityProfile.id) || identityProfile} profiles={entityProfiles} onSave={onUpdateEntityIdentity} onMerge={onMergeEntityProfiles} onSplit={onSplitEntityAlias} onClose={() => setIdentityProfile(null)} /> : null}
     </main>
   )
 }

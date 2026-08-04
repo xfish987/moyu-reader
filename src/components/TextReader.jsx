@@ -24,7 +24,7 @@ function highlightedParagraph(text, notes) {
   return parts
 }
 
-const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [] }, ref) {
+const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity }, ref) {
   const viewportRef = useRef(null)
   const shellRef = useRef(null)
   const contentRef = useRef(null)
@@ -227,55 +227,91 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     },
     getLocation: () => ({ page, paragraphIndex: Math.round((positionFractionRef.current || 0) * Math.max(0, paragraphs.length - 1)), textFraction: positionFractionRef.current || 0 }),
     goToBookmark: (bookmark) => Number.isFinite(bookmark?.paragraphIndex) ? jumpToParagraph(bookmark.paragraphIndex) : setPage(bookmark?.page || 0),
-  }), [onBoundaryNext, onBoundaryPrev, page, pageCount, paragraphs, paragraphSpans, jumpToParagraph])
+    lookupEntity: (names, target) => {
+      const terms = (Array.isArray(names) ? names : [names]).map((value) => String(value || '').trim()).filter(Boolean)
+      const cutoffParagraph = Number.isFinite(target?.paragraphIndex) ? target.paragraphIndex : paragraphs.length - 1
+      const excerpts = []
+      for (let paragraphIndex = 0; paragraphIndex <= cutoffParagraph; paragraphIndex += 1) {
+        const full = paragraphs[paragraphIndex] || ''
+        const value = paragraphIndex === cutoffParagraph && Number.isFinite(target?.endOffset) ? full.slice(0, target.endOffset) : full
+        for (const term of terms) {
+          let found = value.indexOf(term)
+          while (found >= 0 && excerpts.length < 5000) {
+            const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= paragraphIndex ? index : match, -1)
+            excerpts.push({ order: excerpts.length + 1, chapter: chapterIndex >= 0 ? chapters[chapterIndex].label : `段落 ${paragraphIndex + 1}`, text: value.slice(Math.max(0, found - 150), Math.min(value.length, found + term.length + 220)) })
+            found = value.indexOf(term, found + Math.max(1, term.length))
+          }
+        }
+      }
+      return { excerpts, totalMatches: excerpts.length, truncated: excerpts.length >= 5000 }
+    },
+  }), [chapters, onBoundaryNext, onBoundaryPrev, page, pageCount, paragraphs, paragraphSpans, jumpToParagraph])
+
+  const buildSelection = (selected) => {
+    if (!selected?.rangeCount) return null
+    const range = selected.getRangeAt(0)
+    const element = (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement)?.closest?.('[data-paragraph]')
+    const textElement = element?.querySelector?.('.paragraph-text')
+    if (!element || !textElement || !textElement.contains(range.startContainer) || !textElement.contains(range.endContainer)) return null
+    const rawText = range.toString()
+    const text = rawText.trim()
+    if (!text || text.length < 2) return null
+    const prefixRange = range.cloneRange()
+    prefixRange.selectNodeContents(textElement)
+    prefixRange.setEnd(range.startContainer, range.startOffset)
+    const leading = rawText.length - rawText.trimStart().length
+    const paragraphIndex = Number(element.dataset.paragraph)
+    const startOffset = prefixRange.toString().length + leading
+    const endOffset = startOffset + text.length
+    const currentParagraph = paragraphs[paragraphIndex] || textElement.textContent || ''
+    const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= paragraphIndex ? index : match, -1)
+    const chapterStart = chapterIndex >= 0 ? chapters[chapterIndex].index : 0
+    const rect = range.getBoundingClientRect()
+    const viewportRect = viewportRef.current.getBoundingClientRect()
+    const above = rect.top - viewportRect.top
+    return {
+      text: text.slice(0, 50000),
+      paragraphIndex,
+      startOffset,
+      endOffset,
+      currentParagraph,
+      originalParagraph: paragraphs[paragraphIndex] || currentParagraph,
+      chapterLabel: chapterIndex >= 0 ? chapters[chapterIndex].label : '',
+      currentExcerpt: currentParagraph.slice(Math.max(0, startOffset - 180), endOffset),
+      localTextFraction: Math.max(0, Math.min(1, ((paragraphSpans[paragraphIndex]?.start || 0) + startOffset) / Math.max(1, displayContent.length))),
+      left: Math.max(150, Math.min(viewportRect.width - 150, rect.left - viewportRect.left + rect.width / 2)),
+      below: above < 230,
+      top: above < 230 ? rect.bottom - viewportRect.top + 10 : Math.max(10, above - 12),
+      editing: false,
+    }
+  }
 
   const captureSelection = () => {
     const selected = window.getSelection()
-    const text = selected?.toString().trim()
-    if (!text || !selected.rangeCount || text.length < 2) {
+    const nextSelection = buildSelection(selected)
+    if (!nextSelection) {
       setSelection(null)
       setMarker(null)
       return
     }
     setMarker(null)
-    const range = selected.getRangeAt(0)
-    const element = (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement)?.closest?.('[data-paragraph]')
-    if (!element) return
-    const rect = range.getBoundingClientRect()
-    const viewportRect = viewportRef.current.getBoundingClientRect()
-    const above = rect.top - viewportRect.top
-    setSelection({
-      text: text.slice(0, 500),
-      paragraphIndex: Number(element.dataset.paragraph),
-      left: Math.max(150, Math.min(viewportRect.width - 150, rect.left - viewportRect.left + rect.width / 2)),
-      // 上方空间不足时改为在选区下方弹出，避免被工具栏遮挡
-      below: above < 230,
-      top: above < 230 ? rect.bottom - viewportRect.top + 10 : Math.max(10, above - 12),
-      editing: false,
-    })
+    setSelection(nextSelection)
   }
 
   const openSelectionMenu = async (event) => {
     const selected = window.getSelection()
-    if (!selected?.toString().trim() || !selected.rangeCount) return
+    const nextSelection = buildSelection(selected)
+    if (!nextSelection) return
     event.preventDefault()
-    const range = selected.getRangeAt(0)
-    const element = (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement)?.closest?.('[data-paragraph]')
-    if (!element) return
-    const rect = range.getBoundingClientRect()
-    const viewportRect = viewportRef.current.getBoundingClientRect()
-    const above = rect.top - viewportRect.top
-    const nextSelection = {
-      text: selected.toString().trim().slice(0, 500), paragraphIndex: Number(element.dataset.paragraph),
-      left: Math.max(150, Math.min(viewportRect.width - 150, rect.left - viewportRect.left + rect.width / 2)),
-      below: above < 230, top: above < 230 ? rect.bottom - viewportRect.top + 10 : Math.max(10, above - 12), editing: false,
-    }
     setSelection(nextSelection)
-    if (await window.readerAPI.openSelectionMenu() === 'note') setSelection({ ...nextSelection, editing: true })
+    const canLookupEntity = nextSelection.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(nextSelection.text)
+    const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity })
+    if (action === 'note') setSelection({ ...nextSelection, editing: true })
+    else if (action === 'lookup-entity') onLookupEntity?.(nextSelection)
   }
 
   const collectSelection = (comment, color) => {
-    onCollect?.({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: selection.text, paragraphIndex: selection.paragraphIndex, comment, color, createdAt: Date.now() })
+    onCollect?.({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: selection.text.slice(0, 500), paragraphIndex: selection.paragraphIndex, comment, color, createdAt: Date.now() })
     window.getSelection()?.removeAllRanges()
     setSelection(null)
   }
@@ -337,7 +373,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
                 onClick={(event) => openMarker(event, index)}
               ><MessageSquareQuote size={12} />{paragraphNotes.length > 1 ? <em>{paragraphNotes.length}</em> : null}</button>
             ) : null
-            const paragraphContent = highlightedParagraph(paragraph, paragraphNotes)
+            const paragraphContent = <span className="paragraph-text">{highlightedParagraph(paragraph, paragraphNotes)}</span>
             return isChapter
               ? <h2 key={index} data-paragraph={index}>{paragraphContent}{noteMarker}</h2>
               : <p key={index} data-paragraph={index}>{paragraphContent}{noteMarker}</p>

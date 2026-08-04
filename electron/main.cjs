@@ -1,7 +1,7 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, screen, shell } = require('electron')
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, net, safeStorage, screen, shell } = require('electron')
 const path = require('path')
 const fs = require('fs/promises')
-const { createHash } = require('crypto')
+const { createHash, randomUUID } = require('crypto')
 const chardet = require('chardet')
 const iconv = require('iconv-lite')
 const JSZip = require('jszip')
@@ -36,14 +36,167 @@ const STORE_KEYS = new Set([
   'reader:bookmarks',
   'reader:book-metadata',
   'reader:window-bounds',
+  'reader:entity-profiles',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
+let aiConfigCache = null
+let aiConfigWriteQueue = Promise.resolve()
+const AI_CONFIG_FILE_NAME = 'ai-settings.json'
 
 const storeDirectory = () => path.join(app.getPath('userData'), 'data')
 const storeFile = () => path.join(storeDirectory(), STORE_FILE_NAME)
+const aiConfigFile = () => path.join(storeDirectory(), AI_CONFIG_FILE_NAME)
 const backupDirectory = () => path.join(storeDirectory(), 'backups')
 const epubCacheDirectory = () => path.join(app.getPath('userData'), 'cache', 'epub')
+
+function defaultAiConfig() {
+  return {
+    version: 1,
+    activeProviderId: '',
+    providers: [],
+  }
+}
+
+function sanitizeAiErrorText(value, secret = '') {
+  let text = String(value || '').slice(0, 1200)
+  if (secret) text = text.split(secret).join('[已隐藏]')
+  return text
+    .replace(/Bearer\s+[^\s"']+/gi, 'Bearer [已隐藏]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[已隐藏]')
+}
+
+function validateProviderUrl(value) {
+  let url
+  try { url = new URL(String(value || '').trim()) } catch { throw new Error('供应商 URL 格式无效') }
+  const loopback = ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) throw new Error('供应商 URL 必须使用 HTTPS；仅本机地址允许 HTTP')
+  if (url.username || url.password) throw new Error('供应商 URL 不能包含用户名或密码')
+  url.search = ''
+  url.hash = ''
+  url.pathname = url.pathname.replace(/\/(?:chat\/completions|models)\/?$/i, '').replace(/\/+$/, '') || '/'
+  return url.toString().replace(/\/$/, '')
+}
+
+function providerEndpoint(baseUrl, endpoint) {
+  return `${baseUrl.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`
+}
+
+function publicAiConfig(config) {
+  return {
+    version: config.version || 1,
+    activeProviderId: config.activeProviderId || '',
+    providers: (config.providers || []).map(({ encryptedKey, ...provider }) => ({ ...provider, hasKey: Boolean(encryptedKey) })),
+    encryptionAvailable: safeStorage.isEncryptionAvailable(),
+  }
+}
+
+async function loadAiConfig() {
+  if (aiConfigCache) return aiConfigCache
+  try {
+    const parsed = JSON.parse(await fs.readFile(aiConfigFile(), 'utf8'))
+    aiConfigCache = { ...defaultAiConfig(), ...(parsed && typeof parsed === 'object' ? parsed : {}) }
+  } catch {
+    aiConfigCache = defaultAiConfig()
+  }
+  return aiConfigCache
+}
+
+async function writeAiConfig(snapshot) {
+  await fs.mkdir(storeDirectory(), { recursive: true })
+  const temporary = `${aiConfigFile()}.${process.pid}.tmp`
+  await fs.writeFile(temporary, `${JSON.stringify(snapshot, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  try { await fs.rename(temporary, aiConfigFile()) }
+  catch {
+    await fs.copyFile(temporary, aiConfigFile())
+    await fs.unlink(temporary).catch(() => {})
+  }
+}
+
+function queueAiConfigWrite() {
+  const snapshot = JSON.parse(JSON.stringify(aiConfigCache))
+  aiConfigWriteQueue = aiConfigWriteQueue.catch(() => {}).then(() => writeAiConfig(snapshot))
+  return aiConfigWriteQueue
+}
+
+function encryptApiKey(value) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('当前系统无法使用安全存储，未保存 API Key')
+  const key = String(value || '').trim()
+  if (!key || key.length > 4096) throw new Error('API Key 不能为空或过长')
+  return safeStorage.encryptString(key).toString('base64')
+}
+
+function decryptApiKey(provider) {
+  if (!provider?.encryptedKey) throw new Error('该供应商尚未保存 API Key')
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储当前不可用，无法读取 API Key')
+  return safeStorage.decryptString(Buffer.from(provider.encryptedKey, 'base64'))
+}
+
+async function readResponseLimited(response, limit = 8 * 1024 * 1024) {
+  if (!response.body?.getReader) return (await response.text()).slice(0, limit)
+  const reader = response.body.getReader()
+  const chunks = []
+  let size = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > limit) {
+      await reader.cancel()
+      throw Object.assign(new Error('供应商响应过大，已停止读取'), { code: 'RESPONSE_TOO_LARGE' })
+    }
+    chunks.push(value)
+  }
+  const merged = new Uint8Array(size)
+  let offset = 0
+  chunks.forEach((chunk) => { merged.set(chunk, offset); offset += chunk.byteLength })
+  return new TextDecoder().decode(merged)
+}
+
+function parseProviderError(response, body, stage, secret) {
+  let parsed
+  try { parsed = JSON.parse(body) } catch {}
+  const remote = parsed?.error || parsed
+  const message = sanitizeAiErrorText(remote?.message || body || response.statusText || '供应商请求失败', secret)
+  return {
+    stage,
+    status: response.status,
+    code: sanitizeAiErrorText(remote?.code || remote?.type || `HTTP_${response.status}`),
+    type: sanitizeAiErrorText(remote?.type || ''),
+    message,
+  }
+}
+
+async function requestProvider(provider, endpoint, options, stage, signal) {
+  const secret = decryptApiKey(provider)
+  let response
+  try {
+    response = await net.fetch(providerEndpoint(provider.baseUrl, endpoint), {
+      ...options,
+      headers: { Accept: 'application/json', Authorization: `Bearer ${secret}`, ...(options.headers || {}) },
+      redirect: 'manual',
+      signal,
+    })
+  } catch (error) {
+    if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { aiError: { stage, status: 0, code: 'REQUEST_ABORTED', message: '请求已取消' } })
+    throw Object.assign(new Error('无法连接 AI 供应商'), { aiError: { stage, status: 0, code: error?.code || 'NETWORK_ERROR', message: sanitizeAiErrorText(error?.message || '网络连接失败', secret) } })
+  }
+  const body = await readResponseLimited(response)
+  if (response.status >= 300 && response.status < 400) {
+    throw Object.assign(new Error('供应商返回了重定向'), { aiError: { stage, status: response.status, code: 'REDIRECT_BLOCKED', message: '为避免 API Key 泄漏，已拒绝供应商重定向' } })
+  }
+  if (!response.ok) throw Object.assign(new Error('供应商请求失败'), { aiError: parseProviderError(response, body, stage, secret) })
+  try { return JSON.parse(body) } catch {
+    throw Object.assign(new Error('供应商响应不是有效 JSON'), { aiError: { stage, status: response.status, code: 'INVALID_JSON', message: '供应商响应不是有效 JSON' } })
+  }
+}
+
+function responseText(message) {
+  if (typeof message?.content === 'string') return message.content
+  if (Array.isArray(message?.content)) return message.content.map((part) => typeof part === 'string' ? part : part?.text || '').join('')
+  return ''
+}
+
 
 async function readEpubDiskCache(fingerprint) {
   try {
@@ -741,14 +894,173 @@ ipcMain.handle('notes:export-markdown', async (_event, { title, notes }) => {
   return result.filePath
 })
 
-ipcMain.handle('reader:selection-menu', (event) => new Promise((resolve) => {
+ipcMain.handle('ai:get-settings', async () => publicAiConfig(await loadAiConfig()))
+
+ipcMain.handle('ai:save-provider', async (_event, input) => {
+  const config = await loadAiConfig()
+  const id = typeof input?.id === 'string' && input.id ? input.id.slice(0, 80) : randomUUID()
+  const existing = config.providers.find((item) => item.id === id)
+  const name = String(input?.name || '').trim().slice(0, 80)
+  if (!name) throw new Error('请填写供应商名称')
+  const baseUrl = validateProviderUrl(input?.baseUrl)
+  const encryptedKey = String(input?.apiKey || '').trim() ? encryptApiKey(input.apiKey) : existing?.encryptedKey
+  if (!encryptedKey) throw new Error('请填写 API Key')
+  const provider = {
+    ...existing,
+    id,
+    name,
+    baseUrl,
+    encryptedKey,
+    model: String(input?.model ?? existing?.model ?? '').trim().slice(0, 160),
+    maxTokens: Math.max(64, Math.min(128000, Number(input?.maxTokens ?? existing?.maxTokens) || 8000)),
+    tokenParameter: ['auto', 'max_completion_tokens', 'max_tokens'].includes(input?.tokenParameter) ? input.tokenParameter : (existing?.tokenParameter || 'auto'),
+    models: Array.isArray(existing?.models) ? existing.models : [],
+    updatedAt: Date.now(),
+  }
+  config.providers = [...config.providers.filter((item) => item.id !== id), provider]
+  if (!config.activeProviderId) config.activeProviderId = id
+  await queueAiConfigWrite()
+  return publicAiConfig(config)
+})
+
+ipcMain.handle('ai:delete-provider', async (_event, providerId) => {
+  const config = await loadAiConfig()
+  config.providers = config.providers.filter((item) => item.id !== providerId)
+  if (config.activeProviderId === providerId) config.activeProviderId = config.providers[0]?.id || ''
+  await queueAiConfigWrite()
+  return publicAiConfig(config)
+})
+
+ipcMain.handle('ai:refresh-provider', async (event, providerId) => {
+  const config = await loadAiConfig()
+  const provider = config.providers.find((item) => item.id === providerId)
+  if (!provider) return { ok: false, error: { stage: 'models', status: 0, code: 'PROVIDER_NOT_FOUND', message: '没有找到该 AI 供应商' } }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+  try {
+    const response = await requestProvider(provider, 'models', { method: 'GET' }, 'models', controller.signal)
+    const models = (Array.isArray(response?.data) ? response.data : [])
+      .map((item) => typeof item === 'string' ? item : item?.id)
+      .filter((value) => typeof value === 'string' && value.trim())
+      .map((value) => value.trim().slice(0, 160))
+      .filter((value, index, items) => items.indexOf(value) === index)
+      .sort((a, b) => a.localeCompare(b))
+    provider.models = models
+    provider.lastCheckedAt = Date.now()
+    provider.lastStatus = 'ok'
+    if (!provider.model && models.length) provider.model = models[0]
+    await queueAiConfigWrite()
+    return { ok: true, models, settings: publicAiConfig(config) }
+  } catch (error) {
+    const aiError = error.aiError || { stage: 'models', status: 0, code: error.code || 'UNKNOWN_ERROR', message: sanitizeAiErrorText(error.message) }
+    provider.lastCheckedAt = Date.now()
+    provider.lastStatus = 'error'
+    provider.lastError = aiError
+    await queueAiConfigWrite()
+    return { ok: false, error: aiError, settings: publicAiConfig(config) }
+  } finally { clearTimeout(timeout) }
+})
+
+ipcMain.handle('ai:save-preferences', async (_event, input) => {
+  const config = await loadAiConfig()
+  if (typeof input?.activeProviderId === 'string' && config.providers.some((item) => item.id === input.activeProviderId)) config.activeProviderId = input.activeProviderId
+  const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId))
+  if (provider) {
+    if (typeof input?.model === 'string') provider.model = input.model.trim().slice(0, 160)
+    if (input?.maxTokens !== undefined) provider.maxTokens = Math.max(64, Math.min(128000, Number(input.maxTokens) || 8000))
+    if (['auto', 'max_completion_tokens', 'max_tokens'].includes(input?.tokenParameter)) provider.tokenParameter = input.tokenParameter
+  }
+  await queueAiConfigWrite()
+  return publicAiConfig(config)
+})
+
+ipcMain.handle('ai:summarize-entity', async (_event, input) => {
+  const config = await loadAiConfig()
+  const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId))
+  if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
+  const model = String(input?.model || provider.model || '').trim().slice(0, 160)
+  if (!model) return { ok: false, error: { stage: 'setup', status: 0, code: 'MODEL_REQUIRED', message: '请选择或填写模型' } }
+  const name = String(input?.name || '').trim().slice(0, 80)
+  const excerpts = (Array.isArray(input?.excerpts) ? input.excerpts : []).slice(0, 160).map((item, index) => ({
+    order: Number(item?.order) || index + 1,
+    chapter: String(item?.chapter || '').slice(0, 120),
+    text: String(item?.text || '').replace(/\s+/g, ' ').trim().slice(0, 900),
+  })).filter((item) => item.text)
+  const knownEntities = (Array.isArray(input?.knownEntities) ? input.knownEntities : []).slice(0, 120).map((item) => ({
+    name: String(item?.name || '').slice(0, 80),
+    aliases: (Array.isArray(item?.aliases) ? item.aliases : []).slice(0, 30).map((value) => String(value).slice(0, 80)),
+    distinctFrom: (Array.isArray(item?.distinctFrom) ? item.distinctFrom : []).slice(0, 30).map((value) => String(value).slice(0, 80)),
+    identityLocked: Boolean(item?.identityLocked),
+  })).filter((item) => item.name)
+  if (!name || !excerpts.length) return { ok: false, error: { stage: 'search', status: 0, code: 'NO_PRIOR_EVIDENCE', message: '在当前阅读位置之前没有找到可用于总结的相关片段' } }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 90000)
+  try {
+    let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
+    const messages = [
+          { role: 'system', content: '你是一个严格防剧透的阅读回顾助手。仅依据用户提供的已读片段工作，禁止外部知识、后文知识和无证据推测。识别所选名称属于人物、物品、地点、组织、能力或事件。别名只有在片段存在明确同一性证据时才能关联；名字相似或同姓不是证据。用户人工确认的同一/不同规则拥有最高优先级，绝不能推翻。资料卡要让久未阅读的人立即想起对象：人物必须详细说明与主角的关系、何时如何相识、与其他人的关系、身份和所做之事；若尚未与主角相识，明确写出并交代其当前关系网。物品必须说明归属、若属于主角则何时如何获得、用途与能力。地点必须说明位置、性质、内部有什么、相关人物势力和已发生事件。任一项在已读片段中无证据时，必须写“截至当前阅读进度尚未交代”，不得补全。同时提取有明确证据的关联：地点位于国家/城市、人物隶属势力、物品归属某人等。关联目标使用书中明确名称，每条只表达一个事实。只输出合法 JSON，不要 Markdown 代码围栏，结构为：{"type":"人物|物品|地点|组织|能力|事件|未分类","canonicalName":"主名称","aliases":["已确认别名"],"summary":"用一段话说明这是谁或什么，以及为何重要","details":{"protagonistRelation":"人物与主角关系","firstEncounter":"人物与主角初识时间和经过","relationships":"人物关系网","identity":"人物身份与行动","owner":"物品归属","acquisition":"物品获得时间与经过","purpose":"物品用途能力","location":"地点位置与性质","features":"地点内容与特点","relatedPeople":"地点相关人物势力","relatedEvents":"地点已发生事件"},"relations":[{"relation":"located_in|owned_by|member_of|contains|owns|has_member|related_to|learned_from","targetName":"另一对象的名称","label":"适合读者的简短关系词","note":"已读内的关系说明"}],"evidence":[{"chapter":"章节标签","text":"简短依据"}],"identityConfidence":"high|medium|low"}。details 只保留符合类型的字段。' },
+          { role: 'user', content: `要回顾的名称：${name}\n\n本书已有身份规则（identityLocked=true 为用户人工确认，distinctFrom 表示明确不是同一对象）：\n${JSON.stringify(knownEntities)}\n\n已读范围内共找到 ${Number(input?.totalMatches) || excerpts.length} 处，本次提供 ${excerpts.length} 处：\n\n${excerpts.map((item) => `[${item.chapter || `片段 ${item.order}`}] ${item.text}`).join('\n\n')}` },
+        ]
+    const execute = (parameter) => requestProvider(provider, 'chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, [parameter]: Math.max(256, Math.min(8000, Number(input?.maxTokens ?? provider.maxTokens) || 2000)), stream: false, messages }),
+    }, 'summary', controller.signal)
+    let response
+    try { response = await execute(tokenParameter) }
+    catch (error) {
+      const detail = `${error.aiError?.code || ''} ${error.aiError?.message || ''}`
+      const canFallback = provider.tokenParameter === 'auto' && error.aiError?.status === 400 && /max[_ -]?(completion[_ -]?)?tokens|unknown parameter|unsupported/i.test(detail)
+      if (!canFallback) throw error
+      tokenParameter = tokenParameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
+      response = await execute(tokenParameter)
+    }
+    const choice = response?.choices?.[0]
+    const summary = responseText(choice?.message).trim()
+    const finishReason = choice?.finish_reason ?? null
+    if (!summary) {
+      const refusal = choice?.message?.refusal
+      return { ok: false, error: { stage: 'summary', status: 200, code: finishReason === 'content_filter' || refusal ? 'CONTENT_FILTERED' : 'EMPTY_RESPONSE', message: sanitizeAiErrorText(refusal || '供应商没有返回资料总结'), finishReason } }
+    }
+    if (finishReason === 'length') return { ok: false, partial: summary, error: { stage: 'summary', status: 200, code: 'OUTPUT_TRUNCATED', message: '资料总结达到最大输出长度，未保存不完整卡片；请提高输出长度或更换模型后重试', finishReason } }
+    let profile
+    try {
+      const parsed = JSON.parse(summary.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))
+      profile = {
+        type: String(parsed?.type || '未分类').slice(0, 20),
+        canonicalName: String(parsed?.canonicalName || name).trim().slice(0, 80) || name,
+        aliases: (Array.isArray(parsed?.aliases) ? parsed.aliases : []).map((value) => String(value).trim().slice(0, 80)).filter(Boolean).slice(0, 30),
+        summary: String(parsed?.summary || '').trim().slice(0, 30000),
+        details: Object.fromEntries(Object.entries(parsed?.details && typeof parsed.details === 'object' ? parsed.details : {}).slice(0, 12).map(([key, value]) => [String(key).slice(0, 40), String(value || '').trim().slice(0, 4000)]).filter(([, value]) => value)),
+        relations: (Array.isArray(parsed?.relations) ? parsed.relations : []).slice(0, 40).map((item) => ({ relation: String(item?.relation || 'related_to').slice(0, 40), targetName: String(item?.targetName || '').trim().slice(0, 80), label: String(item?.label || '').trim().slice(0, 40), note: String(item?.note || '').trim().slice(0, 500) })).filter((item) => item.targetName),
+        evidence: (Array.isArray(parsed?.evidence) ? parsed.evidence : []).slice(0, 8).map((item) => ({ chapter: String(item?.chapter || '').slice(0, 120), text: String(item?.text || '').slice(0, 500) })),
+        identityConfidence: ['high', 'medium', 'low'].includes(parsed?.identityConfidence) ? parsed.identityConfidence : 'low',
+      }
+      if (!profile.summary) profile.summary = summary
+    } catch {
+      profile = { type: '未分类', canonicalName: name, aliases: [], summary, evidence: [], identityConfidence: 'low' }
+    }
+    if (!profile.aliases.includes(name) && profile.canonicalName !== name) profile.aliases.unshift(name)
+    return { ok: true, profile, summary: profile.summary, finishReason, usage: response?.usage || null, providerId: provider.id, providerName: provider.name, model }
+  } catch (error) {
+    return { ok: false, error: error.aiError || { stage: 'summary', status: 0, code: error.code || 'UNKNOWN_ERROR', message: sanitizeAiErrorText(error.message) } }
+  } finally { clearTimeout(timeout) }
+})
+
+ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((resolve) => {
   let settled = false
   const finish = (value) => { if (!settled) { settled = true; resolve(value) } }
-  const menu = Menu.buildFromTemplate([
-    { label: '复制', role: 'copy', click: () => finish('copy') },
-    { type: 'separator' },
-    { label: '添加笔记 / 评论', click: () => finish('note') },
-  ])
+  const template = []
+  if (options.hasSelection !== false) {
+    template.push(
+      { label: '复制', role: 'copy', click: () => finish('copy') },
+      { type: 'separator' },
+      { label: '添加笔记 / 评论', click: () => finish('note') },
+    )
+    if (options.canLookupEntity) template.push({ label: '查看资料（仅检索已读内容）', click: () => finish('lookup-entity') })
+  }
+  if (!template.length) return finish('cancel')
+  const menu = Menu.buildFromTemplate(template)
   menu.on('menu-will-close', () => setTimeout(() => finish('cancel'), 0))
   menu.popup({ window: BrowserWindow.fromWebContents(event.sender) })
 }))

@@ -109,7 +109,7 @@ function getPageDirection(document) {
   }
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [] }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -252,12 +252,21 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         const hostRect = hostRef.current.getBoundingClientRect()
         const rect = range.getBoundingClientRect()
         const above = frameRect.top - hostRect.top + rect.top
+        let chapterBefore = ''
+        try {
+          const prefixRange = contents.document.createRange()
+          prefixRange.selectNodeContents(contents.document.body)
+          prefixRange.setEnd(range.startContainer, range.startOffset)
+          chapterBefore = prefixRange.toString().replace(/\s+/g, ' ').trim().slice(-120000)
+        } catch {}
         selectedContentsRef.current = contents
         setNotePopup(null)
         const payload = {
           text: text.slice(0, 500),
           cfi: cfiRange,
           href: rendition.currentLocation()?.start?.href || '',
+          spineIndex: Number(rendition.currentLocation()?.start?.index) || 0,
+          chapterBefore,
           left: Math.max(150, Math.min(hostRect.width - 150, frameRect.left - hostRect.left + rect.left + rect.width / 2)),
           below: above < 230,
           top: above < 230 ? frameRect.top - hostRect.top + rect.bottom + 10 : Math.max(10, above - 12),
@@ -282,7 +291,10 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
           const payload = selectionPayloadRef.current
           if (!selectedText || !payload) return
           event.preventDefault()
-          if (await window.readerAPI.openSelectionMenu() === 'note') setSelPopup({ ...payload, editing: true })
+          const canLookupEntity = payload.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(payload.text)
+          const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity })
+          if (action === 'note') setSelPopup({ ...payload, editing: true })
+          else if (action === 'lookup-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi })
         })
       }
       fitFullPageBackground(view.document)
@@ -551,6 +563,36 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
       return { results, truncated }
+    },
+    lookupEntity: async (names, selection) => {
+      const book = bookRef.current
+      const terms = (Array.isArray(names) ? names : [names]).map((value) => String(value || '').trim()).filter(Boolean)
+      if (!book || !terms.length) return { excerpts: [], totalMatches: 0 }
+      await book.ready
+      const excerpts = []
+      const sections = book.spine?.spineItems || []
+      const currentIndex = Math.max(0, Number(selection?.spineIndex) || 0)
+      const addMatches = (text, chapter) => {
+        for (const name of terms) {
+          let position = text.indexOf(name)
+          while (position >= 0 && excerpts.length < 5000) {
+            excerpts.push({ order: excerpts.length + 1, chapter, text: text.slice(Math.max(0, position - 150), Math.min(text.length, position + name.length + 220)).replace(/\s+/g, ' ').trim() })
+            position = text.indexOf(name, position + Math.max(1, name.length))
+          }
+        }
+      }
+      for (let index = 0; index < currentIndex && excerpts.length < 5000; index += 1) {
+        const section = sections[index]
+        try {
+          await section.load(book.load.bind(book))
+          const sectionPath = splitHref(section.href).hrefPath
+          const chapter = [...tocRef.current].reverse().find((item) => splitHref(item.href).hrefPath === sectionPath)?.label || `第 ${index + 1} 节`
+          addMatches(section.document?.body?.textContent || '', chapter)
+        } catch {} finally { section.unload() }
+      }
+      const currentChapter = [...tocRef.current].reverse().find((item) => splitHref(item.href).hrefPath === splitHref(selection?.href).hrefPath)?.label || `第 ${currentIndex + 1} 节`
+      addMatches(`${selection?.chapterBefore || ''} ${selection?.text || ''}`, currentChapter)
+      return { excerpts, totalMatches: excerpts.length, truncated: excerpts.length >= 5000 }
     },
     seek: async (ratio) => {
       pagingRef.current = false

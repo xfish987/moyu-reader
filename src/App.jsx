@@ -3,6 +3,7 @@ import Bookshelf from './components/Bookshelf'
 import ReaderView from './components/ReaderView'
 import WindowBar from './components/WindowBar'
 import { useStoredState } from './hooks'
+import { mergeEntityProfiles as mergeProfiles, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -32,6 +33,7 @@ export default function App() {
   const [statusMap, setStatusMap] = useStoredState('reader:book-status', {})
   const [bookmarksMap, setBookmarksMap] = useStoredState('reader:bookmarks', {})
   const [bookMetadata, setBookMetadata] = useStoredState('reader:book-metadata', {})
+  const [entityProfilesMap, setEntityProfilesMap] = useStoredState('reader:entity-profiles', {})
   const [directoryBooks, setDirectoryBooks] = useState([])
   const [activeBook, setActiveBook] = useState(null)
   const [source, setSource] = useState(null)
@@ -142,7 +144,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata].forEach(migrateMap)
+    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap].forEach(migrateMap)
     const currentBook = books.find((book) => (book.legacyId || book.path) === lastBookId)
     if (currentBook && currentBook.id !== lastBookId) setLastBookId(currentBook.id)
     setBookMetadata((current) => {
@@ -154,7 +156,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCoversMap, setLastBookId, setNotesMap, setProgressMap, setStatusMap, setTagsMap])
+  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCoversMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setStatusMap, setTagsMap])
 
   const removeBook = (book) => {
     setManualBooks((current) => current.filter((item) => item.id !== book.id && item.path !== book.path))
@@ -297,6 +299,32 @@ export default function App() {
     setStatusMap((current) => current[activeBook.id] ? current : { ...current, [activeBook.id]: 'reading' })
   }, [activeBook, setProgressMap, setStatusMap])
 
+  const saveEntityProfile = useCallback((profile) => {
+    if (!activeBook || !profile) return
+    setEntityProfilesMap((current) => {
+      return { ...current, [activeBook.id]: upsertEntityProfile(current[activeBook.id] || [], profile) }
+    })
+  }, [activeBook, setEntityProfilesMap])
+
+  const updateEntityIdentity = useCallback((profileId, identity) => {
+    if (!activeBook) return
+    setEntityProfilesMap((current) => ({ ...current, [activeBook.id]: setEntityIdentity(current[activeBook.id] || [], profileId, identity) }))
+  }, [activeBook, setEntityProfilesMap])
+
+  const mergeEntityProfiles = useCallback((targetId, sourceId) => {
+    if (!activeBook || targetId === sourceId) return
+    setEntityProfilesMap((current) => {
+      return { ...current, [activeBook.id]: mergeProfiles(current[activeBook.id] || [], targetId, sourceId) }
+    })
+  }, [activeBook, setEntityProfilesMap])
+
+  const splitEntityAlias = useCallback((profileId, alias) => {
+    if (!activeBook || !alias) return
+    setEntityProfilesMap((current) => {
+      return { ...current, [activeBook.id]: splitAlias(current[activeBook.id] || [], profileId, alias) }
+    })
+  }, [activeBook, setEntityProfilesMap])
+
   return (
     <div className={`app-shell ${immersive ? 'app-immersive' : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
@@ -322,6 +350,11 @@ export default function App() {
           onDeleteNote={(noteId) => setNotesMap((current) => ({ ...current, [activeBook.id]: (current[activeBook.id] || []).filter((note) => note.id !== noteId) }))}
           initialNote={pendingNote}
           onEncodingChange={changeEncoding}
+          entityProfiles={entityProfilesMap[activeBook.id] || []}
+          onSaveEntityProfile={saveEntityProfile}
+          onUpdateEntityIdentity={updateEntityIdentity}
+          onMergeEntityProfiles={mergeEntityProfiles}
+          onSplitEntityAlias={splitEntityAlias}
         />
       ) : (
         <Bookshelf

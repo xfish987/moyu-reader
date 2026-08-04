@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { BookOpenText, Check, DatabaseBackup, FileInput, FolderOpen, ImagePlus, Library, ListChecks, MapPin, NotebookPen, Plus, RefreshCw, Search, Tags, Trash2, X } from 'lucide-react'
+import { BookOpenText, Check, DatabaseBackup, FileInput, FolderOpen, ImagePlus, Library, ListChecks, MapPin, NotebookPen, Plus, RefreshCw, Search, ServerCog, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
 import CoverEditor from './CoverEditor'
 import NotesLibrary from './NotesLibrary'
+import AISettingsModal from './AISettingsModal'
 
 const COVER_COLORS = ['#315c57', '#935746', '#354d6b', '#786844', '#624c63', '#41616d']
 
@@ -128,6 +129,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const [statusFilter, setStatusFilter] = useState('all')
   const [selecting, setSelecting] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
   const lastBook = books.find((book) => book.id === lastBookId)
 
   const counts = books.reduce((result, book) => {
@@ -181,6 +183,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
           <p>{directory || '选择一个包含 TXT 或 EPUB 的文件夹，也可以单独添加书籍'}</p>
         </div>
         <div className="shelf-actions">
+          <button className="icon-command" onClick={() => setAiSettingsOpen(true)} title="AI 设置" aria-label="AI 设置"><ServerCog size={16} /></button>
           <button className="icon-command" onClick={onImportData} title="导入阅读数据" aria-label="导入阅读数据"><FileInput size={16} /></button>
           <button className="icon-command" onClick={onExportData} title="导出阅读数据" aria-label="导出阅读数据"><DatabaseBackup size={16} /></button>
           {directory ? <button className="icon-command" onClick={onRefresh} disabled={loading} title="刷新书架"><RefreshCw size={17} className={loading ? 'spinning' : ''} /></button> : null}
@@ -188,6 +191,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
           <button className="primary-command shelf-book-command" onClick={onChooseDirectory} title={directory ? '更换目录' : '选择目录'} aria-label={directory ? '更换目录' : '选择目录'}><FolderOpen size={17} /><span className="command-label">{directory ? '更换目录' : '选择目录'}</span></button>
         </div>
       </div>
+      <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
 
       <nav className="library-tabs" aria-label="书架页面">
         <button className={view === 'shelf' ? 'active' : ''} onClick={() => setView('shelf')}><Library size={15} /> 书架</button>
