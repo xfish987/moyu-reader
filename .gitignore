@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+output/
+NVIDIA Corporation/
+*.exe
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+Start-CodexWithClash.ps1
+capacitor.config.json
