@@ -90,7 +90,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
 
   useEffect(() => {
     const unsubscribe = window.readerAPI.onAiSummaryProgress?.((payload) => {
-      if (payload?.phase === 'first-chunk') setStreamReceived(true)
+      if (payload?.phase === 'first-chunk' || payload?.phase === 'stream-started') setStreamReceived(true)
     })
     return unsubscribe
   }, [])
@@ -115,7 +115,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
         <div className="entity-profile-body">
           <div className="spoiler-safe-note"><ShieldCheck size={16} /><span><strong>防剧透检索</strong><small>没有读取当前选区之后的章节，也没有使用外部资料。</small></span></div>
           {['searching', 'summarizing'].includes(status) ? (
-            <div className="entity-loading"><RefreshCw className="spin" size={22} /><strong>{status === 'searching' ? '正在检索此前出现的片段' : streamReceived ? '已收到模型输出，正在整理资料卡' : '正在连接供应商'}</strong><span>{contextInfo ? `已选 ${contextInfo.sentCount} 条代表性依据（原命中 ${contextInfo.totalMatches} 条）` : '正在筛选首次、最近和章节均匀分布的依据'}</span><small>已用 {elapsedSeconds} 秒 · 30 秒内无结果会明确报错</small></div>
+            <div className="entity-loading"><RefreshCw className="spin" size={22} /><strong>{status === 'searching' ? '正在检索此前出现的片段' : streamReceived ? '已收到模型输出，正在整理资料卡' : '正在连接供应商'}</strong><span>{contextInfo ? `已选 ${contextInfo.sentCount} 条代表性依据（原命中 ${contextInfo.totalMatches} 条）` : '正在筛选首次、最近和章节均匀分布的依据'}</span><small>已用 {elapsedSeconds} 秒 · 30 秒仅限制首字节，开始输出后会持续等待完成</small></div>
           ) : profile ? (
             <>
               <div className="entity-profile-title"><span>{profile.type || '未分类'}</span><strong>{profile.name}</strong>{profile.aliases?.length ? <small>别名：{profile.aliases.join('、')}</small> : null}</div>

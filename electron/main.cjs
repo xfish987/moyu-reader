@@ -217,7 +217,7 @@ async function requestProvider(provider, endpoint, options, stage, signal) {
   }
 }
 
-async function requestProviderStreaming(provider, endpoint, options, stage, signal, onText) {
+async function requestProviderStreaming(provider, endpoint, options, stage, signal, onText, onStart) {
   const secret = decryptApiKey(provider)
   let response
   try {
@@ -242,6 +242,7 @@ async function requestProviderStreaming(provider, endpoint, options, stage, sign
   while (true) {
     const { value, done } = await reader.read()
     if (done) break
+    onStart?.()
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split(/\r?\n/)
     buffer = lines.pop() || ''
@@ -1072,7 +1073,7 @@ ipcMain.handle('ai:summarize-entity', async (event, input) => {
   if (!compactExcerpts.length) return { ok: false, error: { stage: 'summary', status: 0, code: 'SUMMARY_CONTEXT_TOO_LARGE', message: '已读依据过大，请缩小检索范围后重试' } }
   const controller = new AbortController()
   let timedOut = false
-  const timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
+  let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
   const requestedMaxTokens = Math.max(256, Math.min(8000, Number(input?.maxTokens ?? provider.maxTokens) || 2000))
   const outputMaxChars = Math.max(1200, Math.min(12000, Math.floor(requestedMaxTokens * 1.5)))
   try {
@@ -1086,7 +1087,9 @@ ipcMain.handle('ai:summarize-entity', async (event, input) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
-    }, 'summary', controller.signal, (text) => event.sender.send('ai:summary-progress', { phase: 'first-chunk', text: text.slice(0, 80) }))
+    }, 'summary', controller.signal,
+      (text) => event.sender.send('ai:summary-progress', { phase: 'first-chunk', text: text.slice(0, 80) }),
+      () => { if (timeout) { clearTimeout(timeout); timeout = null }; event.sender.send('ai:summary-progress', { phase: 'stream-started' }) })
     let response
     try { response = await execute(tokenParameter) }
     catch (error) {
@@ -1125,7 +1128,7 @@ ipcMain.handle('ai:summarize-entity', async (event, input) => {
     return { ok: true, profile, summary: profile.summary, finishReason, usage: response?.usage || null, providerId: provider.id, providerName: provider.name, model }
   } catch (error) {
     return { ok: false, error: error.aiError || { stage: 'summary', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商在 30 秒内没有返回资料，请减少已读依据、降低输出长度或检查供应商连接' : sanitizeAiErrorText(error.message) } }
-  } finally { clearTimeout(timeout) }
+  } finally { if (timeout) clearTimeout(timeout) }
 })
 
 ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((resolve) => {
