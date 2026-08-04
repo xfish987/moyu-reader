@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
-    "test": "node test-chunks.cjs && node test-text-encodings.cjs && node test-conversion.mjs && node test-entity-profiles.mjs && node test-model-catalog.mjs",
+    "test": "node test-chunks.cjs && node test-text-encodings.cjs && node test-conversion.mjs && node test-entity-profiles.mjs && node test-model-catalog.mjs && node test-json-repair.mjs",
     "dist": "npm run build && electron-builder --win portable",
     "preview": "vite preview --host 127.0.0.1"
   },

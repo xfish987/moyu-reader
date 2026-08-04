@@ -7,6 +7,8 @@ const iconv = require('iconv-lite')
 const JSZip = require('jszip')
 const { DOMParser } = require('@xmldom/xmldom')
 const { collectModelCatalog } = require('./modelCatalog.cjs')
+const { parseProfileJson } = require('./jsonRepair.cjs')
+const { buildProfileMessages } = require('./profilePrompt.cjs')
 
 let mainWindow
 let bossHidden = false
@@ -238,6 +240,7 @@ async function requestProviderStreaming(provider, endpoint, options, stage, sign
   let buffer = ''
   let raw = ''
   let streamed = false
+  let finishReason = null
   const emit = (text) => { if (text) { streamed = true; raw += text; onText?.(text) } }
   while (true) {
     const { value, done } = await reader.read()
@@ -252,12 +255,14 @@ async function requestProviderStreaming(provider, endpoint, options, stage, sign
       if (!payload || payload === '[DONE]') continue
       try {
         const parsed = JSON.parse(payload)
-        const delta = parsed?.choices?.[0]?.delta?.content ?? parsed?.choices?.[0]?.message?.content ?? parsed?.text ?? ''
+        const choice = parsed?.choices?.[0]
+        if (choice?.finish_reason) finishReason = choice.finish_reason
+        const delta = choice?.delta?.content ?? choice?.message?.content ?? parsed?.text ?? ''
         emit(Array.isArray(delta) ? delta.map((part) => part?.text || '').join('') : String(delta || ''))
       } catch {}
     }
   }
-  if (streamed) return { choices: [{ message: { content: raw }, finish_reason: null }] }
+  if (streamed) return { choices: [{ message: { content: raw }, finish_reason: finishReason }] }
   return JSON.parse(raw || buffer || '{}')
 }
 
@@ -1049,7 +1054,7 @@ ipcMain.handle('ai:save-preferences', async (_event, input) => {
   return publicAiConfig(config)
 })
 
-ipcMain.handle('ai:summarize-entity', async (event, input) => {
+async function summarizeEntity(event, input) {
   const config = await loadAiConfig()
   const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId))
   if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
@@ -1074,16 +1079,11 @@ ipcMain.handle('ai:summarize-entity', async (event, input) => {
   const controller = new AbortController()
   let timedOut = false
   let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
-  // 资料卡优先快速完成；即使供应商保存了更大的通用输出上限，这类短回顾也不超过 2400 token。
-  const requestedMaxTokens = Math.max(256, Math.min(2400, Number(input?.maxTokens ?? provider.maxTokens) || 1600))
-  const outputMaxChars = Math.max(1200, Math.min(12000, Math.floor(requestedMaxTokens * 1.5)))
+  // 提示词把输出预算压到约 1200 中文字符；token 上限保底 4096，给 JSON 完整闭合留足余量。
+  const requestedMaxTokens = Math.max(4096, Math.min(8192, Number(input?.maxTokens ?? provider.maxTokens) || 4096))
   try {
     let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
-    const messages = [
-          { role: 'system', content: '你是一个严格防剧透的阅读回顾助手。仅依据用户提供的已读片段工作，禁止外部知识、后文知识和无证据推测。识别所选名称属于人物、物品、地点、组织、能力或事件。别名只有在片段存在明确同一性证据时才能关联；名字相似或同姓不是证据。用户人工确认的同一/不同规则拥有最高优先级，绝不能推翻。资料卡要让久未阅读的人立即想起对象：人物必须详细说明与主角的关系、何时如何相识、与其他人的关系、身份和所做之事；若尚未与主角相识，明确写出并交代其当前关系网。物品必须说明归属、若属于主角则何时如何获得、用途与能力。地点必须说明位置、性质、内部有什么、相关人物势力和已发生事件。任一项在已读片段中无证据时，必须写“截至当前阅读进度尚未交代”，不得补全。同时提取有明确证据的关联：地点位于国家/城市、人物隶属势力、物品归属某人等。关联目标使用书中明确名称，每条只表达一个事实。只输出合法 JSON，不要 Markdown 代码围栏，结构为：{"type":"人物|物品|地点|组织|能力|事件|未分类","canonicalName":"主名称","aliases":["已确认别名"],"summary":"用一段话说明这是谁或什么，以及为何重要","details":{"protagonistRelation":"人物与主角关系","firstEncounter":"人物与主角初识时间和经过","relationships":"人物关系网","identity":"人物身份与行动","owner":"物品归属","acquisition":"物品获得时间与经过","purpose":"物品用途能力","location":"地点位置与性质","features":"地点内容与特点","relatedPeople":"地点相关人物势力","relatedEvents":"地点已发生事件"},"relations":[{"relation":"located_in|owned_by|member_of|contains|owns|has_member|related_to|learned_from","targetName":"另一对象的名称","label":"适合读者的简短关系词","note":"已读内的关系说明"}],"evidence":[{"chapter":"章节标签","text":"简短依据"}],"identityConfidence":"high|medium|low"}。details 只保留符合类型的字段。' },
-          { role: 'system', content: `输出长度控制：本次允许的最大输出 token 为 ${requestedMaxTokens}，总中文字符建议控制在 600-${outputMaxChars} 以内。必须尽快完成合法 JSON；summary 建议 120–320 个中文字符，details 每个有值字段建议 40–260 个中文字符，relations 最多 16 条，evidence 最多 5 条。资料不足时优先保留人物关系/物品归属/地点位置等核心字段，不要重复片段原文；如果接近上限，先压缩措辞而不是截断 JSON。` },
-          { role: 'user', content: `要回顾的名称：${name}\n\n本书已有身份规则（identityLocked=true 为用户人工确认，distinctFrom 表示明确不是同一对象）：\n${JSON.stringify(knownEntities)}\n\n已读范围内共找到 ${Number(input?.totalMatches) || excerpts.length} 处，本次提供 ${compactExcerpts.length} 处：\n\n${compactExcerpts.map((item) => `[${item.chapter || `片段 ${item.order}`}] ${item.text}`).join('\n\n')}` },
-        ]
+    const messages = buildProfileMessages({ name, knownEntities, totalMatches: Number(input?.totalMatches) || excerpts.length, excerpts: compactExcerpts })
     const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1107,30 +1107,108 @@ ipcMain.handle('ai:summarize-entity', async (event, input) => {
       const refusal = choice?.message?.refusal
       return { ok: false, error: { stage: 'summary', status: 200, code: finishReason === 'content_filter' || refusal ? 'CONTENT_FILTERED' : 'EMPTY_RESPONSE', message: sanitizeAiErrorText(refusal || '供应商没有返回资料总结'), finishReason } }
     }
-    if (finishReason === 'length') return { ok: false, partial: summary, error: { stage: 'summary', status: 200, code: 'OUTPUT_TRUNCATED', message: '资料总结达到最大输出长度，未保存不完整卡片；请提高输出长度或更换模型后重试', finishReason } }
-    let profile
-    try {
-      const parsed = JSON.parse(summary.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))
+    // 任何情况下都要产出资料卡：先完整解析，再修复截断 JSON，最后退化为纯文本卡片。
+    let profile = null
+    let truncated = finishReason === 'length'
+    const parsedResult = parseProfileJson(summary)
+    if (parsedResult) {
+      const parsed = parsedResult.value
+      const parsedDetails = parsed?.details && typeof parsed.details === 'object' ? parsed.details : {}
+      let inferredType = String(parsed?.type || '未分类').slice(0, 20)
+      if (inferredType === '未分类') {
+        const detailKeys = Object.keys(parsedDetails)
+        if (detailKeys.some((key) => ['protagonistRelation', 'firstEncounter', 'relationships', 'identity'].includes(key))) inferredType = '人物'
+        else if (detailKeys.some((key) => ['owner', 'acquisition', 'purpose'].includes(key))) inferredType = '物品'
+        else if (detailKeys.some((key) => ['location', 'features', 'relatedPeople', 'relatedEvents'].includes(key))) inferredType = '地点'
+      }
       profile = {
-        type: String(parsed?.type || '未分类').slice(0, 20),
+        type: inferredType,
         canonicalName: String(parsed?.canonicalName || name).trim().slice(0, 80) || name,
         aliases: (Array.isArray(parsed?.aliases) ? parsed.aliases : []).map((value) => String(value).trim().slice(0, 80)).filter(Boolean).slice(0, 30),
         summary: String(parsed?.summary || '').trim().slice(0, 4000),
-        details: Object.fromEntries(Object.entries(parsed?.details && typeof parsed.details === 'object' ? parsed.details : {}).slice(0, 12).map(([key, value]) => [String(key).slice(0, 40), String(value || '').trim().slice(0, 1600)]).filter(([, value]) => value)),
+        details: Object.fromEntries(Object.entries(parsedDetails).slice(0, 12).map(([key, value]) => [String(key).slice(0, 40), String(value || '').trim().slice(0, 1600)]).filter(([, value]) => value)),
         relations: (Array.isArray(parsed?.relations) ? parsed.relations : []).slice(0, 40).map((item) => ({ relation: String(item?.relation || 'related_to').slice(0, 40), targetName: String(item?.targetName || '').trim().slice(0, 80), label: String(item?.label || '').trim().slice(0, 40), note: String(item?.note || '').trim().slice(0, 500) })).filter((item) => item.targetName),
         evidence: (Array.isArray(parsed?.evidence) ? parsed.evidence : []).slice(0, 8).map((item) => ({ chapter: String(item?.chapter || '').slice(0, 120), text: String(item?.text || '').slice(0, 500) })),
         identityConfidence: ['high', 'medium', 'low'].includes(parsed?.identityConfidence) ? parsed.identityConfidence : 'low',
       }
-      if (!profile.summary) profile.summary = summary
-    } catch {
-      profile = { type: '未分类', canonicalName: name, aliases: [], summary, evidence: [], identityConfidence: 'low' }
+      if (parsedResult.repaired) truncated = true
     }
+    if (!profile) {
+      const salvaged = summary.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)/)
+      const fallbackText = (salvaged ? salvaged[1] : summary)
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/```(?:json)?/gi, '')
+        .trim()
+        .slice(0, 2000)
+      profile = {
+        type: '未分类',
+        canonicalName: name,
+        aliases: [],
+        summary: fallbackText || '模型输出不完整，未能解析出结构化资料；请重试。',
+        details: {},
+        relations: [],
+        evidence: [],
+        identityConfidence: 'low',
+      }
+      truncated = true
+    }
+    if (!profile.summary) profile.summary = '模型未给出摘要内容；请重试。'
     if (!profile.aliases.includes(name) && profile.canonicalName !== name) profile.aliases.unshift(name)
+    profile.truncated = truncated
     return { ok: true, profile, summary: profile.summary, finishReason, usage: response?.usage || null, providerId: provider.id, providerName: provider.name, model }
   } catch (error) {
     return { ok: false, error: error.aiError || { stage: 'summary', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商在 30 秒内没有返回资料，请减少已读依据、降低输出长度或检查供应商连接' : sanitizeAiErrorText(error.message) } }
   } finally { if (timeout) clearTimeout(timeout) }
-})
+}
+
+ipcMain.handle('ai:summarize-entity', summarizeEntity)
+
+// Headless smoke test of the profile chain against the locally stored provider:
+//   MOYU_PROFILE_SELFTEST=test-profile-fixture.json npx electron .
+// MOYU_TEST_API_KEY can override the stored key (useful when the stored key was
+// encrypted by a different executable, e.g. the packaged build).
+async function runProfileSelfTest(fixturePath) {
+  try {
+    const fixture = JSON.parse(await fs.readFile(fixturePath, 'utf8'))
+    const config = await loadAiConfig()
+    const provider = config.providers.find((item) => item.id === config.activeProviderId) || config.providers[0]
+    if (provider && process.env.MOYU_TEST_API_KEY) provider.encryptedKey = encryptApiKey(process.env.MOYU_TEST_API_KEY)
+    const result = await summarizeEntity({ sender: { send: () => {} } }, {
+      name: fixture.name || '方运',
+      excerpts: fixture.excerpts || [],
+      totalMatches: fixture.totalMatches || (fixture.excerpts || []).length,
+      providerId: provider?.id,
+      model: provider?.model,
+      knownEntities: fixture.knownEntities || [],
+    })
+    const profile = result.profile
+    const report = {
+      ok: result.ok,
+      error: result.error || null,
+      finishReason: result.finishReason || null,
+      truncated: profile?.truncated ?? null,
+      profile: profile ? {
+        type: profile.type,
+        canonicalName: profile.canonicalName,
+        summaryLength: profile.summary.length,
+        details: Object.fromEntries(Object.entries(profile.details || {}).map(([key, value]) => [key, String(value).length])),
+        relations: profile.relations?.length || 0,
+        evidence: profile.evidence?.length || 0,
+        summary: profile.summary,
+      } : null,
+    }
+    console.log('[selftest]', JSON.stringify(report, null, 2))
+    // Packaged builds have no console; also persist the report next to the fixture.
+    await fs.writeFile(`${fixturePath}.result.json`, JSON.stringify(report, null, 2))
+  } catch (error) {
+    console.error('[selftest] failed:', error.message)
+    try { await fs.writeFile(`${fixturePath}.result.json`, JSON.stringify({ ok: false, error: { message: error.message } }, null, 2)) } catch {}
+    app.exit(1)
+    return
+  }
+  app.exit(0)
+}
 
 ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((resolve) => {
   let settled = false
@@ -1174,6 +1252,7 @@ if (!hasSingleInstanceLock) {
     queueExternalFiles(argv)
   })
   app.whenReady().then(async () => {
+    if (process.env.MOYU_PROFILE_SELFTEST) { await runProfileSelfTest(process.env.MOYU_PROFILE_SELFTEST); return }
     queueExternalFiles(process.argv.slice(1))
     await createWindow()
     globalShortcut.register('F10', toggleBossKey)

@@ -123,7 +123,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
               <EntityDetails details={profile.details} />
               <EntityRelations relations={profile.relations} />
               {profile.evidence?.length ? <div className="entity-evidence"><strong>已读内容依据</strong>{profile.evidence.map((item, index) => <p key={index}><span>{item.chapter || `片段 ${index + 1}`}</span>{item.text}</p>)}</div> : null}
-              <div className="entity-meta"><span><MapPin size={13} /> 总结到当前阅读位置</span><span>找到 {profile.totalMatches} 处 · 使用 {profile.sentCount} 处</span><span>{profile.providerName} / {profile.model}</span></div>
+              <div className="entity-meta"><span><MapPin size={13} /> 总结到当前阅读位置</span><span>找到 {profile.totalMatches} 处 · 使用 {profile.sentCount} 处</span><span>{profile.providerName} / {profile.model}</span>{profile.truncated ? <span>输出达到长度上限，末尾内容已省略，可点“更新到当前进度”重试补全</span> : null}</div>
             </>
           ) : null}
           {error ? <div className="ai-error-card" role="alert"><strong>{error.message}</strong><div><span>阶段：{error.stage}</span><span>状态码：{error.status || '无'}</span><span>错误码：{error.code}</span></div><button onClick={() => navigator.clipboard.writeText(diagnostic)}><Copy size={13} /> 复制诊断信息</button></div> : null}
