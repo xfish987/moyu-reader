@@ -1074,13 +1074,14 @@ ipcMain.handle('ai:summarize-entity', async (event, input) => {
   const controller = new AbortController()
   let timedOut = false
   let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
-  const requestedMaxTokens = Math.max(256, Math.min(8000, Number(input?.maxTokens ?? provider.maxTokens) || 2000))
+  // 资料卡优先快速完成；即使供应商保存了更大的通用输出上限，这类短回顾也不超过 2400 token。
+  const requestedMaxTokens = Math.max(256, Math.min(2400, Number(input?.maxTokens ?? provider.maxTokens) || 1600))
   const outputMaxChars = Math.max(1200, Math.min(12000, Math.floor(requestedMaxTokens * 1.5)))
   try {
     let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
     const messages = [
           { role: 'system', content: '你是一个严格防剧透的阅读回顾助手。仅依据用户提供的已读片段工作，禁止外部知识、后文知识和无证据推测。识别所选名称属于人物、物品、地点、组织、能力或事件。别名只有在片段存在明确同一性证据时才能关联；名字相似或同姓不是证据。用户人工确认的同一/不同规则拥有最高优先级，绝不能推翻。资料卡要让久未阅读的人立即想起对象：人物必须详细说明与主角的关系、何时如何相识、与其他人的关系、身份和所做之事；若尚未与主角相识，明确写出并交代其当前关系网。物品必须说明归属、若属于主角则何时如何获得、用途与能力。地点必须说明位置、性质、内部有什么、相关人物势力和已发生事件。任一项在已读片段中无证据时，必须写“截至当前阅读进度尚未交代”，不得补全。同时提取有明确证据的关联：地点位于国家/城市、人物隶属势力、物品归属某人等。关联目标使用书中明确名称，每条只表达一个事实。只输出合法 JSON，不要 Markdown 代码围栏，结构为：{"type":"人物|物品|地点|组织|能力|事件|未分类","canonicalName":"主名称","aliases":["已确认别名"],"summary":"用一段话说明这是谁或什么，以及为何重要","details":{"protagonistRelation":"人物与主角关系","firstEncounter":"人物与主角初识时间和经过","relationships":"人物关系网","identity":"人物身份与行动","owner":"物品归属","acquisition":"物品获得时间与经过","purpose":"物品用途能力","location":"地点位置与性质","features":"地点内容与特点","relatedPeople":"地点相关人物势力","relatedEvents":"地点已发生事件"},"relations":[{"relation":"located_in|owned_by|member_of|contains|owns|has_member|related_to|learned_from","targetName":"另一对象的名称","label":"适合读者的简短关系词","note":"已读内的关系说明"}],"evidence":[{"chapter":"章节标签","text":"简短依据"}],"identityConfidence":"high|medium|low"}。details 只保留符合类型的字段。' },
-          { role: 'system', content: `输出长度控制：本次允许的最大输出 token 为 ${requestedMaxTokens}，总中文字符建议控制在 1200-${outputMaxChars} 以内。必须在上限内完成合法 JSON；summary 建议 180–500 个中文字符，details 每个有值字段建议 80–500 个中文字符，relations 最多 30 条，evidence 最多 8 条。资料不足时优先保留人物关系/物品归属/地点位置等核心字段，不要重复片段原文；如果接近上限，先压缩措辞而不是截断 JSON。` },
+          { role: 'system', content: `输出长度控制：本次允许的最大输出 token 为 ${requestedMaxTokens}，总中文字符建议控制在 600-${outputMaxChars} 以内。必须尽快完成合法 JSON；summary 建议 120–320 个中文字符，details 每个有值字段建议 40–260 个中文字符，relations 最多 16 条，evidence 最多 5 条。资料不足时优先保留人物关系/物品归属/地点位置等核心字段，不要重复片段原文；如果接近上限，先压缩措辞而不是截断 JSON。` },
           { role: 'user', content: `要回顾的名称：${name}\n\n本书已有身份规则（identityLocked=true 为用户人工确认，distinctFrom 表示明确不是同一对象）：\n${JSON.stringify(knownEntities)}\n\n已读范围内共找到 ${Number(input?.totalMatches) || excerpts.length} 处，本次提供 ${compactExcerpts.length} 处：\n\n${compactExcerpts.map((item) => `[${item.chapter || `片段 ${item.order}`}] ${item.text}`).join('\n\n')}` },
         ]
     const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
