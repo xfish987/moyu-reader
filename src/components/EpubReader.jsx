@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import ePub from 'epubjs'
 import { NotePopup, SelectionPopup } from './NotePopups'
+import { convertChinese, searchVariants } from '../chineseConversion'
 
 const boundViewDocuments = new WeakSet()
 
@@ -115,6 +116,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   const [selPopup, setSelPopup] = useState(null)
   const [notePopup, setNotePopup] = useState(null)
   const selectedContentsRef = useRef(null)
+  const selectionPayloadRef = useRef(null)
   const annotationsRef = useRef([])
   const locationsPromiseRef = useRef(null)
   const progressFrameRef = useRef(null)
@@ -152,6 +154,16 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
       flow: 'paginated',
       spread: 'none',
       manager: 'default',
+    })
+    rendition.hooks.content.register((contents) => {
+      if (!settings.scriptConversion || settings.scriptConversion === 'none') return
+      const document = contents.document
+      const walker = document.createTreeWalker(document.body, document.defaultView.NodeFilter.SHOW_TEXT)
+      let node = walker.nextNode()
+      while (node) {
+        if (!['SCRIPT', 'STYLE'].includes(node.parentElement?.tagName)) node.nodeValue = convertChinese(node.nodeValue, settings.scriptConversion)
+        node = walker.nextNode()
+      }
     })
     bookRef.current = book
     renditionRef.current = rendition
@@ -242,17 +254,20 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         const above = frameRect.top - hostRect.top + rect.top
         selectedContentsRef.current = contents
         setNotePopup(null)
-        setSelPopup({
+        const payload = {
           text: text.slice(0, 500),
           cfi: cfiRange,
           href: rendition.currentLocation()?.start?.href || '',
           left: Math.max(150, Math.min(hostRect.width - 150, frameRect.left - hostRect.left + rect.left + rect.width / 2)),
           below: above < 230,
           top: above < 230 ? frameRect.top - hostRect.top + rect.bottom + 10 : Math.max(10, above - 12),
-        })
+          editing: false,
+        }
+        selectionPayloadRef.current = payload
+        setSelPopup(null)
       } catch {}
     })
-    rendition.on('relocated', () => { setSelPopup(null); setNotePopup(null) })
+    rendition.on('relocated', () => { selectionPayloadRef.current = null; setSelPopup(null); setNotePopup(null) })
 
     rendition.on('rendered', (section, view) => {
       // 'rendered' can fire again on the same document (resize, theme change,
@@ -262,6 +277,13 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         boundViewDocuments.add(view.document)
         view.document.addEventListener('keydown', (event) => shortcutRef.current(event))
         view.document.addEventListener('wheel', (event) => wheelCallbackRef.current?.(event), { passive: false })
+        view.document.addEventListener('contextmenu', async (event) => {
+          const selectedText = view.document.defaultView?.getSelection()?.toString().trim()
+          const payload = selectionPayloadRef.current
+          if (!selectedText || !payload) return
+          event.preventDefault()
+          if (await window.readerAPI.openSelectionMenu() === 'note') setSelPopup({ ...payload, editing: true })
+        })
       }
       fitFullPageBackground(view.document)
       const pageDirection = getPageDirection(view.document)
@@ -391,7 +413,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   useEffect(() => {
     const rendition = renditionRef.current
     if (!rendition) return
-    annotationsRef.current.forEach((cfi) => { try { rendition.annotations.remove(cfi, 'mark') } catch {} })
+    annotationsRef.current.forEach(({ cfi, type }) => { try { rendition.annotations.remove(cfi, type) } catch {} })
     annotationsRef.current = []
     for (const note of notes || []) {
       if (!note.cfi) continue
@@ -409,22 +431,29 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
             top: above < 230 ? above + 14 : Math.max(10, above - 14),
           })
         })
-        annotationsRef.current.push(note.cfi)
+        annotationsRef.current.push({ cfi: note.cfi, type: 'mark' })
+        if (note.color) {
+          const colors = { amber: 'rgba(224, 177, 74, .32)', sage: 'rgba(96, 145, 111, .28)', rose: 'rgba(185, 103, 111, .26)' }
+          rendition.annotations.highlight(note.cfi, { noteId: note.id }, null, `reader-highlight-${note.color}`, { fill: colors[note.color] || colors.amber, 'fill-opacity': '1', 'mix-blend-mode': 'multiply' })
+          annotationsRef.current.push({ cfi: note.cfi, type: 'highlight' })
+        }
       } catch {}
     }
   }, [notes, data])
 
   const closeSelectionPopup = () => {
     selectedContentsRef.current?.window?.getSelection()?.removeAllRanges()
+    selectionPayloadRef.current = null
     setSelPopup(null)
   }
 
-  const saveSelectionPopup = (comment) => {
+  const saveSelectionPopup = (comment, color) => {
     if (selPopup) {
       onCollect?.({
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         text: selPopup.text,
         comment,
+        color,
         cfi: selPopup.cfi,
         href: selPopup.href,
         createdAt: Date.now(),
@@ -497,19 +526,21 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
       const results = []
       const seen = new Set()
       const currentIndex = Number(renditionRef.current?.currentLocation?.()?.start?.index)
-      for (let index = 0; index < sections.length && results.length < 200; index += 1) {
+      const limit = 5000
+      let truncated = false
+      for (let index = 0; index < sections.length && results.length < limit; index += 1) {
         if (token !== searchTokenRef.current) break
         const section = sections[index]
         try {
           await section.load(book.load.bind(book))
-          const matches = section.search(query, 3)
+          const matches = searchVariants(query, settings.scriptConversion).flatMap((variant) => [...section.find(variant), ...section.search(variant, 5)])
           const sectionPath = splitHref(section.href).hrefPath
           const chapter = [...tocRef.current].reverse().find((item) => splitHref(item.href).hrefPath === sectionPath)?.label || `第 ${index + 1} 节`
           for (const match of matches) {
             if (seen.has(match.cfi)) continue
             seen.add(match.cfi)
             results.push({ cfi: match.cfi, label: match.excerpt, chapter })
-            if (results.length >= 200) break
+            if (results.length >= limit) { truncated = true; break }
           }
         } catch {
           // Skip malformed spine documents and continue searching the book.
@@ -519,7 +550,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         onUpdate?.([...results], (index + 1) / Math.max(1, sections.length))
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
-      return results
+      return { results, truncated }
     },
     seek: async (ratio) => {
       pagingRef.current = false
@@ -534,12 +565,17 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
       const cfi = bookRef.current?.locations?.cfiFromPercentage(Math.max(0, Math.min(1, ratio)))
       if (cfi) renditionRef.current?.display(cfi)
     },
+    getLocation: () => {
+      const start = renditionRef.current?.currentLocation?.()?.start
+      return { cfi: start?.cfi, href: start?.href, page: start?.displayed?.page || 1 }
+    },
+    goToBookmark: (bookmark) => bookmark?.cfi && renditionRef.current?.display(bookmark.cfi),
     }
-  }, [])
+  }, [settings.scriptConversion])
 
   return (
     <div className="epub-host" ref={hostRef} style={{ '--page-margin': `${settings.pageMargin}px` }}>
-      {selPopup ? <SelectionPopup text={selPopup.text} left={selPopup.left} top={selPopup.top} below={selPopup.below} onSave={saveSelectionPopup} onCancel={closeSelectionPopup} /> : null}
+      {selPopup?.editing ? <SelectionPopup text={selPopup.text} left={selPopup.left} top={selPopup.top} below={selPopup.below} onSave={saveSelectionPopup} onCancel={closeSelectionPopup} /> : null}
       {notePopup ? <NotePopup notes={[notePopup.note]} left={notePopup.left} top={notePopup.top} below={notePopup.below} onClose={() => setNotePopup(null)} /> : null}
     </div>
   )

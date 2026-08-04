@@ -1,6 +1,7 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, shell } = require('electron')
 const path = require('path')
 const fs = require('fs/promises')
+const { createHash } = require('crypto')
 const chardet = require('chardet')
 const iconv = require('iconv-lite')
 const JSZip = require('jszip')
@@ -9,6 +10,7 @@ const { DOMParser } = require('@xmldom/xmldom')
 let mainWindow
 let bossHidden = false
 let windowPinned = false
+let pendingExternalFiles = []
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 const largeTextCache = new Map()
 const epubMetadataCache = new Map()
@@ -28,6 +30,9 @@ const STORE_KEYS = new Set([
   'reader:covers',
   'reader:pinned',
   'reader:last-book',
+  'reader:book-status',
+  'reader:bookmarks',
+  'reader:book-metadata',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -35,6 +40,21 @@ let storeWriteQueue = Promise.resolve()
 const storeDirectory = () => path.join(app.getPath('userData'), 'data')
 const storeFile = () => path.join(storeDirectory(), STORE_FILE_NAME)
 const backupDirectory = () => path.join(storeDirectory(), 'backups')
+const epubCacheDirectory = () => path.join(app.getPath('userData'), 'cache', 'epub')
+
+async function readEpubDiskCache(fingerprint) {
+  try {
+    const value = JSON.parse(await fs.readFile(path.join(epubCacheDirectory(), `${fingerprint}.json`), 'utf8'))
+    return value && typeof value === 'object' ? value : null
+  } catch { return null }
+}
+
+async function writeEpubDiskCache(fingerprint, metadata) {
+  try {
+    await fs.mkdir(epubCacheDirectory(), { recursive: true })
+    await fs.writeFile(path.join(epubCacheDirectory(), `${fingerprint}.json`), JSON.stringify(metadata), 'utf8')
+  } catch {}
+}
 
 function emptyStore() {
   return { version: STORE_VERSION, updatedAt: new Date().toISOString(), data: {} }
@@ -353,7 +373,30 @@ function createWindow() {
     mainWindow.loadURL('http://127.0.0.1:5173')
   }
 
-  mainWindow.once('ready-to-show', () => mainWindow.show())
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
+    setTimeout(() => flushExternalFiles().catch(() => {}), 250)
+  })
+  const emitMaximized = () => mainWindow?.webContents.send('window:maximized', mainWindow.isMaximized())
+  mainWindow.on('maximize', emitMaximized)
+  mainWindow.on('unmaximize', emitMaximized)
+}
+
+function supportedBookPaths(values = []) {
+  return [...new Set(values.filter((value) => typeof value === 'string' && ['.txt', '.epub'].includes(path.extname(value).toLowerCase())))]
+}
+
+async function flushExternalFiles() {
+  if (!mainWindow || mainWindow.webContents.isLoading() || !pendingExternalFiles.length) return
+  const paths = pendingExternalFiles
+  pendingExternalFiles = []
+  const books = (await Promise.all(paths.map((filePath) => describeBook(filePath).catch(() => null)))).filter(Boolean)
+  if (books.length) mainWindow.webContents.send('books:open-external', books)
+}
+
+function queueExternalFiles(values) {
+  pendingExternalFiles.push(...supportedBookPaths(values))
+  flushExternalFiles().catch(() => {})
 }
 
 async function scanBooks(directory) {
@@ -394,9 +437,21 @@ async function describeBook(filePath, knownStats) {
   const extension = path.extname(filePath).toLowerCase()
   if (extension !== '.txt' && extension !== '.epub') return null
   const stats = knownStats || await fs.stat(filePath)
-  const epubMetadata = extension === '.epub' ? await readEpubMetadata(filePath, stats) : {}
+  const fingerprint = await fingerprintBook(filePath, stats)
+  let epubMetadata = {}
+  if (extension === '.epub') {
+    const memoryKey = `${filePath}:${stats.size}:${stats.mtimeMs}`
+    epubMetadata = await readEpubDiskCache(fingerprint)
+    if (epubMetadata) epubMetadataCache.set(memoryKey, Promise.resolve(epubMetadata))
+    else {
+      epubMetadata = await readEpubMetadata(filePath, stats)
+      await writeEpubDiskCache(fingerprint, epubMetadata)
+    }
+  }
   return {
-    id: filePath,
+    id: `book:${fingerprint}`,
+    fingerprint,
+    legacyId: filePath,
     path: filePath,
     title: epubMetadata.title || path.basename(filePath, extension),
     author: epubMetadata.author || '',
@@ -404,6 +459,26 @@ async function describeBook(filePath, knownStats) {
     format: extension.slice(1).toUpperCase(),
     size: stats.size,
     modifiedAt: stats.mtimeMs,
+  }
+}
+
+async function fingerprintBook(filePath, stats) {
+  const sampleSize = 64 * 1024
+  const handle = await fs.open(filePath, 'r')
+  try {
+    const hash = createHash('sha256').update(String(stats.size)).update('\0')
+    if (stats.size <= sampleSize * 2) {
+      hash.update(await fs.readFile(handle))
+    } else {
+      const first = Buffer.alloc(sampleSize)
+      const last = Buffer.alloc(sampleSize)
+      await handle.read(first, 0, sampleSize, 0)
+      await handle.read(last, 0, sampleSize, stats.size - sampleSize)
+      hash.update(first).update(last)
+    }
+    return hash.digest('hex').slice(0, 32)
+  } finally {
+    await handle.close()
   }
 }
 
@@ -426,6 +501,31 @@ ipcMain.handle('books:choose-files', async () => {
   if (result.canceled) return []
   const books = await Promise.all(result.filePaths.map((filePath) => describeBook(filePath)))
   return books.filter(Boolean)
+})
+
+ipcMain.handle('books:describe-paths', async (_event, paths) => {
+  const books = await Promise.all(supportedBookPaths(Array.isArray(paths) ? paths : []).map((filePath) => describeBook(filePath).catch(() => null)))
+  return books.filter(Boolean)
+})
+
+ipcMain.handle('books:relocate', async (_event, book) => {
+  const extension = book?.format?.toLowerCase()
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: `重新定位《${book?.title || '书籍'}》`,
+    properties: ['openFile'],
+    filters: [{ name: '电子书', extensions: extension ? [extension] : ['txt', 'epub'] }],
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  const candidate = await describeBook(result.filePaths[0])
+  if (book?.fingerprint && candidate.fingerprint !== book.fingerprint) {
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: 'warning', title: '文件内容不同', message: '所选文件与原书内容指纹不一致。',
+      detail: '继续后会把它视为另一本书，原有阅读数据不会自动关联。',
+      buttons: ['取消', '仍然使用'], defaultId: 0, cancelId: 0, noLink: true,
+    })
+    if (confirmation.response !== 1) return null
+  }
+  return candidate
 })
 
 ipcMain.handle('books:scan-directory', async (_event, directory) => {
@@ -465,21 +565,31 @@ ipcMain.handle('books:get-text-toc', async (_event, filePath) => {
 
 ipcMain.handle('books:search-text', async (_event, { filePath, query }) => {
   const cached = largeTextCache.get(filePath)
-  const needleText = String(query || '').trim()
-  if (!cached || !needleText) return []
-  const needle = iconv.encode(needleText, cached.encoding)
+  const queries = (Array.isArray(query) ? query : [query]).map((value) => String(value || '').trim()).filter(Boolean)
+  if (!cached || !queries.length) return { results: [], truncated: false }
   const results = []
-  let position = 0
-  while (results.length < 100) {
-    const found = cached.data.indexOf(needle, position)
-    if (found < 0) break
-    const lineStart = paragraphBoundary(cached.data, found, 'backward', cached.encoding)
-    const lineEnd = paragraphBoundary(cached.data, found + needle.length, 'forward', cached.encoding)
-    const label = iconv.decode(cached.data.subarray(lineStart, lineEnd), cached.encoding).replace(/[\r\n\u0000]+/g, ' ').trim()
-    results.push({ label: label.slice(0, 180), offset: lineStart })
-    position = found + Math.max(1, needle.length)
+  const limit = 5000
+  const seen = new Set()
+  let truncated = false
+  for (const needleText of queries) {
+    const needle = iconv.encode(needleText, cached.encoding)
+    let position = 0
+    while (results.length < limit) {
+      const found = cached.data.indexOf(needle, position)
+      if (found < 0) break
+      const lineStart = paragraphBoundary(cached.data, found, 'backward', cached.encoding)
+      const lineEnd = paragraphBoundary(cached.data, found + needle.length, 'forward', cached.encoding)
+      if (!seen.has(found)) {
+        const label = iconv.decode(cached.data.subarray(lineStart, lineEnd), cached.encoding).replace(/[\r\n\u0000]+/g, ' ').trim()
+        results.push({ label: label.slice(0, 180), offset: lineStart, matchOffset: found })
+        seen.add(found)
+      }
+      position = found + Math.max(1, needle.length)
+    }
+    if (results.length >= limit && cached.data.indexOf(needle, position) >= 0) truncated = true
   }
-  return results
+  results.sort((a, b) => a.matchOffset - b.matchOffset)
+  return { results, truncated }
 })
 
 ipcMain.handle('storage:get', async (_event, key) => {
@@ -558,6 +668,35 @@ ipcMain.handle('notes:save-share', async (_event, { dataUrl, bookPath, quote }) 
   return result.filePath
 })
 
+ipcMain.handle('notes:export-markdown', async (_event, { title, notes }) => {
+  const safeTitle = String(title || '阅读笔记').replace(/[<>:"/\\|?*\x00-\x1F]/g, '').slice(0, 80) || '阅读笔记'
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: '导出笔记',
+    defaultPath: path.join(app.getPath('documents'), `${safeTitle}-笔记.md`),
+    filters: [{ name: 'Markdown 文档', extensions: ['md'] }],
+  })
+  if (result.canceled || !result.filePath) return null
+  const body = [`# ${safeTitle}`, '', ...(Array.isArray(notes) ? notes : []).flatMap((note) => [
+    `> ${String(note.text || '').replace(/\r?\n/g, '\n> ')}`,
+    note.comment ? `\n${note.comment}` : '',
+    `\n_${new Date(note.createdAt || Date.now()).toLocaleDateString('zh-CN')}_`, '',
+  ])].join('\n')
+  await fs.writeFile(result.filePath, body, 'utf8')
+  return result.filePath
+})
+
+ipcMain.handle('reader:selection-menu', (event) => new Promise((resolve) => {
+  let settled = false
+  const finish = (value) => { if (!settled) { settled = true; resolve(value) } }
+  const menu = Menu.buildFromTemplate([
+    { label: '复制', role: 'copy', click: () => finish('copy') },
+    { type: 'separator' },
+    { label: '添加笔记 / 评论', click: () => finish('note') },
+  ])
+  menu.on('menu-will-close', () => setTimeout(() => finish('cancel'), 0))
+  menu.popup({ window: BrowserWindow.fromWebContents(event.sender) })
+}))
+
 ipcMain.on('window:minimize', () => mainWindow?.minimize())
 ipcMain.on('window:maximize', () => {
   if (!mainWindow) return
@@ -573,18 +712,24 @@ ipcMain.on('window:pin', (_event, enabled) => {
 if (!hasSingleInstanceLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     if (!mainWindow) return
     mainWindow.setSkipTaskbar(false)
     mainWindow.show()
     mainWindow.focus()
     bossHidden = false
+    queueExternalFiles(argv)
   })
   app.whenReady().then(() => {
+    queueExternalFiles(process.argv.slice(1))
     createWindow()
     globalShortcut.register('F10', toggleBossKey)
   })
 }
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  queueExternalFiles([filePath])
+})
 app.on('will-quit', () => globalShortcut.unregisterAll())
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

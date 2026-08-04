@@ -179,6 +179,12 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
     goToSearch: async (result) => {
       await jumpToAnchor(result.offset, 'exact')
     },
+    getLocation: () => ({ ...(readerRefs.current.get(currentChunkRef.current.start)?.getLocation?.() || {}), chunkOffset: currentChunkRef.current.start }),
+    goToBookmark: async (bookmark) => {
+      if (bookmark.chunkOffset === currentChunkRef.current.start) return readerRefs.current.get(currentChunkRef.current.start)?.goToBookmark(bookmark)
+      pendingParagraphRef.current = bookmark.paragraphIndex
+      jumpToChunk(await window.readerAPI.readTextChunk(book.path, bookmark.chunkOffset, 'forward'))
+    },
   }), [book.path, jumpToAnchor, jumpToChunk])
 
   const layers = [previousChunk, chunk, nextChunk]

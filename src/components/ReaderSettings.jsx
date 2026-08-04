@@ -48,6 +48,14 @@ export default function ReaderSettings({ settings, onChange, encoding, onEncodin
           </select>
         </section>
       ) : null}
+      <section>
+        <label>简繁转换 <span>仅改变显示，不修改源文件</span></label>
+        <div className="segment-control">
+          <button className={(settings.scriptConversion || 'none') === 'none' ? 'active' : ''} onClick={() => set('scriptConversion', 'none')}>不转换</button>
+          <button className={settings.scriptConversion === 'simplified' ? 'active' : ''} onClick={() => set('scriptConversion', 'simplified')}>转简体</button>
+          <button className={settings.scriptConversion === 'traditional' ? 'active' : ''} onClick={() => set('scriptConversion', 'traditional')}>转繁体</button>
+        </div>
+      </section>
 
       <section className="setting-row">
         <div><Type size={15} /><span>字号</span></div>

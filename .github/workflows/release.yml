@@ -18,14 +18,17 @@ jobs:
         with:
           node-version: 22
 
+      - name: Enable pnpm
+        run: corepack enable
+
       - name: Install dependencies
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       - name: Test
-        run: npm test
+        run: pnpm test
 
       - name: Build portable EXE
-        run: npm run dist
+        run: pnpm run dist
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

@@ -1,6 +1,6 @@
 {
   "name": "moyu-reader",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "A quiet local TXT and EPUB reader for Windows",
   "author": "xfish987",
@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
-    "test": "node test-chunks.cjs && node test-text-encodings.cjs",
+    "test": "node test-chunks.cjs && node test-text-encodings.cjs && node test-conversion.mjs",
     "dist": "npm run build && electron-builder --win portable",
     "preview": "vite preview --host 127.0.0.1"
   },
@@ -24,6 +24,7 @@
     "iconv-lite": "^0.6.3",
     "jszip": "3.10.1",
     "lucide-react": "^0.468.0",
+    "opencc-js": "1.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -52,8 +53,19 @@
       "artifactName": "MoyuReader-${version}.exe",
       "icon": "assets/icon.ico"
     },
+    "fileAssociations": [
+      {
+        "ext": [
+          "txt",
+          "epub"
+        ],
+        "name": "电子书",
+        "description": "TXT 或 EPUB 电子书",
+        "role": "Viewer"
+      }
+    ],
     "portable": {
-    "artifactName": "MoyuReader-${version}.exe"
+      "artifactName": "MoyuReader-${version}.exe"
     },
     "directories": {
       "output": "release"

@@ -9,6 +9,7 @@ function reportStorageError(error) {
 export function useStoredState(key, initialValue) {
   const legacyRef = useRef({ found: false, value: initialValue })
   const hydratedRef = useRef(false)
+  const [hydrated, setHydrated] = useState(false)
   const [value, setValue] = useState(() => {
     try {
       const saved = localStorage.getItem(key)
@@ -25,6 +26,7 @@ export function useStoredState(key, initialValue) {
     const hydrate = async () => {
       if (!window.readerAPI?.getStoredValue) {
         hydratedRef.current = true
+        setHydrated(true)
         return
       }
       try {
@@ -36,8 +38,10 @@ export function useStoredState(key, initialValue) {
           await window.readerAPI.setStoredValue(key, legacyRef.current.value)
         }
         hydratedRef.current = true
+        setHydrated(true)
       } catch (error) {
         hydratedRef.current = true
+        setHydrated(true)
         reportStorageError(error)
       }
     }
@@ -52,7 +56,7 @@ export function useStoredState(key, initialValue) {
 
   const setStoredValue = useCallback((next) => setValue(next), [])
 
-  return [value, setStoredValue]
+  return [value, setStoredValue, hydrated]
 }
 
 export function formatBytes(bytes) {

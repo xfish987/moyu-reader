@@ -1,8 +1,28 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquareQuote } from 'lucide-react'
 import { NotePopup, SelectionPopup } from './NotePopups'
+import { convertChinese } from '../chineseConversion'
 
 const CHAPTER_PATTERN = /^(?:(?:正文\s*)?第\s*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟]+\s*[章节卷部篇回集幕]\s*.{0,50}|(?:卷|部|篇|章)\s*[0-9０-９零〇一二三四五六七八九十百千万两]+(?:[\s:：.-]+.{0,45})?|(?:序章|序言|前言|楔子|引子|后记|尾声|终章|大结局)(?:[\s:：.-]+.{0,45})?|(?:番外|外传|附录)\s*[0-9０-９零〇一二三四五六七八九十百千万两]*(?:[\s:：.-]+.{0,45})?|(?:chapter|part|volume|book)\s+[0-9ivxlcdm]+(?:[\s:：.-]+.{0,50})?)$/i
+
+function highlightedParagraph(text, notes) {
+  if (!notes?.length) return text
+  const ranges = notes.map((note) => ({ note, start: text.indexOf(note.text) }))
+    .filter((item) => item.start >= 0 && item.note.text)
+    .sort((a, b) => a.start - b.start)
+  if (!ranges.length) return text
+  const parts = []
+  let cursor = 0
+  ranges.forEach(({ note, start }) => {
+    if (start < cursor) return
+    if (start > cursor) parts.push(text.slice(cursor, start))
+    const end = start + note.text.length
+    parts.push(<mark className={`text-highlight is-${note.color || 'amber'}`} key={note.id}>{text.slice(start, end)}</mark>)
+    cursor = end
+  })
+  if (cursor < text.length) parts.push(text.slice(cursor))
+  return parts
+}
 
 const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [] }, ref) {
   const viewportRef = useRef(null)
@@ -10,6 +30,8 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const contentRef = useRef(null)
   const resizeTimerRef = useRef(null)
   const resizingRef = useRef(false)
+  const positionFractionRef = useRef(null)
+  const measuredLayoutRef = useRef(false)
   const progressCallbackRef = useRef(onProgress)
   const chaptersCallbackRef = useRef(onChapters)
   const [page, setPage] = useState(initialPage || 0)
@@ -34,16 +56,17 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     return map
   }, [notes])
 
-  const paragraphs = useMemo(() => content
+  const displayContent = useMemo(() => convertChinese(content, settings.scriptConversion), [content, settings.scriptConversion])
+  const paragraphs = useMemo(() => displayContent
     .replace(/^\uFEFF/, '')
     .split(/\r?\n+/)
     .map((text) => text.trim())
-    .filter(Boolean), [content])
+    .filter(Boolean), [displayContent])
 
   // 每个渲染段落（trim 后）在 content 中的字符区间，用于把主进程给的字符
   // anchor 映射成段落下标。与上面 split/trim/filter 的结果一一对应。
   const paragraphSpans = useMemo(() => {
-    const text = content.replace(/^\uFEFF/, '')
+    const text = displayContent.replace(/^\uFEFF/, '')
     const spans = []
     const pattern = /[^\r\n]+/g
     let match = pattern.exec(text)
@@ -56,7 +79,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       match = pattern.exec(text)
     }
     return spans
-  }, [content])
+  }, [displayContent])
 
   const chapters = useMemo(() => paragraphs.reduce((items, text, index) => {
     const line = text.replace(/[\u3000\t]+/g, ' ').trim()
@@ -107,7 +130,14 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       if (!node || !viewportWidth) return
       const count = Math.max(1, Math.round((viewportRef.current.scrollWidth + pagePadding * 2) / viewportWidth))
       setPageCount(count)
-      setPage((current) => Math.min(current, count - 1))
+      setPage((current) => {
+        if (!measuredLayoutRef.current) {
+          measuredLayoutRef.current = true
+          return Math.min(current, count - 1)
+        }
+        const ratio = positionFractionRef.current ?? (pageCount <= 1 ? 0 : current / (pageCount - 1))
+        return Math.max(0, Math.min(count - 1, Math.round(ratio * (count - 1))))
+      })
     })
     return () => cancelAnimationFrame(timer)
   }, [content, pagePadding, settings, viewportWidth])
@@ -143,6 +173,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       textFraction = Math.min(1, low / nodes.length)
     }
     progressCallbackRef.current({ page, pageCount, chapterIndex, textFraction, percent: pageCount <= 1 ? 0 : page / (pageCount - 1) })
+    positionFractionRef.current = textFraction
   }, [chapters, page, pageCount, viewportWidth])
 
   // 跳转到指定段落。布局尚未就绪（新挂载的分块 viewportWidth 仍为 0）时
@@ -183,7 +214,8 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
         || paragraphSpans[paragraphSpans.length - 1]
       jumpToParagraph(span ? span.index : 0)
     },
-    goToSearch: ({ query, occurrence = 0 }) => {
+    goToSearch: ({ query, occurrence = 0, paragraphIndex }) => {
+      if (Number.isFinite(paragraphIndex)) { jumpToParagraph(paragraphIndex); return }
       let seen = 0
       const index = paragraphs.findIndex((paragraph) => {
         if (!paragraph.includes(query)) return false
@@ -193,7 +225,9 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       })
       jumpToParagraph(Math.max(0, index))
     },
-  }), [onBoundaryNext, onBoundaryPrev, pageCount, paragraphs, paragraphSpans, jumpToParagraph])
+    getLocation: () => ({ page, paragraphIndex: Math.round((positionFractionRef.current || 0) * Math.max(0, paragraphs.length - 1)), textFraction: positionFractionRef.current || 0 }),
+    goToBookmark: (bookmark) => Number.isFinite(bookmark?.paragraphIndex) ? jumpToParagraph(bookmark.paragraphIndex) : setPage(bookmark?.page || 0),
+  }), [onBoundaryNext, onBoundaryPrev, page, pageCount, paragraphs, paragraphSpans, jumpToParagraph])
 
   const captureSelection = () => {
     const selected = window.getSelection()
@@ -217,11 +251,31 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       // 上方空间不足时改为在选区下方弹出，避免被工具栏遮挡
       below: above < 230,
       top: above < 230 ? rect.bottom - viewportRect.top + 10 : Math.max(10, above - 12),
+      editing: false,
     })
   }
 
-  const collectSelection = (comment) => {
-    onCollect?.({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: selection.text, paragraphIndex: selection.paragraphIndex, comment, createdAt: Date.now() })
+  const openSelectionMenu = async (event) => {
+    const selected = window.getSelection()
+    if (!selected?.toString().trim() || !selected.rangeCount) return
+    event.preventDefault()
+    const range = selected.getRangeAt(0)
+    const element = (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement)?.closest?.('[data-paragraph]')
+    if (!element) return
+    const rect = range.getBoundingClientRect()
+    const viewportRect = viewportRef.current.getBoundingClientRect()
+    const above = rect.top - viewportRect.top
+    const nextSelection = {
+      text: selected.toString().trim().slice(0, 500), paragraphIndex: Number(element.dataset.paragraph),
+      left: Math.max(150, Math.min(viewportRect.width - 150, rect.left - viewportRect.left + rect.width / 2)),
+      below: above < 230, top: above < 230 ? rect.bottom - viewportRect.top + 10 : Math.max(10, above - 12), editing: false,
+    }
+    setSelection(nextSelection)
+    if (await window.readerAPI.openSelectionMenu() === 'note') setSelection({ ...nextSelection, editing: true })
+  }
+
+  const collectSelection = (comment, color) => {
+    onCollect?.({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: selection.text, paragraphIndex: selection.paragraphIndex, comment, color, createdAt: Date.now() })
     window.getSelection()?.removeAllRanges()
     setSelection(null)
   }
@@ -254,7 +308,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>
-      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'}`} ref={viewportRef} onMouseUp={captureSelection}>
+      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'}`} ref={viewportRef} onMouseUp={captureSelection} onContextMenu={openSelectionMenu}>
         <article
           ref={contentRef}
           className={`text-columns ${paintReady ? 'is-ready' : 'is-reflowing'}`}
@@ -283,12 +337,13 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
                 onClick={(event) => openMarker(event, index)}
               ><MessageSquareQuote size={12} />{paragraphNotes.length > 1 ? <em>{paragraphNotes.length}</em> : null}</button>
             ) : null
+            const paragraphContent = highlightedParagraph(paragraph, paragraphNotes)
             return isChapter
-              ? <h2 key={index} data-paragraph={index}>{paragraph}{noteMarker}</h2>
-              : <p key={index} data-paragraph={index}>{paragraph}{noteMarker}</p>
+              ? <h2 key={index} data-paragraph={index}>{paragraphContent}{noteMarker}</h2>
+              : <p key={index} data-paragraph={index}>{paragraphContent}{noteMarker}</p>
           })}
         </article>
-        {selection ? <SelectionPopup text={selection.text} left={selection.left} top={selection.top} below={selection.below} onSave={collectSelection} onCancel={cancelSelection} /> : null}
+        {selection?.editing ? <SelectionPopup text={selection.text} left={selection.left} top={selection.top} below={selection.below} onSave={collectSelection} onCancel={cancelSelection} /> : null}
         {marker ? <NotePopup notes={notesByParagraph.get(marker.index) || []} left={marker.left} top={marker.top} below={marker.below} onClose={() => setMarker(null)} /> : null}
       </div>
     </div>

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, List, Maximize, Minimize2, Search, Settings2, Trash2 } from 'lucide-react'
+import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, ChevronLeft, ChevronRight, List, Maximize, Minimize2, NotebookPen, Search, Settings2, Trash2 } from 'lucide-react'
 import EpubReader from './EpubReader'
 import LargeTextReader from './LargeTextReader'
 import ReaderSettings from './ReaderSettings'
 import TextReader from './TextReader'
+import { searchVariants, useChineseConversionReady } from '../chineseConversion'
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, onAddNote, onDeleteNote, initialNote, onEncodingChange }) {
+export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange }) {
   const readerRef = useRef(null)
+  const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
   const wheelStateRef = useRef({ accumulated: 0, direction: 0, lockedUntil: 0 })
   const [panel, setPanel] = useState(null)
@@ -17,6 +19,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [searchProgress, setSearchProgress] = useState(0)
+  const [searchTruncated, setSearchTruncated] = useState(false)
   const [chromeZone, setChromeZone] = useState(null)
   const chromeTimerRef = useRef(null)
 
@@ -91,13 +94,13 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
   const scheduleChromeHide = useCallback(() => {
     clearTimeout(chromeTimerRef.current)
-    chromeTimerRef.current = setTimeout(() => setChromeZone(null), 200)
+    chromeTimerRef.current = setTimeout(() => setChromeZone(null), 650)
   }, [])
 
   const handleChromeMouseMove = useCallback((event) => {
     const rect = event.currentTarget.getBoundingClientRect()
     const y = event.clientY - rect.top
-    const zone = y <= 64 ? 'top' : rect.height - y <= 76 ? 'bottom' : null
+    const zone = y <= 86 ? 'top' : rect.height - y <= 104 ? 'bottom' : null
     if (zone) {
       clearTimeout(chromeTimerRef.current)
       chromeTimerRef.current = null
@@ -114,6 +117,12 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     else if (source.kind === 'text-large') readerRef.current?.goToChapter(chapter)
     else readerRef.current?.goToChapter(chapter.index)
     setPanel(null)
+  }
+
+  const addBookmark = () => {
+    const location = readerRef.current?.getLocation?.()
+    if (!location) return
+    onAddBookmark({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, ...location, label: activeChapter?.label || `${percent}% 处`, percent: progress.percent || 0, createdAt: Date.now() })
   }
 
   const percent = Math.max(0, Math.min(100, Math.round((progress.percent || 0) * 100)))
@@ -139,24 +148,39 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     if (!query) return
     setSearching(true)
     setSearchProgress(0)
+    setSearchTruncated(false)
     setSearchResults([])
     try {
       if (source.kind === 'text-large') {
-        setSearchResults(await window.readerAPI.searchText(book.path, query))
+        const response = await window.readerAPI.searchText(book.path, searchVariants(query, settings.scriptConversion))
+        setSearchResults(response.results || [])
+        setSearchTruncated(Boolean(response.truncated))
       } else if (source.kind === 'epub') {
-        const results = await readerRef.current?.search(query, (partial, ratio) => {
+        const response = await readerRef.current?.search(query, (partial, ratio) => {
           setSearchResults(partial)
           setSearchProgress(ratio)
         })
-        setSearchResults(results || [])
+        setSearchResults(response?.results || [])
+        setSearchTruncated(Boolean(response?.truncated))
       } else {
         let occurrence = 0
-        const results = source.content.split(/\r?\n+/).flatMap((line) => {
-          const label = line.trim()
-          if (!label.includes(query)) return []
-          return [{ label: label.slice(0, 180), query, occurrence: occurrence++ }]
-        }).slice(0, 100)
-        setSearchResults(results)
+        const variants = searchVariants(query, settings.scriptConversion)
+        const allResults = source.content.replace(/^\uFEFF/, '').split(/\r?\n+/).map((line) => line.trim()).filter(Boolean).flatMap((label, paragraphIndex) => {
+          const matches = []
+          const seen = new Set()
+          variants.forEach((variant) => {
+            let position = label.indexOf(variant)
+            while (position >= 0) {
+              if (!seen.has(position)) matches.push({ label: label.slice(Math.max(0, position - 70), position + variant.length + 110), query: variant, occurrence: occurrence++, paragraphIndex, position })
+              seen.add(position)
+              position = label.indexOf(variant, position + Math.max(1, variant.length))
+            }
+          })
+          matches.sort((a, b) => a.position - b.position)
+          return matches
+        })
+        setSearchResults(allResults.slice(0, 5000))
+        setSearchTruncated(allResults.length > 5000)
       }
     } catch (error) {
       window.dispatchEvent(new CustomEvent('reader-error', { detail: `搜索失败：${error?.message || '无法读取书籍内容'}` }))
@@ -192,7 +216,9 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
           <div className="reader-actions">
             <button className={`toolbar-button ${panel === 'toc' ? 'active' : ''}`} onClick={() => setPanel(panel === 'toc' ? null : 'toc')} title="目录"><List size={18} /></button>
-            <button className={`toolbar-button ${panel === 'notes' ? 'active' : ''}`} onClick={() => setPanel(panel === 'notes' ? null : 'notes')} title="收藏笔记"><Bookmark size={17} /></button>
+            <button className="toolbar-button" onClick={addBookmark} title="添加书签"><BookmarkPlus size={17} /></button>
+            <button className={`toolbar-button ${panel === 'bookmarks' ? 'active' : ''}`} onClick={() => setPanel(panel === 'bookmarks' ? null : 'bookmarks')} title="书签"><BookMarked size={17} /></button>
+            <button className={`toolbar-button ${panel === 'notes' ? 'active' : ''}`} onClick={() => setPanel(panel === 'notes' ? null : 'notes')} title="摘录与笔记"><NotebookPen size={17} /></button>
             <button className={`toolbar-button ${panel === 'search' ? 'active' : ''}`} onClick={() => setPanel(panel === 'search' ? null : 'search')} title="全书搜索"><Search size={17} /></button>
             <button className={`toolbar-button ${panel === 'settings' ? 'active' : ''}`} onClick={() => setPanel(panel === 'settings' ? null : 'settings')} title="阅读设置"><Settings2 size={18} /></button>
             <button className="toolbar-button" onClick={onToggleImmersive} title="沉浸阅读 (F11)"><Maximize size={17} /></button>
@@ -202,16 +228,19 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
       <section className="reading-stage" onClick={() => panel && setPanel(null)} onWheel={handlePageWheel}>
         {source.kind === 'text' ? (
-          <TextReader ref={readerRef} content={source.content} settings={settings} initialPage={savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} />
+          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} />
         ) : source.kind === 'text-large' ? (
-          <LargeTextReader ref={readerRef} book={book} source={source} settings={settings} savedProgress={savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} />
+          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} />
         ) : (
-          <EpubReader ref={readerRef} data={source.data} settings={settings} initialCfi={savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} />
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} />
         )}
 
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
         <button className="page-zone next" onClick={() => readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()} aria-label="向右翻页"><ChevronRight size={22} /></button>
       </section>
+
+      {immersive ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => { clearTimeout(chromeTimerRef.current); setChromeZone('top') }} aria-hidden="true" /> : null}
+      <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => { clearTimeout(chromeTimerRef.current); setChromeZone('bottom') }} aria-hidden="true" />
 
       {settings.showProgress ? (
         <footer className={`reader-footer ${footerVisible ? 'is-visible' : ''}`}>
@@ -288,6 +317,16 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
+      {panel === 'bookmarks' && !immersive ? (
+        <aside className="notes-panel">
+          <div className="toc-title"><Bookmark size={16} /><strong>书签</strong><span>{bookmarks.length} 条</span></div>
+          <div className="notes-list">
+            {bookmarks.length ? [...bookmarks].sort((a, b) => b.createdAt - a.createdAt).map((bookmark) => (
+              <div className="note-item" key={bookmark.id}><button onClick={() => { readerRef.current?.goToBookmark?.(bookmark); setPanel(null) }}><p>{bookmark.label}</p><span>{Math.round((bookmark.percent || 0) * 100)}% · {new Date(bookmark.createdAt).toLocaleDateString('zh-CN')}</span></button><button className="delete-note" onClick={() => onDeleteBookmark(bookmark.id)} title="删除书签"><Trash2 size={13} /></button></div>
+            )) : <p className="notes-empty">点击工具栏中的“添加书签”保存当前位置</p>}
+          </div>
+        </aside>
+      ) : null}
       {panel === 'search' && !immersive ? (
         <aside className="search-panel">
           <form className="book-search" onSubmit={runSearch}>
@@ -296,6 +335,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
             <button type="submit">{searching ? `搜索 ${Math.round(searchProgress * 100)}%` : '搜索'}</button>
           </form>
           <div className="search-results">
+            {searchResults.length ? <div className="search-summary">找到 {searchResults.length} 处{searchTruncated ? '，结果过多，仅显示前 5000 处' : ''}</div> : null}
             {searchResults.length ? searchResults.map((result, index) => (
               <button key={`${result.offset ?? result.occurrence}-${index}`} onClick={() => { readerRef.current?.goToSearch({ ...result, query: searchQuery.trim() }); setPanel(null) }}>
                 <span>{result.label}</span>

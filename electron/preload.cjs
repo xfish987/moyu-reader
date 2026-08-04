@@ -1,8 +1,11 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('readerAPI', {
   chooseDirectory: () => ipcRenderer.invoke('books:choose-directory'),
   chooseBooks: () => ipcRenderer.invoke('books:choose-files'),
+  describeBookPaths: (paths) => ipcRenderer.invoke('books:describe-paths', paths),
+  relocateBook: (book) => ipcRenderer.invoke('books:relocate', book),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   scanDirectory: (directory) => ipcRenderer.invoke('books:scan-directory', directory),
   getEpubCover: (filePath) => ipcRenderer.invoke('books:get-epub-cover', filePath),
   openBook: (filePath, encoding) => ipcRenderer.invoke('books:open', filePath, encoding),
@@ -11,6 +14,8 @@ contextBridge.exposeInMainWorld('readerAPI', {
   searchText: (filePath, query) => ipcRenderer.invoke('books:search-text', { filePath, query }),
   deleteSource: (filePath) => ipcRenderer.invoke('books:delete-source', filePath),
   saveShareImage: (payload) => ipcRenderer.invoke('notes:save-share', payload),
+  exportNotes: (payload) => ipcRenderer.invoke('notes:export-markdown', payload),
+  openSelectionMenu: () => ipcRenderer.invoke('reader:selection-menu'),
   getStoredValue: (key) => ipcRenderer.invoke('storage:get', key),
   setStoredValue: (key, value) => ipcRenderer.invoke('storage:set', key, value),
   exportReaderData: () => ipcRenderer.invoke('storage:export'),
@@ -19,4 +24,14 @@ contextBridge.exposeInMainWorld('readerAPI', {
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
   setPinned: (enabled) => ipcRenderer.send('window:pin', enabled),
+  onExternalBooks: (callback) => {
+    const listener = (_event, books) => callback(books)
+    ipcRenderer.on('books:open-external', listener)
+    return () => ipcRenderer.removeListener('books:open-external', listener)
+  },
+  onMaximized: (callback) => {
+    const listener = (_event, maximized) => callback(maximized)
+    ipcRenderer.on('window:maximized', listener)
+    return () => ipcRenderer.removeListener('window:maximized', listener)
+  },
 })
