@@ -13,6 +13,7 @@ export default function AISettingsModal({ open, onClose, onChange }) {
   const [providerForm, setProviderForm] = useState(EMPTY_PROVIDER)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState(null)
+  const [modelFilter, setModelFilter] = useState('')
   const selectedProvider = useMemo(() => settings?.providers?.find((item) => item.id === providerForm.id), [providerForm.id, settings])
 
   useEffect(() => {
@@ -23,12 +24,13 @@ export default function AISettingsModal({ open, onClose, onChange }) {
       onChange?.(value)
       const selected = value.providers.find((item) => item.id === value.activeProviderId) || value.providers[0]
       setProviderForm(selected ? { ...EMPTY_PROVIDER, ...selected, apiKey: '' } : EMPTY_PROVIDER)
+      setModelFilter('')
     }).catch((reason) => setError({ stage: 'setup', code: 'LOAD_FAILED', message: reason?.message }))
   }, [open])
 
   if (!open) return null
   const updateSettings = (value) => { setSettings(value); onChange?.(value) }
-  const selectProvider = (provider) => { setProviderForm({ ...EMPTY_PROVIDER, ...provider, apiKey: '' }); setError(null) }
+  const selectProvider = (provider) => { setProviderForm({ ...EMPTY_PROVIDER, ...provider, apiKey: '' }); setModelFilter(''); setError(null) }
 
   const saveProvider = async (event) => {
     event.preventDefault(); setBusy('save'); setError(null)
@@ -37,7 +39,7 @@ export default function AISettingsModal({ open, onClose, onChange }) {
       updateSettings(value)
       const saved = value.providers.find((item) => item.id === providerForm.id) || value.providers.find((item) => item.name === providerForm.name && item.baseUrl === providerForm.baseUrl)
       if (saved) {
-        setProviderForm({ ...EMPTY_PROVIDER, ...saved, apiKey: '' })
+        setProviderForm({ ...EMPTY_PROVIDER, ...saved, apiKey: '' }); setModelFilter('')
         updateSettings(await window.readerAPI.saveAiPreferences({ activeProviderId: saved.id, providerId: saved.id, model: saved.model, maxTokens: saved.maxTokens, tokenParameter: saved.tokenParameter }))
       }
     } catch (reason) { setError({ stage: 'save', status: 0, code: 'SAVE_FAILED', message: reason?.message || '保存失败' }) }
@@ -51,6 +53,8 @@ export default function AISettingsModal({ open, onClose, onChange }) {
     if (result.settings) updateSettings(result.settings)
     if (!result.ok) setError(result.error)
     else setProviderForm((current) => ({ ...current, ...result.settings.providers.find((item) => item.id === providerForm.id), apiKey: '' }))
+    if (result.ok) setModelFilter('')
+    if (result.ok && result.usedCachedModels) setError({ stage: 'models', status: 200, code: 'MODEL_LIST_EMPTY_USING_CACHE', message: '供应商返回的模型列表为空，已保留上次保存的模型目录；可手动填写模型 ID。' })
     setBusy('')
   }
 
@@ -81,7 +85,7 @@ export default function AISettingsModal({ open, onClose, onChange }) {
               <label><span>Base URL</span><input value={providerForm.baseUrl} spellCheck="false" placeholder="https://api.example.com/v1" onChange={(event) => setProviderForm({ ...providerForm, baseUrl: event.target.value })} /></label>
               <label><span>API Key</span><div className="secret-input"><KeyRound size={15} /><input type="password" autoComplete="off" value={providerForm.apiKey} placeholder={providerForm.hasKey ? '已安全保存；留空则不更换' : '输入 API Key'} onChange={(event) => setProviderForm({ ...providerForm, apiKey: event.target.value })} /></div></label>
               <div className="ai-security-note"><ShieldCheck size={15} /><span>{settings.encryptionAvailable ? 'Key 使用 Windows 系统安全存储加密，页面无法读回。' : '系统安全存储当前不可用，将拒绝保存 Key。'}</span></div>
-              <label><span>模型</span><input list="ai-model-options" value={providerForm.model} placeholder="保存后刷新模型列表，也可手动填写" onChange={(event) => setProviderForm({ ...providerForm, model: event.target.value })} /><datalist id="ai-model-options">{(selectedProvider?.models || []).map((model) => <option value={model} key={model} />)}</datalist></label>
+              <label><span>模型（已拉取 {(selectedProvider?.models || []).length} 个）</span><input value={modelFilter} spellCheck="false" placeholder="先筛选模型名称；也可直接手动填写下方模型" onChange={(event) => setModelFilter(event.target.value)} /><select aria-label="模型列表" value={providerForm.model} onChange={(event) => setProviderForm({ ...providerForm, model: event.target.value })}><option value="">请选择已拉取的模型</option>{(selectedProvider?.models || []).filter((model) => !modelFilter.trim() || model.toLocaleLowerCase().includes(modelFilter.trim().toLocaleLowerCase())).map((model) => <option value={model} key={model}>{model}</option>)} </select><input value={providerForm.model} spellCheck="false" placeholder="也可手动填写模型 ID" onChange={(event) => setProviderForm({ ...providerForm, model: event.target.value })} /></label>
               <div className="ai-inline-fields"><label><span>资料卡最大输出长度</span><input type="number" min="256" max="8000" value={providerForm.maxTokens} onChange={(event) => setProviderForm({ ...providerForm, maxTokens: event.target.value })} /></label><label><span>输出参数</span><select value={providerForm.tokenParameter} onChange={(event) => setProviderForm({ ...providerForm, tokenParameter: event.target.value })}><option value="auto">自动兼容</option><option value="max_completion_tokens">max_completion_tokens</option><option value="max_tokens">max_tokens</option></select></label></div>
               <ErrorDetails error={error} />
               <footer className="ai-form-actions">{providerForm.id ? <button type="button" className="danger-button" onClick={deleteProvider} disabled={Boolean(busy)}><Trash2 size={15} /> 删除</button> : <span />}<div><button type="button" className="secondary-button" onClick={refreshProvider} disabled={!providerForm.id || Boolean(busy)}><RefreshCw className={busy === 'refresh' ? 'spin' : ''} size={15} /> 刷新状态与模型</button><button className="primary-button" disabled={Boolean(busy)}><Save size={15} /> {busy === 'save' ? '保存中' : '保存方案'}</button></div></footer>

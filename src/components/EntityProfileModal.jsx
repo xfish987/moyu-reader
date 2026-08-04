@@ -21,12 +21,16 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
   const [status, setStatus] = useState(cachedProfile ? 'cached' : 'searching')
   const [error, setError] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [streamReceived, setStreamReceived] = useState(false)
   const startedRef = useRef(false)
   const isLaterProgress = !cachedProfile || Number(selection.readPosition) > Number(cachedProfile.readPosition) + (Number(selection.readPosition) <= 1 ? 0.0005 : 1)
 
   const run = async () => {
     setError(null)
     setStatus('searching')
+    setElapsedSeconds(0)
+    setStreamReceived(false)
     try {
       const config = settings || await window.readerAPI.getAiSettings()
       setSettings(config)
@@ -77,6 +81,20 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
     if (!cachedProfile || isLaterProgress) run()
   }, [])
 
+  useEffect(() => {
+    if (!['searching', 'summarizing'].includes(status)) return undefined
+    const startedAt = Date.now()
+    const timer = setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [status])
+
+  useEffect(() => {
+    const unsubscribe = window.readerAPI.onAiSummaryProgress?.((payload) => {
+      if (payload?.phase === 'first-chunk') setStreamReceived(true)
+    })
+    return unsubscribe
+  }, [])
+
   const provider = settings?.providers?.find((item) => item.id === settings.activeProviderId) || settings?.providers?.[0]
   const diagnostic = error ? [
     '墨读阅读器资料回顾诊断',
@@ -97,7 +115,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
         <div className="entity-profile-body">
           <div className="spoiler-safe-note"><ShieldCheck size={16} /><span><strong>防剧透检索</strong><small>没有读取当前选区之后的章节，也没有使用外部资料。</small></span></div>
           {['searching', 'summarizing'].includes(status) ? (
-            <div className="entity-loading"><RefreshCw className="spin" size={22} /><strong>{status === 'searching' ? '正在检索此前出现的片段' : '正在整理资料卡片'}</strong><span>{contextInfo ? `共找到 ${contextInfo.totalMatches} 处，选取 ${contextInfo.sentCount} 处用于总结` : '长篇书籍可能需要一点时间'}</span></div>
+            <div className="entity-loading"><RefreshCw className="spin" size={22} /><strong>{status === 'searching' ? '正在检索此前出现的片段' : streamReceived ? '已收到模型输出，正在整理资料卡' : '正在连接供应商'}</strong><span>{contextInfo ? `已选 ${contextInfo.sentCount} 条代表性依据（原命中 ${contextInfo.totalMatches} 条）` : '正在筛选首次、最近和章节均匀分布的依据'}</span><small>已用 {elapsedSeconds} 秒 · 30 秒内无结果会明确报错</small></div>
           ) : profile ? (
             <>
               <div className="entity-profile-title"><span>{profile.type || '未分类'}</span><strong>{profile.name}</strong>{profile.aliases?.length ? <small>别名：{profile.aliases.join('、')}</small> : null}</div>

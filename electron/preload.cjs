@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld('readerAPI', {
   refreshAiProvider: (providerId) => ipcRenderer.invoke('ai:refresh-provider', providerId),
   saveAiPreferences: (preferences) => ipcRenderer.invoke('ai:save-preferences', preferences),
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
+  onAiSummaryProgress: (listener) => {
+    const wrapped = (_event, payload) => listener(payload)
+    ipcRenderer.on('ai:summary-progress', wrapped)
+    return () => ipcRenderer.removeListener('ai:summary-progress', wrapped)
+  },
   getStoredValue: (key) => ipcRenderer.invoke('storage:get', key),
   setStoredValue: (key, value) => ipcRenderer.invoke('storage:set', key, value),
   exportReaderData: () => ipcRenderer.invoke('storage:export'),

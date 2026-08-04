@@ -6,7 +6,7 @@ const chardet = require('chardet')
 const iconv = require('iconv-lite')
 const JSZip = require('jszip')
 const { DOMParser } = require('@xmldom/xmldom')
-const { modelValues, nextModelPage } = require('./modelCatalog.cjs')
+const { collectModelCatalog } = require('./modelCatalog.cjs')
 
 let mainWindow
 let bossHidden = false
@@ -65,6 +65,31 @@ function sanitizeAiErrorText(value, secret = '') {
   return text
     .replace(/Bearer\s+[^\s"']+/gi, 'Bearer [已隐藏]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[已隐藏]')
+}
+
+function selectSummaryExcerpts(items, limit = 48, maxChars = 32000) {
+  const unique = []
+  const seen = new Set()
+  for (const item of items) {
+    const fingerprint = item.text.replace(/[\s\p{P}\p{S}]+/gu, '').slice(0, 260)
+    if (!fingerprint || seen.has(fingerprint)) continue
+    seen.add(fingerprint)
+    unique.push(item)
+  }
+  const picked = unique.length <= limit ? unique : [
+    ...unique.slice(0, Math.ceil(limit * 0.3)),
+    ...Array.from({ length: Math.floor(limit * 0.4) }, (_, index) => unique[Math.floor((index + 1) * unique.length / (Math.floor(limit * 0.4) + 1))]).filter(Boolean),
+    ...unique.slice(-Math.floor(limit * 0.3)),
+  ]
+  const result = []
+  let chars = 0
+  for (const item of picked) {
+    const size = item.text.length + (item.chapter?.length || 0) + 20
+    if (chars + size > maxChars) continue
+    chars += size
+    result.push(item)
+  }
+  return result
 }
 
 function validateProviderUrl(value) {
@@ -190,6 +215,49 @@ async function requestProvider(provider, endpoint, options, stage, signal) {
   try { return JSON.parse(body) } catch {
     throw Object.assign(new Error('供应商响应不是有效 JSON'), { aiError: { stage, status: response.status, code: 'INVALID_JSON', message: '供应商响应不是有效 JSON' } })
   }
+}
+
+async function requestProviderStreaming(provider, endpoint, options, stage, signal, onText) {
+  const secret = decryptApiKey(provider)
+  let response
+  try {
+    response = await net.fetch(providerEndpoint(provider.baseUrl, endpoint), {
+      ...options,
+      headers: { Accept: 'text/event-stream, application/json', Authorization: `Bearer ${secret}`, ...(options.headers || {}) },
+      redirect: 'manual', signal,
+    })
+  } catch (error) {
+    if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { aiError: { stage, status: 0, code: 'REQUEST_ABORTED', message: '请求已取消' } })
+    throw Object.assign(new Error('无法连接 AI 供应商'), { aiError: { stage, status: 0, code: error?.code || 'NETWORK_ERROR', message: sanitizeAiErrorText(error?.message || '网络连接失败', secret) } })
+  }
+  if (response.status >= 300 && response.status < 400) throw Object.assign(new Error('供应商返回了重定向'), { aiError: { stage, status: response.status, code: 'REDIRECT_BLOCKED', message: '为避免 API Key 泄漏，已拒绝供应商重定向' } })
+  if (!response.ok) throw Object.assign(new Error('供应商请求失败'), { aiError: parseProviderError(response, await readResponseLimited(response), stage, secret) })
+  const reader = response.body?.getReader?.()
+  if (!reader) return JSON.parse(await readResponseLimited(response))
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let raw = ''
+  let streamed = false
+  const emit = (text) => { if (text) { streamed = true; raw += text; onText?.(text) } }
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') continue
+      try {
+        const parsed = JSON.parse(payload)
+        const delta = parsed?.choices?.[0]?.delta?.content ?? parsed?.choices?.[0]?.message?.content ?? parsed?.text ?? ''
+        emit(Array.isArray(delta) ? delta.map((part) => part?.text || '').join('') : String(delta || ''))
+      } catch {}
+    }
+  }
+  if (streamed) return { choices: [{ message: { content: raw }, finish_reason: null }] }
+  return JSON.parse(raw || buffer || '{}')
 }
 
 function responseText(message) {
@@ -915,7 +983,7 @@ ipcMain.handle('ai:save-provider', async (_event, input) => {
     model: String(input?.model ?? existing?.model ?? '').trim().slice(0, 160),
     maxTokens: Math.max(64, Math.min(128000, Number(input?.maxTokens ?? existing?.maxTokens) || 8000)),
     tokenParameter: ['auto', 'max_completion_tokens', 'max_tokens'].includes(input?.tokenParameter) ? input.tokenParameter : (existing?.tokenParameter || 'auto'),
-    models: Array.isArray(existing?.models) ? existing.models : [],
+    models: Array.isArray(input?.models) ? [...new Set(input.models.map((value) => typeof value === 'string' ? value : value?.id || value?.name || value?.model).filter(Boolean).map((value) => String(value).trim().slice(0, 160)))] : (Array.isArray(existing?.models) ? existing.models : []),
     updatedAt: Date.now(),
   }
   config.providers = [...config.providers.filter((item) => item.id !== id), provider]
@@ -939,32 +1007,24 @@ ipcMain.handle('ai:refresh-provider', async (_event, providerId) => {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30000)
   try {
-    const models = []
-    const seenPages = new Set()
-    let endpoint = 'models'
-    for (let page = 0; page < 100; page += 1) {
-      const response = await requestProvider(provider, endpoint, { method: 'GET' }, 'models', controller.signal)
-      models.push(...modelValues(response))
-      const next = nextModelPage(response, seenPages)
-      if (!next) break
-      const marker = next.type === 'url' ? next.value : `${next.key}:${next.value}`
-      if (seenPages.has(marker)) break
-      seenPages.add(marker)
-      if (next.type === 'url') {
-        const base = new URL(provider.baseUrl)
-        const url = new URL(next.value, providerEndpoint(provider.baseUrl, 'models'))
-        const basePath = base.pathname.replace(/\/+$/, '') || '/'
+    const base = new URL(provider.baseUrl)
+    const basePath = base.pathname.replace(/\/+$/, '') || '/'
+    const catalog = await collectModelCatalog({ request: async (endpoint) => {
+      if (/^https?:\/\//i.test(endpoint) || endpoint.startsWith('/')) {
+        const url = new URL(endpoint, providerEndpoint(provider.baseUrl, 'models'))
         if (url.origin !== base.origin || !(url.pathname === basePath || url.pathname.startsWith(`${basePath}/`))) throw Object.assign(new Error('供应商分页地址跨越了不同主机或路径'), { aiError: { stage: 'models', status: 0, code: 'PAGINATION_ORIGIN_BLOCKED', message: '供应商返回了不安全的分页地址' } })
         endpoint = `${url.pathname}${url.search}`
-      } else endpoint = `models?${encodeURIComponent(next.parameter)}=${encodeURIComponent(next.value)}`
-    }
-    const uniqueModels = [...new Set(models)].sort((a, b) => a.localeCompare(b))
+      }
+      return requestProvider(provider, endpoint, { method: 'GET' }, 'models', controller.signal)
+    } })
+    const fetchedModels = catalog.models
+    const uniqueModels = fetchedModels.length ? fetchedModels : (Array.isArray(provider.models) ? provider.models : [])
     provider.models = uniqueModels
     provider.lastCheckedAt = Date.now()
-    provider.lastStatus = 'ok'
+    provider.lastStatus = fetchedModels.length ? 'ok' : 'empty'
     if (!provider.model && uniqueModels.length) provider.model = uniqueModels[0]
     await queueAiConfigWrite()
-    return { ok: true, models: uniqueModels, settings: publicAiConfig(config) }
+    return { ok: true, models: uniqueModels, fetchedModelCount: fetchedModels.length, fetchedPages: catalog.pages, partial: catalog.partial, usedCachedModels: !fetchedModels.length, settings: publicAiConfig(config) }
   } catch (error) {
     const aiError = error.aiError || { stage: 'models', status: 0, code: error.code || 'UNKNOWN_ERROR', message: sanitizeAiErrorText(error.message) }
     provider.lastCheckedAt = Date.now()
@@ -988,7 +1048,7 @@ ipcMain.handle('ai:save-preferences', async (_event, input) => {
   return publicAiConfig(config)
 })
 
-ipcMain.handle('ai:summarize-entity', async (_event, input) => {
+ipcMain.handle('ai:summarize-entity', async (event, input) => {
   const config = await loadAiConfig()
   const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId))
   if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
@@ -1007,19 +1067,26 @@ ipcMain.handle('ai:summarize-entity', async (_event, input) => {
     identityLocked: Boolean(item?.identityLocked),
   })).filter((item) => item.name)
   if (!name || !excerpts.length) return { ok: false, error: { stage: 'search', status: 0, code: 'NO_PRIOR_EVIDENCE', message: '在当前阅读位置之前没有找到可用于总结的相关片段' } }
+  // Deduplicate frequent-name hits and sample first/latest/middle chapters before sending.
+  const compactExcerpts = selectSummaryExcerpts(excerpts)
+  if (!compactExcerpts.length) return { ok: false, error: { stage: 'summary', status: 0, code: 'SUMMARY_CONTEXT_TOO_LARGE', message: '已读依据过大，请缩小检索范围后重试' } }
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 90000)
+  let timedOut = false
+  const timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
+  const requestedMaxTokens = Math.max(256, Math.min(8000, Number(input?.maxTokens ?? provider.maxTokens) || 2000))
+  const outputMaxChars = Math.max(1200, Math.min(12000, Math.floor(requestedMaxTokens * 1.5)))
   try {
     let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
     const messages = [
           { role: 'system', content: '你是一个严格防剧透的阅读回顾助手。仅依据用户提供的已读片段工作，禁止外部知识、后文知识和无证据推测。识别所选名称属于人物、物品、地点、组织、能力或事件。别名只有在片段存在明确同一性证据时才能关联；名字相似或同姓不是证据。用户人工确认的同一/不同规则拥有最高优先级，绝不能推翻。资料卡要让久未阅读的人立即想起对象：人物必须详细说明与主角的关系、何时如何相识、与其他人的关系、身份和所做之事；若尚未与主角相识，明确写出并交代其当前关系网。物品必须说明归属、若属于主角则何时如何获得、用途与能力。地点必须说明位置、性质、内部有什么、相关人物势力和已发生事件。任一项在已读片段中无证据时，必须写“截至当前阅读进度尚未交代”，不得补全。同时提取有明确证据的关联：地点位于国家/城市、人物隶属势力、物品归属某人等。关联目标使用书中明确名称，每条只表达一个事实。只输出合法 JSON，不要 Markdown 代码围栏，结构为：{"type":"人物|物品|地点|组织|能力|事件|未分类","canonicalName":"主名称","aliases":["已确认别名"],"summary":"用一段话说明这是谁或什么，以及为何重要","details":{"protagonistRelation":"人物与主角关系","firstEncounter":"人物与主角初识时间和经过","relationships":"人物关系网","identity":"人物身份与行动","owner":"物品归属","acquisition":"物品获得时间与经过","purpose":"物品用途能力","location":"地点位置与性质","features":"地点内容与特点","relatedPeople":"地点相关人物势力","relatedEvents":"地点已发生事件"},"relations":[{"relation":"located_in|owned_by|member_of|contains|owns|has_member|related_to|learned_from","targetName":"另一对象的名称","label":"适合读者的简短关系词","note":"已读内的关系说明"}],"evidence":[{"chapter":"章节标签","text":"简短依据"}],"identityConfidence":"high|medium|low"}。details 只保留符合类型的字段。' },
-          { role: 'user', content: `要回顾的名称：${name}\n\n本书已有身份规则（identityLocked=true 为用户人工确认，distinctFrom 表示明确不是同一对象）：\n${JSON.stringify(knownEntities)}\n\n已读范围内共找到 ${Number(input?.totalMatches) || excerpts.length} 处，本次提供 ${excerpts.length} 处：\n\n${excerpts.map((item) => `[${item.chapter || `片段 ${item.order}`}] ${item.text}`).join('\n\n')}` },
+          { role: 'system', content: `输出长度控制：本次允许的最大输出 token 为 ${requestedMaxTokens}，总中文字符建议控制在 1200-${outputMaxChars} 以内。必须在上限内完成合法 JSON；summary 建议 180–500 个中文字符，details 每个有值字段建议 80–500 个中文字符，relations 最多 30 条，evidence 最多 8 条。资料不足时优先保留人物关系/物品归属/地点位置等核心字段，不要重复片段原文；如果接近上限，先压缩措辞而不是截断 JSON。` },
+          { role: 'user', content: `要回顾的名称：${name}\n\n本书已有身份规则（identityLocked=true 为用户人工确认，distinctFrom 表示明确不是同一对象）：\n${JSON.stringify(knownEntities)}\n\n已读范围内共找到 ${Number(input?.totalMatches) || excerpts.length} 处，本次提供 ${compactExcerpts.length} 处：\n\n${compactExcerpts.map((item) => `[${item.chapter || `片段 ${item.order}`}] ${item.text}`).join('\n\n')}` },
         ]
-    const execute = (parameter) => requestProvider(provider, 'chat/completions', {
+    const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, [parameter]: Math.max(256, Math.min(8000, Number(input?.maxTokens ?? provider.maxTokens) || 2000)), stream: false, messages }),
-    }, 'summary', controller.signal)
+      body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
+    }, 'summary', controller.signal, (text) => event.sender.send('ai:summary-progress', { phase: 'first-chunk', text: text.slice(0, 80) }))
     let response
     try { response = await execute(tokenParameter) }
     catch (error) {
@@ -1044,8 +1111,8 @@ ipcMain.handle('ai:summarize-entity', async (_event, input) => {
         type: String(parsed?.type || '未分类').slice(0, 20),
         canonicalName: String(parsed?.canonicalName || name).trim().slice(0, 80) || name,
         aliases: (Array.isArray(parsed?.aliases) ? parsed.aliases : []).map((value) => String(value).trim().slice(0, 80)).filter(Boolean).slice(0, 30),
-        summary: String(parsed?.summary || '').trim().slice(0, 30000),
-        details: Object.fromEntries(Object.entries(parsed?.details && typeof parsed.details === 'object' ? parsed.details : {}).slice(0, 12).map(([key, value]) => [String(key).slice(0, 40), String(value || '').trim().slice(0, 4000)]).filter(([, value]) => value)),
+        summary: String(parsed?.summary || '').trim().slice(0, 4000),
+        details: Object.fromEntries(Object.entries(parsed?.details && typeof parsed.details === 'object' ? parsed.details : {}).slice(0, 12).map(([key, value]) => [String(key).slice(0, 40), String(value || '').trim().slice(0, 1600)]).filter(([, value]) => value)),
         relations: (Array.isArray(parsed?.relations) ? parsed.relations : []).slice(0, 40).map((item) => ({ relation: String(item?.relation || 'related_to').slice(0, 40), targetName: String(item?.targetName || '').trim().slice(0, 80), label: String(item?.label || '').trim().slice(0, 40), note: String(item?.note || '').trim().slice(0, 500) })).filter((item) => item.targetName),
         evidence: (Array.isArray(parsed?.evidence) ? parsed.evidence : []).slice(0, 8).map((item) => ({ chapter: String(item?.chapter || '').slice(0, 120), text: String(item?.text || '').slice(0, 500) })),
         identityConfidence: ['high', 'medium', 'low'].includes(parsed?.identityConfidence) ? parsed.identityConfidence : 'low',
@@ -1057,7 +1124,7 @@ ipcMain.handle('ai:summarize-entity', async (_event, input) => {
     if (!profile.aliases.includes(name) && profile.canonicalName !== name) profile.aliases.unshift(name)
     return { ok: true, profile, summary: profile.summary, finishReason, usage: response?.usage || null, providerId: provider.id, providerName: provider.name, model }
   } catch (error) {
-    return { ok: false, error: error.aiError || { stage: 'summary', status: 0, code: error.code || 'UNKNOWN_ERROR', message: sanitizeAiErrorText(error.message) } }
+    return { ok: false, error: error.aiError || { stage: 'summary', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商在 30 秒内没有返回资料，请减少已读依据、降低输出长度或检查供应商连接' : sanitizeAiErrorText(error.message) } }
   } finally { clearTimeout(timeout) }
 })
 
