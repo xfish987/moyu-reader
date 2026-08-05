@@ -24,14 +24,15 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [streamReceived, setStreamReceived] = useState(false)
+  const [prepared, setPrepared] = useState(null)
   const startedRef = useRef(false)
   const isLaterProgress = !cachedProfile || Number(selection.readPosition) > Number(cachedProfile.readPosition) + (Number(selection.readPosition) <= 1 ? 0.0005 : 1)
 
-  const run = async () => {
+  // 只做本地检索（不消耗 token），把检索结果备好，等用户确认后再生成。
+  const search = async () => {
     setError(null)
     setStatus('searching')
     setElapsedSeconds(0)
-    setStreamReceived(false)
     try {
       const config = settings || await window.readerAPI.getAiSettings()
       setSettings(config)
@@ -39,7 +40,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
       if (!provider) {
         setStatus('setup')
         setSettingsOpen(true)
-        return
+        return null
       }
       const lookupNames = cachedProfile ? [cachedProfile.name, ...(cachedProfile.aliases || []), selection.text] : [selection.text]
       const uniqueNames = [...new Set(lookupNames.filter(Boolean))]
@@ -57,18 +58,37 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
       if (!excerpts.length) {
         setError({ stage: 'search', status: 0, code: 'NO_PRIOR_EVIDENCE', message: '当前阅读位置之前没有找到这个名称的相关片段' })
         setStatus('error')
-        return
+        return null
       }
-      setStatus('summarizing')
+      const prep = { excerpts, context, incremental, provider }
+      setPrepared(prep)
+      setStatus('ready')
+      return prep
+    } catch (reason) {
+      setError({ stage: 'search', status: 0, code: 'LOOKUP_FAILED', message: reason?.message || '资料检索失败' })
+      setStatus('error')
+      return null
+    }
+  }
+
+  // 用户点击后才会走到这里：调用模型生成/更新资料卡。
+  const generate = async (prep) => {
+    const ready = prep || prepared || await search()
+    if (!ready) return
+    setError(null)
+    setStatus('summarizing')
+    setElapsedSeconds(0)
+    setStreamReceived(false)
+    try {
       const result = await window.readerAPI.summarizeEntity({
         name: selection.text,
-        excerpts,
-        totalMatches: context.totalMatches || excerpts.length,
-        providerId: provider.id,
-        model: provider.model || provider.models?.[0],
-        maxTokens: Math.min(8000, provider.maxTokens || 2000),
+        excerpts: ready.excerpts,
+        totalMatches: ready.context.totalMatches || ready.excerpts.length,
+        providerId: ready.provider.id,
+        model: ready.provider.model || ready.provider.models?.[0],
+        maxTokens: Math.min(8000, ready.provider.maxTokens || 2000),
         knownEntities: entityProfiles.map(({ name, aliases, distinctFrom, identityLocked }) => ({ name, aliases, distinctFrom, identityLocked })),
-        previousProfile: incremental ? { type: cachedProfile.type, summary: cachedProfile.summary, details: cachedProfile.details, relations: cachedProfile.relations } : null,
+        previousProfile: ready.incremental ? { type: cachedProfile.type, summary: cachedProfile.summary, details: cachedProfile.details, relations: cachedProfile.relations } : null,
       })
       if (!result.ok) {
         setError(result.error)
@@ -76,12 +96,12 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
         return
       }
       const generated = result.profile || { canonicalName: selection.text, aliases: [], type: '未分类', summary: result.summary, evidence: [] }
-      const next = { id: cachedProfile?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: generated.canonicalName || selection.text, aliases: [...new Set([...(cachedProfile?.identityLocked ? (cachedProfile.aliases || []) : []), ...(generated.aliases || []), ...(generated.canonicalName !== selection.text ? [selection.text] : [])])], type: generated.type || '未分类', summary: generated.summary || result.summary, details: generated.details || {}, relations: generated.relations || [], evidence: generated.evidence || [], identityConfidence: generated.identityConfidence || 'low', identityLocked: Boolean(cachedProfile?.identityLocked), distinctFrom: cachedProfile?.distinctFrom || [], incremental, providerId: result.providerId, providerName: result.providerName, model: result.model, totalMatches: context.totalMatches || excerpts.length, sentCount: excerpts.length, readPosition: selection.readPosition, readPercent: selection.readPercent, createdAt: Date.now() }
+      const next = { id: cachedProfile?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: generated.canonicalName || selection.text, aliases: [...new Set([...(cachedProfile?.identityLocked ? (cachedProfile.aliases || []) : []), ...(generated.aliases || []), ...(generated.canonicalName !== selection.text ? [selection.text] : [])])], type: generated.type || '未分类', summary: generated.summary || result.summary, details: generated.details || {}, relations: generated.relations || [], evidence: generated.evidence || [], identityConfidence: generated.identityConfidence || 'low', identityLocked: Boolean(cachedProfile?.identityLocked), distinctFrom: cachedProfile?.distinctFrom || [], incremental: ready.incremental, providerId: result.providerId, providerName: result.providerName, model: result.model, totalMatches: ready.context.totalMatches || ready.excerpts.length, sentCount: ready.excerpts.length, readPosition: selection.readPosition, readPercent: selection.readPercent, createdAt: Date.now() }
       setProfile(next)
       setStatus('complete')
       onSave?.(next)
     } catch (reason) {
-      setError({ stage: status === 'searching' ? 'search' : 'summary', status: 0, code: 'LOOKUP_FAILED', message: reason?.message || '资料回顾失败' })
+      setError({ stage: 'summary', status: 0, code: 'LOOKUP_FAILED', message: reason?.message || '资料回顾失败' })
       setStatus('error')
     }
   }
@@ -89,7 +109,8 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-    if (!cachedProfile || isLaterProgress) run()
+    // 打开弹窗只自动检索（本地、免费），绝不自动调用模型。
+    if (!cachedProfile || isLaterProgress) search()
   }, [])
 
   // 早期版本曾把破损 JSON 存成 summary；打开时本地修复（不调用模型），修好后自动替换缓存。
@@ -159,10 +180,12 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
               {profile.evidence?.length ? <div className="entity-evidence"><strong>已读内容依据</strong>{profile.evidence.map((item, index) => <p key={index}><span>{item.chapter || `片段 ${index + 1}`}</span>{item.text}</p>)}</div> : null}
               <div className="entity-meta"><span><MapPin size={13} /> 总结到当前阅读位置</span><span>找到 {profile.totalMatches} 处 · 使用 {profile.sentCount} 处</span><span>{profile.providerName} / {profile.model}</span>{profile.incremental ? <span>增量更新（基于旧卡 + 新读片段）</span> : null}{profile.truncated ? <span>输出达到长度上限，末尾内容已省略，可点“更新到当前进度”重试补全</span> : null}</div>
             </>
+          ) : status === 'ready' ? (
+            <div className="entity-ready"><BookOpenCheck size={24} /><strong>已找到 {contextInfo?.totalMatches ?? 0} 处相关依据</strong><span>将使用其中 {contextInfo?.sentCount ?? 0} 条代表性片段，由 {provider?.name || 'AI'} 生成资料卡{prepared?.incremental ? '（增量更新：旧卡 + 新读片段，更省 token）' : ''}。点击右下角按钮开始生成。</span></div>
           ) : null}
           {error ? <div className="ai-error-card" role="alert"><strong>{error.message}</strong><div><span>阶段：{error.stage}</span><span>状态码：{error.status || '无'}</span><span>错误码：{error.code}</span></div><button onClick={() => navigator.clipboard.writeText(diagnostic)}><Copy size={13} /> 复制诊断信息</button></div> : null}
         </div>
-        <footer className="dialog-footer"><span>{provider ? `${provider.name} · ${provider.model || '未选模型'}` : '尚未设置供应商'}</span><div><button className="secondary-button" onClick={onClose}>关闭</button><button className="primary-button" onClick={run} disabled={['searching', 'summarizing'].includes(status) || (Boolean(cachedProfile) && !isLaterProgress && !error && !corrupt)}><RefreshCw size={14} /> {corrupt ? '重新生成' : cachedProfile && !isLaterProgress && !error ? '已是当前进度最新资料' : profile ? '更新到当前进度' : '重新尝试'}</button></div></footer>
+        <footer className="dialog-footer"><span>{provider ? `${provider.name} · ${provider.model || '未选模型'}` : '尚未设置供应商'}</span><div><button className="secondary-button" onClick={onClose}>关闭</button><button className="primary-button" onClick={() => generate()} disabled={['searching', 'summarizing'].includes(status) || status === 'setup'}><RefreshCw size={14} /> {['searching', 'summarizing'].includes(status) ? '处理中' : corrupt ? '重新生成' : error ? '重新尝试' : profile ? (isLaterProgress ? '更新到当前进度' : '重新生成') : '生成资料'}</button></div></footer>
       </section>
       <AISettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onChange={(value) => setSettings(value)} />
     </div>

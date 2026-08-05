@@ -965,6 +965,9 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .entity-loading { min-height: 240px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; color: #68766f; text-align: center; }
 .entity-loading strong { font-size: 12px; }
 .entity-loading span { font-size: 9px; }
+.entity-ready { min-height: 240px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; color: #68766f; text-align: center; }
+.entity-ready strong { color: rgb(var(--reader-ink)); font-size: 13px; }
+.entity-ready span { max-width: 400px; font-size: 10px; line-height: 1.8; }
 .entity-summary { margin-top: 16px; padding: 18px 19px; border: 1px solid #d8ddd8; border-radius: 9px; white-space: pre-wrap; background: #fffef9; color: #34443e; font: 11px/1.85 serif; }
 .entity-details { display: grid; gap: 8px; margin: 12px 0 0; }
 .entity-details > div { display: grid; grid-template-columns: minmax(90px, 120px) 1fr; gap: 12px; padding: 10px 12px; border-radius: 7px; background: rgba(232, 237, 232, .62); }
