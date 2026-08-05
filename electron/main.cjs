@@ -14,9 +14,11 @@ const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 let mainWindow
 let profilesWindow = null
 let profilesFabWindow = null
-let profilesDocked = false
-let profilesFollowUpdate = false
-let fabFollowTimer = null
+// 伴侣窗口吸附状态不再用事件时序闩锁，只记录“上一次吸附位置”：
+// 当前位置仍等于它 → 吸附中；不等 → 用户已拖离。异步 move 事件不会误判。
+let profilesLastDock = null
+let companionFollowTimer = null
+let companionFollowAgain = false
 let bossHidden = false
 let windowPinned = false
 let pendingExternalFiles = []
@@ -634,15 +636,10 @@ async function createWindow() {
   mainWindow.on('unmaximize', emitMaximized)
   mainWindow.on('resize', scheduleWindowBoundsSave)
   mainWindow.on('move', scheduleWindowBoundsSave)
-  // 伴侣窗口吸附状态时跟随阅读窗移动/缩放；悬浮图标也跟随（防抖）。
-  mainWindow.on('move', followProfilesToMain)
-  mainWindow.on('resize', followProfilesToMain)
-  const scheduleFabFollow = () => {
-    clearTimeout(fabFollowTimer)
-    fabFollowTimer = setTimeout(snapFabToReader, 300)
-  }
-  mainWindow.on('move', scheduleFabFollow)
-  mainWindow.on('resize', scheduleFabFollow)
+  // 伴侣窗口与悬浮图标吸附在阅读窗右缘；阅读窗拖动/缩放/还原时实时跟随。
+  mainWindow.on('move', scheduleCompanionFollow)
+  mainWindow.on('resize', scheduleCompanionFollow)
+  mainWindow.on('restore', scheduleCompanionFollow)
   mainWindow.on('close', (event) => {
     if (closingWindow) return
     event.preventDefault()
@@ -658,26 +655,61 @@ async function createWindow() {
   })
 }
 
+// 阅读窗移动/缩放时，伴侣窗口与悬浮图标实时跟随（60ms 节流，带末次补偿）。
+function scheduleCompanionFollow() {
+  if (companionFollowTimer) { companionFollowAgain = true; return }
+  companionFollowTimer = setTimeout(() => {
+    companionFollowTimer = null
+    followProfilesToMain()
+    snapFabToReader()
+    if (companionFollowAgain) { companionFollowAgain = false; scheduleCompanionFollow() }
+  }, 60)
+}
+
 // 设定集独立窗口：标准带框窗口，首次打开贴着阅读窗口右侧，互不遮挡。
-// 用户手动调整的尺寸/位置会持久化，下次打开恢复。
+// 用户手动调整的尺寸/位置会持久化，下次打开恢复；吸附位置不算用户摆放，只记尺寸。
 let profilesWindowBoundsTimer = null
 function scheduleProfilesWindowBoundsSave() {
   clearTimeout(profilesWindowBoundsTimer)
   profilesWindowBoundsTimer = setTimeout(async () => {
     if (!profilesWindow || profilesWindow.isDestroyed()) return
+    const bounds = profilesWindow.getBounds()
+    const docked = profilesLastDock && Math.abs(bounds.x - profilesLastDock.x) <= 4 && Math.abs(bounds.y - profilesLastDock.y) <= 4
     const store = await loadStore()
-    store.data['reader:profiles-window-bounds'] = profilesWindow.getBounds()
+    store.data['reader:profiles-window-bounds'] = docked ? { width: bounds.width, height: bounds.height } : bounds
     await queueStoreWrite()
   }, 400)
 }
 
-// 伴侣窗口吸附在右侧时，跟随阅读窗口移动/缩放；用户自己拖离后解除吸附。
-function followProfilesToMain() {
-  if (!profilesDocked || !profilesWindow || profilesWindow.isDestroyed() || !mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || mainWindow.isMaximized()) return
+// 伴侣窗口在阅读窗右缘的吸附位置（超出工作区则收进屏幕内）。
+function profilesDockPosition() {
   const bounds = mainWindow.getBounds()
-  profilesFollowUpdate = true
-  profilesWindow.setPosition(bounds.x + bounds.width + 8, bounds.y)
-  profilesFollowUpdate = false
+  const workArea = screen.getDisplayMatching(bounds).workArea
+  const size = profilesWindow.getBounds()
+  return {
+    x: Math.min(bounds.x + bounds.width + 8, workArea.x + workArea.width - size.width),
+    y: Math.max(workArea.y, Math.min(bounds.y, workArea.y + workArea.height - size.height)),
+  }
+}
+
+// 吸附中的伴侣窗口跟随阅读窗移动/缩放；用户拖离后自动解除，回到吸附位则恢复。
+function followProfilesToMain() {
+  if (!profilesWindow || profilesWindow.isDestroyed() || !mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return
+  const current = profilesWindow.getBounds()
+  if (!profilesLastDock) {
+    // 兼容旧版本留下的位置：恰好站在吸附位也视为吸附。
+    const dock = profilesDockPosition()
+    if (Math.abs(current.x - dock.x) <= 6 && Math.abs(current.y - dock.y) <= 6) profilesLastDock = dock
+    return
+  }
+  if (Math.abs(current.x - profilesLastDock.x) > 4 || Math.abs(current.y - profilesLastDock.y) > 4) {
+    profilesLastDock = null // 用户已拖离
+    return
+  }
+  const dock = profilesDockPosition()
+  if (dock.x === current.x && dock.y === current.y) return
+  profilesLastDock = dock
+  profilesWindow.setPosition(dock.x, dock.y)
 }
 
 async function openProfilesWindow(focusName = '', forceDock = false) {
@@ -696,8 +728,11 @@ async function openProfilesWindow(focusName = '', forceDock = false) {
   // 尺寸始终记忆；位置默认记忆，但从悬浮图标展开时强制吸附回阅读窗口右缘。
   const dockX = Math.min(mainBounds.x + mainBounds.width + 8, workArea.x + workArea.width - width)
   const dockY = Math.max(workArea.y, Math.min(mainBounds.y, workArea.y + workArea.height - height))
-  const x = !forceDock && Number.isFinite(saved?.x) ? Math.max(workArea.x, Math.min(saved.x, workArea.x + workArea.width - width)) : dockX
-  const y = !forceDock && Number.isFinite(saved?.y) ? Math.max(workArea.y, Math.min(saved.y, workArea.y + workArea.height - height)) : dockY
+  // 旧版本可能把吸附位置当成用户位置记了下来：与吸附位几乎重合时也按吸附处理。
+  const nearDock = Number.isFinite(saved?.x) && Number.isFinite(saved?.y) && Math.abs(saved.x - dockX) <= 12 && Math.abs(saved.y - dockY) <= 12
+  const useSaved = !forceDock && Number.isFinite(saved?.x) && Number.isFinite(saved?.y) && !nearDock
+  const x = useSaved ? Math.max(workArea.x, Math.min(saved.x, workArea.x + workArea.width - width)) : dockX
+  const y = useSaved ? Math.max(workArea.y, Math.min(saved.y, workArea.y + workArea.height - height)) : dockY
   profilesWindow = new BrowserWindow({
     width,
     height,
@@ -717,15 +752,16 @@ async function openProfilesWindow(focusName = '', forceDock = false) {
   })
   if (app.isPackaged) profilesWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'profiles' } })
   else profilesWindow.loadURL('http://127.0.0.1:5173?window=profiles')
-  profilesWindow.on('closed', () => { profilesWindow = null; profilesDocked = false })
-  // 用户手动拖动视为解除吸附；由跟随逻辑产生的位移除外。
-  profilesWindow.on('move', () => {
-    if (!profilesFollowUpdate) profilesDocked = false
-    scheduleProfilesWindowBoundsSave()
-  })
+  profilesWindow.on('closed', () => { profilesWindow = null; profilesLastDock = null })
+  profilesWindow.on('move', scheduleProfilesWindowBoundsSave)
   profilesWindow.on('resize', scheduleProfilesWindowBoundsSave)
-  // 初始处于吸附位置（首次停靠或从图标展开）时进入跟随状态。
-  profilesDocked = x === dockX && y === dockY
+  // 原生最小化按钮（−）：不收进任务栏，收起为阅读窗右缘的悬浮图标。
+  profilesWindow.on('minimize', (event) => {
+    event.preventDefault()
+    collapseProfilesToFab()
+  })
+  // 初始处于吸附位置（首次停靠或从图标展开）时进入吸附状态。
+  profilesLastDock = (x === dockX && y === dockY) ? { x, y } : null
   profilesWindow.webContents.once('did-finish-load', () => {
     mainWindow?.webContents.send('profiles:request-sync')
     if (focusName) profilesWindow?.webContents.send('profiles:focus', focusName)
@@ -760,10 +796,10 @@ ipcMain.on('profiles:action', (_event, action) => {
   mainWindow?.webContents.send('profiles:action', action)
 })
 
-// 收起为悬浮小图标：自动吸附到阅读器窗口外右侧，跟随阅读窗移动，拖拽松手后回吸。
+// 收起为悬浮小图标：吸附到阅读器窗口外右侧，跟随阅读窗移动，拖拽松手后回吸。
+// 图标窗是阅读窗的 owned 子窗口：阅读窗最小化/老板键隐藏/被其他窗口压下时，它同步跟随。
 let profilesFabSnapTimer = null
 let profilesFabPersistTimer = null
-let fabFollowUpdate = false
 function snapFabToReader() {
   if (!profilesFabWindow || profilesFabWindow.isDestroyed() || !mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return
   const bounds = mainWindow.getBounds()
@@ -771,9 +807,7 @@ function snapFabToReader() {
   const workArea = screen.getDisplayMatching(bounds).workArea
   const x = Math.min(bounds.x + bounds.width + 6, workArea.x + workArea.width - fab.width)
   const y = Math.max(workArea.y, Math.min(fab.y, Math.min(bounds.y + bounds.height - fab.height, workArea.y + workArea.height - fab.height)))
-  fabFollowUpdate = true
-  profilesFabWindow.setPosition(x, y)
-  fabFollowUpdate = false
+  if (x !== fab.x || y !== fab.y) profilesFabWindow.setPosition(x, y)
   clearTimeout(profilesFabPersistTimer)
   profilesFabPersistTimer = setTimeout(async () => {
     if (!profilesFabWindow || profilesFabWindow.isDestroyed()) return
@@ -801,7 +835,7 @@ async function openProfilesFabWindow() {
     frame: false,
     resizable: false,
     skipTaskbar: true,
-    alwaysOnTop: true,
+    parent: mainWindow || undefined,
     autoHideMenuBar: true,
     backgroundColor: '#f3f2ee',
     webPreferences: {
@@ -821,11 +855,14 @@ async function openProfilesFabWindow() {
   profilesFabWindow.webContents.once('did-finish-load', () => mainWindow?.webContents.send('profiles:request-sync'))
 }
 
-ipcMain.on('profiles:collapse', () => {
+function collapseProfilesToFab() {
   if (profilesWindow && !profilesWindow.isDestroyed()) profilesWindow.destroy()
   profilesWindow = null
+  profilesLastDock = null
   openProfilesFabWindow()
-})
+}
+
+ipcMain.on('profiles:collapse', collapseProfilesToFab)
 ipcMain.on('profiles:expand', () => {
   if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
   profilesFabWindow = null

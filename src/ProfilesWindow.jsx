@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpenCheck, ListChecks, RefreshCw, Search, ServerCog, SquareChevronRight, X } from 'lucide-react'
+import { BookOpenCheck, ListChecks, RefreshCw, Search, ServerCog, X } from 'lucide-react'
 import AISettingsModal from './components/AISettingsModal'
 import EntityDetails from './components/EntityDetails'
 import EntityRelations from './components/EntityRelations'
@@ -107,7 +107,6 @@ export default function ProfilesWindow() {
         <div className="profile-panel-actions">
           <button className="profiles-tasks-toggle" onClick={() => setTasksOpen((current) => !current)} title="生成任务队列"><ListChecks size={16} />{activeTaskCount ? <span className="tasks-badge">{activeTaskCount}</span> : null}</button>
           <button onClick={() => setSettingsOpen(true)} title="AI 供应商"><ServerCog size={16} /></button>
-          <button onClick={() => window.readerAPI?.collapseProfilesWindow?.()} title="收起为屏幕右缘悬浮图标"><SquareChevronRight size={16} /></button>
         </div>
       </header>
       {tasksOpen ? (

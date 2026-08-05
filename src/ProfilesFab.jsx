@@ -6,12 +6,11 @@ export default function ProfilesFab() {
   const [snapshot, setSnapshot] = useState(null)
   useEffect(() => window.readerAPI?.onProfilesSync?.((next) => setSnapshot(next)), [])
   const active = (snapshot?.profileTasks || []).filter((task) => !['done', 'error'].includes(task.status)).length
-  const total = snapshot?.entityProfiles?.length || 0
   return (
     <div className="profiles-fab-window">
       <button className="profiles-fab-button" onClick={() => window.readerAPI?.expandProfilesWindow?.()} title="展开设定集">
         <BookOpenCheck size={19} />
-        <span>{active || total}</span>
+        {active ? <span>{active}</span> : null}
       </button>
     </div>
   )
