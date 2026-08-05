@@ -6,24 +6,17 @@ import EntityRelations from './components/EntityRelations'
 import { isCorruptProfile } from './entityProfiles'
 
 const TYPE_ORDER = ['人物', '物品', '地点', '组织', '能力', '事件', '未分类']
-const SNAPSHOT_CACHE_KEY = 'profiles-window-snapshot'
-
-function readCachedSnapshot() {
-  try { return JSON.parse(localStorage.getItem(SNAPSHOT_CACHE_KEY)) } catch { return null }
-}
 
 // 设定集独立窗口：与阅读窗口并排存在，显示资料卡和后台生成任务队列。
-// 所有数据来自阅读窗口推送的快照；用户操作通过 profiles:action 回传阅读窗口执行。
-// 快照缓存在本地，窗口重开先渲染缓存保证秒开，新快照到达后刷新。
+// 所有数据来自阅读窗口推送的快照（主进程会留存最新一份，窗口打开即有数据）；
+// 用户操作通过 profiles:action 回传阅读窗口执行。
+// 不用 localStorage 缓存快照：关窗后换书，旧书快照会残留成“上一本书的设定集”。
 export default function ProfilesWindow() {
-  const [snapshot, setSnapshot] = useState(readCachedSnapshot)
+  const [snapshot, setSnapshot] = useState(null)
   const [toast, setToast] = useState(null)
   const previousTasksRef = useRef([])
 
-  useEffect(() => window.readerAPI?.onProfilesSync?.((next) => {
-    setSnapshot(next)
-    try { localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next)) } catch {}
-  }), [])
+  useEffect(() => window.readerAPI?.onProfilesSync?.((next) => setSnapshot(next)), [])
   const [profileQuery, setProfileQuery] = useState('')
   const [profileType, setProfileType] = useState('全部')
   const [selectedProfileId, setSelectedProfileId] = useState('')
@@ -34,7 +27,6 @@ export default function ProfilesWindow() {
   const [aliasInputFor, setAliasInputFor] = useState(null)
   const [aliasText, setAliasText] = useState('')
 
-  useEffect(() => window.readerAPI?.onProfilesSync?.((next) => setSnapshot(next)), [])
   useEffect(() => {
     document.title = snapshot?.bookTitle ? `设定集 - ${snapshot.bookTitle}` : '设定集'
   }, [snapshot?.bookTitle])

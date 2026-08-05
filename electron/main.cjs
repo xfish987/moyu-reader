@@ -799,6 +799,7 @@ async function openProfilesWindow(focusName = '', forceDock = false) {
   // 初始处于吸附位置（首次停靠或从图标展开）时进入吸附状态。
   profilesLastDock = (x === dockX && y === dockY) ? { x, y } : null
   profilesWindow.webContents.once('did-finish-load', () => {
+    if (lastProfilesSnapshot) profilesWindow?.webContents.send('profiles:sync', lastProfilesSnapshot)
     mainWindow?.webContents.send('profiles:request-sync')
     if (focusName) profilesWindow?.webContents.send('profiles:focus', focusName)
   })
@@ -822,7 +823,11 @@ ipcMain.handle('profiles:toggle', async () => {
   return true
 })
 // 阅读窗口 → 设定集窗口/悬浮图标：状态快照（资料卡 + 生成任务）。
+// 主进程自己留存一份：关窗/换书时快照变化不再“无处可去”，
+// 新开的设定集窗口直接由主进程喂最新快照，不再依赖渲染端 localStorage 缓存（会残留上一本书）。
+let lastProfilesSnapshot = null
 ipcMain.on('profiles:sync', (_event, snapshot) => {
+  lastProfilesSnapshot = snapshot || null
   for (const win of [profilesWindow, profilesFabWindow]) {
     if (win && !win.isDestroyed()) win.webContents.send('profiles:sync', snapshot)
   }
@@ -891,7 +896,10 @@ async function openProfilesFabWindow() {
     clearTimeout(profilesFabSnapTimer)
     profilesFabSnapTimer = setTimeout(snapFabToReader, 350)
   })
-  profilesFabWindow.webContents.once('did-finish-load', () => mainWindow?.webContents.send('profiles:request-sync'))
+  profilesFabWindow.webContents.once('did-finish-load', () => {
+    if (lastProfilesSnapshot) profilesFabWindow?.webContents.send('profiles:sync', lastProfilesSnapshot)
+    mainWindow?.webContents.send('profiles:request-sync')
+  })
 }
 
 function collapseProfilesToFab() {
