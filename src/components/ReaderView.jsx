@@ -335,7 +335,6 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     } else if (action.type === 'cancel-link') setLinkAlias('')
   }), [entityProfiles, onDeleteEntityProfile, onUpdateEntityIdentity])
 
-  const activeProfileTaskCount = profileTasks.filter((task) => !['done', 'error'].includes(task.status)).length
 
   const commitSeek = (event) => {
     const value = Number(event.currentTarget.value)
@@ -426,7 +425,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
             <button className="toolbar-button" onClick={addBookmark} title="添加书签"><BookmarkPlus size={17} /></button>
             <button className={`toolbar-button ${panel === 'bookmarks' ? 'active' : ''}`} onClick={() => setPanel(panel === 'bookmarks' ? null : 'bookmarks')} title="书签"><BookMarked size={17} /></button>
             <button className={`toolbar-button ${panel === 'notes' ? 'active' : ''}`} onClick={() => setPanel(panel === 'notes' ? null : 'notes')} title="摘录与笔记"><NotebookPen size={17} /></button>
-            <button className="toolbar-button" onClick={() => window.readerAPI.openProfilesWindow?.()} title="本书设定集（独立窗口）"><BookOpenCheck size={17} />{activeProfileTaskCount ? <span className="toolbar-badge">{activeProfileTaskCount}</span> : null}</button>
+            <button className="toolbar-button" onClick={() => window.readerAPI.toggleProfilesWindow?.()} title="本书设定集（打开/关闭独立窗口）"><BookOpenCheck size={17} /></button>
             <button className={`toolbar-button ${panel === 'search' ? 'active' : ''}`} onClick={() => setPanel(panel === 'search' ? null : 'search')} title="全书搜索"><Search size={17} /></button>
             <button className={`toolbar-button ${panel === 'settings' ? 'active' : ''}`} onClick={() => setPanel(panel === 'settings' ? null : 'settings')} title="阅读设置"><Settings2 size={18} /></button>
             <button className="toolbar-button" onClick={onToggleImmersive} title="沉浸阅读 (F11)"><Maximize size={17} /></button>

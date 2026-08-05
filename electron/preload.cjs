@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('readerAPI', {
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
   repairProfileJson: (payload) => ipcRenderer.invoke('ai:repair-profile-json', payload),
   openProfilesWindow: (focusName) => ipcRenderer.invoke('profiles:open', focusName || ''),
+  toggleProfilesWindow: () => ipcRenderer.invoke('profiles:toggle'),
   collapseProfilesWindow: () => ipcRenderer.send('profiles:collapse'),
   expandProfilesWindow: () => ipcRenderer.send('profiles:expand'),
   sendProfilesSync: (snapshot) => ipcRenderer.send('profiles:sync', snapshot),

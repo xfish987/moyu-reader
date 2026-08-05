@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpenCheck, RefreshCw, Search, ServerCog, SquareChevronRight, X } from 'lucide-react'
+import { BookOpenCheck, ListChecks, RefreshCw, Search, ServerCog, SquareChevronRight, X } from 'lucide-react'
 import AISettingsModal from './components/AISettingsModal'
 import EntityDetails from './components/EntityDetails'
 import EntityRelations from './components/EntityRelations'
@@ -15,6 +15,8 @@ export default function ProfilesWindow() {
   const [profileType, setProfileType] = useState('全部')
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tasksOpen, setTasksOpen] = useState(false)
+  const [expandedTaskId, setExpandedTaskId] = useState(null)
   const [linkQuery, setLinkQuery] = useState('')
   const [aliasInputFor, setAliasInputFor] = useState(null)
   const [aliasText, setAliasText] = useState('')
@@ -64,14 +66,15 @@ export default function ProfilesWindow() {
       <header className="profiles-window-header">
         <div><BookOpenCheck size={17} /><strong>{snapshot?.bookTitle ? `《${snapshot.bookTitle}》设定集` : '设定集'}</strong><span>{entityProfiles.length} 条{activeTaskCount ? ` · ${activeTaskCount} 个任务进行中` : ''}</span></div>
         <div className="profile-panel-actions">
+          <button className="profiles-tasks-toggle" onClick={() => setTasksOpen((current) => !current)} title="生成任务队列"><ListChecks size={16} />{activeTaskCount ? <span className="tasks-badge">{activeTaskCount}</span> : null}</button>
           <button onClick={() => setSettingsOpen(true)} title="AI 供应商"><ServerCog size={16} /></button>
           <button onClick={() => window.readerAPI?.collapseProfilesWindow?.()} title="收起为屏幕右缘悬浮图标"><SquareChevronRight size={16} /></button>
         </div>
       </header>
-      {profileTasks.length ? (
-        <div className="profile-tasks">
-          {profileTasks.map((task) => (
-            <div className={`profile-task is-${task.status}`} key={task.id}>
+      {tasksOpen ? (
+        <div className="profile-tasks-view">
+          {profileTasks.length ? profileTasks.map((task) => (
+            <div className={`profile-task is-${task.status}${task.status === 'error' ? ' is-clickable' : ''}`} key={task.id} onClick={() => { if (task.status === 'error') setExpandedTaskId(expandedTaskId === task.id ? null : task.id) }}>
               <div className="profile-task-main">
                 <strong>{task.name}</strong>
                 {task.status === 'pending' ? <span>排队等待检索…</span> : null}
@@ -80,19 +83,19 @@ export default function ProfilesWindow() {
                 {task.status === 'queued' ? <span>排队等待生成…</span> : null}
                 {task.status === 'generating' ? <span><RefreshCw className="spin" size={12} /> 正在生成资料卡…</span> : null}
                 {task.status === 'done' ? <span>资料卡已生成</span> : null}
-                {task.status === 'error' ? <span className="profile-task-error" title={task.error?.message}>{task.error?.message || '生成失败'}</span> : null}
+                {task.status === 'error' ? <span className="profile-task-error">生成失败{expandedTaskId === task.id ? '，点击收起详情' : '，点击查看详情'}</span> : null}
+                {task.status === 'error' && expandedTaskId === task.id ? <div className="profile-task-error-detail">{task.error?.message || '未知错误'}{task.error?.code ? `（错误码 ${task.error.code}）` : ''}</div> : null}
               </div>
               <div className="profile-task-actions">
                 {task.status === 'ready' ? <button className="profile-task-primary" onClick={() => window.readerAPI?.sendProfilesAction?.({ type: 'confirm', taskId: task.id })}>{task.hasCached ? (task.incremental ? '更新资料' : '重新生成') : '生成资料'}</button> : null}
-                {task.status === 'done' ? <button className="profile-task-primary" onClick={() => { setSelectedProfileId(task.profileId || ''); window.readerAPI?.sendProfilesAction?.({ type: 'dismiss', taskId: task.id }) }}>查看</button> : null}
-                {task.status === 'error' ? <button className="profile-task-primary" onClick={() => window.readerAPI?.sendProfilesAction?.({ type: 'retry', taskId: task.id })}>重试</button> : null}
-                {!['searching', 'generating'].includes(task.status) ? <button className="profile-task-dismiss" onClick={() => window.readerAPI?.sendProfilesAction?.({ type: 'dismiss', taskId: task.id })} title="移除任务"><X size={12} /></button> : null}
+                {task.status === 'done' ? <button className="profile-task-primary" onClick={() => { setSelectedProfileId(task.profileId || ''); setTasksOpen(false); window.readerAPI?.sendProfilesAction?.({ type: 'dismiss', taskId: task.id }) }}>查看</button> : null}
+                {task.status === 'error' ? <button className="profile-task-primary" onClick={(event) => { event.stopPropagation(); window.readerAPI?.sendProfilesAction?.({ type: 'retry', taskId: task.id }) }}>重试</button> : null}
+                <button className="profile-task-dismiss" onClick={(event) => { event.stopPropagation(); window.readerAPI?.sendProfilesAction?.({ type: 'dismiss', taskId: task.id }) }} title="删除任务"><X size={12} /></button>
               </div>
             </div>
-          ))}
+          )) : <div className="profiles-empty"><ListChecks size={26} /><strong>暂无生成任务</strong><span>在阅读窗口选中人物、物品或地点，右键选择“生成资料”</span></div>}
         </div>
-      ) : null}
-      {linkAlias ? (
+      ) : linkAlias ? (
         <div className="profile-link-picker">
           <div className="profile-link-banner"><span>正在为「{linkAlias}」选择要关联到的资料卡，关联后它就是该卡的别名</span><button onClick={() => window.readerAPI?.sendProfilesAction?.({ type: 'cancel-link' })}>取消</button></div>
           <label className="profile-collection-search"><Search size={14} /><input autoFocus value={linkQuery} onChange={(event) => setLinkQuery(event.target.value)} placeholder="搜索要关联的资料卡（名称、别名、内容）" /></label>

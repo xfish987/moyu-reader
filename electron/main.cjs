@@ -14,6 +14,9 @@ const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 let mainWindow
 let profilesWindow = null
 let profilesFabWindow = null
+let profilesDocked = false
+let profilesFollowUpdate = false
+let fabFollowTimer = null
 let bossHidden = false
 let windowPinned = false
 let pendingExternalFiles = []
@@ -631,6 +634,15 @@ async function createWindow() {
   mainWindow.on('unmaximize', emitMaximized)
   mainWindow.on('resize', scheduleWindowBoundsSave)
   mainWindow.on('move', scheduleWindowBoundsSave)
+  // 伴侣窗口吸附状态时跟随阅读窗移动/缩放；悬浮图标也跟随（防抖）。
+  mainWindow.on('move', followProfilesToMain)
+  mainWindow.on('resize', followProfilesToMain)
+  const scheduleFabFollow = () => {
+    clearTimeout(fabFollowTimer)
+    fabFollowTimer = setTimeout(snapFabToReader, 300)
+  }
+  mainWindow.on('move', scheduleFabFollow)
+  mainWindow.on('resize', scheduleFabFollow)
   mainWindow.on('close', (event) => {
     if (closingWindow) return
     event.preventDefault()
@@ -646,20 +658,46 @@ async function createWindow() {
   })
 }
 
-// 设定集独立窗口：标准带框窗口，打开时贴着阅读窗口右侧，互不遮挡。
-function openProfilesWindow(focusName = '') {
+// 设定集独立窗口：标准带框窗口，首次打开贴着阅读窗口右侧，互不遮挡。
+// 用户手动调整的尺寸/位置会持久化，下次打开恢复。
+let profilesWindowBoundsTimer = null
+function scheduleProfilesWindowBoundsSave() {
+  clearTimeout(profilesWindowBoundsTimer)
+  profilesWindowBoundsTimer = setTimeout(async () => {
+    if (!profilesWindow || profilesWindow.isDestroyed()) return
+    const store = await loadStore()
+    store.data['reader:profiles-window-bounds'] = profilesWindow.getBounds()
+    await queueStoreWrite()
+  }, 400)
+}
+
+// 伴侣窗口吸附在右侧时，跟随阅读窗口移动/缩放；用户自己拖离后解除吸附。
+function followProfilesToMain() {
+  if (!profilesDocked || !profilesWindow || profilesWindow.isDestroyed() || !mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || mainWindow.isMaximized()) return
+  const bounds = mainWindow.getBounds()
+  profilesFollowUpdate = true
+  profilesWindow.setPosition(bounds.x + bounds.width + 8, bounds.y)
+  profilesFollowUpdate = false
+}
+
+async function openProfilesWindow(focusName = '', forceDock = false) {
   if (profilesWindow && !profilesWindow.isDestroyed()) {
     if (focusName) profilesWindow.webContents.send('profiles:focus', focusName)
     profilesWindow.show()
     profilesWindow.focus()
     return
   }
+  const store = await loadStore()
+  const saved = store.data['reader:profiles-window-bounds']
   const mainBounds = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : { x: 100, y: 100, width: 900, height: 700 }
   const workArea = screen.getDisplayMatching(mainBounds).workArea
-  const width = Math.min(780, Math.max(520, Math.floor(workArea.width * 0.42)))
-  const height = Math.min(mainBounds.height, workArea.height)
-  const x = Math.min(mainBounds.x + mainBounds.width + 8, workArea.x + workArea.width - width)
-  const y = Math.max(workArea.y, Math.min(mainBounds.y, workArea.y + workArea.height - height))
+  const width = Math.min(workArea.width, Math.max(420, Number(saved?.width) || Math.min(780, Math.max(520, Math.floor(workArea.width * 0.42)))))
+  const height = Math.min(workArea.height, Math.max(360, Number(saved?.height) || Math.min(mainBounds.height, workArea.height)))
+  // 尺寸始终记忆；位置默认记忆，但从悬浮图标展开时强制吸附回阅读窗口右缘。
+  const dockX = Math.min(mainBounds.x + mainBounds.width + 8, workArea.x + workArea.width - width)
+  const dockY = Math.max(workArea.y, Math.min(mainBounds.y, workArea.y + workArea.height - height))
+  const x = !forceDock && Number.isFinite(saved?.x) ? Math.max(workArea.x, Math.min(saved.x, workArea.x + workArea.width - width)) : dockX
+  const y = !forceDock && Number.isFinite(saved?.y) ? Math.max(workArea.y, Math.min(saved.y, workArea.y + workArea.height - height)) : dockY
   profilesWindow = new BrowserWindow({
     width,
     height,
@@ -679,15 +717,36 @@ function openProfilesWindow(focusName = '') {
   })
   if (app.isPackaged) profilesWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'profiles' } })
   else profilesWindow.loadURL('http://127.0.0.1:5173?window=profiles')
-  profilesWindow.on('closed', () => { profilesWindow = null })
+  profilesWindow.on('closed', () => { profilesWindow = null; profilesDocked = false })
+  // 用户手动拖动视为解除吸附；由跟随逻辑产生的位移除外。
+  profilesWindow.on('move', () => {
+    if (!profilesFollowUpdate) profilesDocked = false
+    scheduleProfilesWindowBoundsSave()
+  })
+  profilesWindow.on('resize', scheduleProfilesWindowBoundsSave)
+  // 初始处于吸附位置（首次停靠或从图标展开）时进入跟随状态。
+  profilesDocked = x === dockX && y === dockY
   profilesWindow.webContents.once('did-finish-load', () => {
     mainWindow?.webContents.send('profiles:request-sync')
     if (focusName) profilesWindow?.webContents.send('profiles:focus', focusName)
   })
 }
 
-ipcMain.handle('profiles:open', (_event, focusName) => {
-  openProfilesWindow(String(focusName || '').slice(0, 80))
+ipcMain.handle('profiles:open', async (_event, focusName) => {
+  await openProfilesWindow(String(focusName || '').slice(0, 80))
+  return true
+})
+// 工具栏按钮：开着就关，关着就开（悬浮图标状态下则展开）。
+ipcMain.handle('profiles:toggle', async () => {
+  if (profilesWindow && !profilesWindow.isDestroyed()) {
+    profilesWindow.close()
+    return false
+  }
+  if (profilesFabWindow && !profilesFabWindow.isDestroyed()) {
+    profilesFabWindow.destroy()
+    profilesFabWindow = null
+  }
+  await openProfilesWindow()
   return true
 })
 // 阅读窗口 → 设定集窗口/悬浮图标：状态快照（资料卡 + 生成任务）。
@@ -701,19 +760,44 @@ ipcMain.on('profiles:action', (_event, action) => {
   mainWindow?.webContents.send('profiles:action', action)
 })
 
-// 收起为屏幕右缘的悬浮小图标（独立小窗，可拖动，带活动任务数）。
-function openProfilesFabWindow() {
+// 收起为悬浮小图标：自动吸附到阅读器窗口外右侧，跟随阅读窗移动，拖拽松手后回吸。
+let profilesFabSnapTimer = null
+let profilesFabPersistTimer = null
+let fabFollowUpdate = false
+function snapFabToReader() {
+  if (!profilesFabWindow || profilesFabWindow.isDestroyed() || !mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return
+  const bounds = mainWindow.getBounds()
+  const fab = profilesFabWindow.getBounds()
+  const workArea = screen.getDisplayMatching(bounds).workArea
+  const x = Math.min(bounds.x + bounds.width + 6, workArea.x + workArea.width - fab.width)
+  const y = Math.max(workArea.y, Math.min(fab.y, Math.min(bounds.y + bounds.height - fab.height, workArea.y + workArea.height - fab.height)))
+  fabFollowUpdate = true
+  profilesFabWindow.setPosition(x, y)
+  fabFollowUpdate = false
+  clearTimeout(profilesFabPersistTimer)
+  profilesFabPersistTimer = setTimeout(async () => {
+    if (!profilesFabWindow || profilesFabWindow.isDestroyed()) return
+    const store = await loadStore()
+    store.data['reader:profiles-fab-dy'] = profilesFabWindow.getBounds().y - bounds.y
+    await queueStoreWrite()
+  }, 500)
+}
+
+async function openProfilesFabWindow() {
   if (profilesFabWindow && !profilesFabWindow.isDestroyed()) {
     profilesFabWindow.show()
     return
   }
+  const store = await loadStore()
   const mainBounds = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : screen.getPrimaryDisplay().workArea
   const workArea = screen.getDisplayMatching(mainBounds).workArea
+  const savedDy = Number(store.data['reader:profiles-fab-dy'])
+  const dy = Number.isFinite(savedDy) ? savedDy : Math.floor(mainBounds.height * 0.3)
   profilesFabWindow = new BrowserWindow({
     width: 58,
     height: 78,
-    x: workArea.x + workArea.width - 68,
-    y: workArea.y + Math.floor(workArea.height * 0.4),
+    x: Math.min(mainBounds.x + mainBounds.width + 6, workArea.x + workArea.width - 58),
+    y: Math.max(workArea.y, Math.min(mainBounds.y + dy, workArea.y + workArea.height - 78)),
     frame: false,
     resizable: false,
     skipTaskbar: true,
@@ -729,6 +813,11 @@ function openProfilesFabWindow() {
   if (app.isPackaged) profilesFabWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'profiles-fab' } })
   else profilesFabWindow.loadURL('http://127.0.0.1:5173?window=profiles-fab')
   profilesFabWindow.on('closed', () => { profilesFabWindow = null })
+  profilesFabWindow.on('move', () => {
+    // 用户拖动松手后自动回吸到阅读窗口右缘。
+    clearTimeout(profilesFabSnapTimer)
+    profilesFabSnapTimer = setTimeout(snapFabToReader, 350)
+  })
   profilesFabWindow.webContents.once('did-finish-load', () => mainWindow?.webContents.send('profiles:request-sync'))
 }
 
@@ -740,7 +829,7 @@ ipcMain.on('profiles:collapse', () => {
 ipcMain.on('profiles:expand', () => {
   if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
   profilesFabWindow = null
-  openProfilesWindow()
+  openProfilesWindow('', true)
 })
 
 function supportedBookPaths(values = []) {

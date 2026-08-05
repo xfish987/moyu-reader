@@ -1086,13 +1086,18 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .profiles-empty span { max-width: 300px; font-size: 9px; line-height: 1.7; }
 
 /* 生成任务队列 */
-.profile-tasks { max-height: 168px; overflow: auto; border-bottom: 1px solid var(--line); display: grid; }
-.profile-task { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
-.profile-task:last-child { border-bottom: 0; }
+.profile-tasks-view { flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; }
+.profile-tasks-view .profiles-empty { min-height: 240px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--chrome); text-align: center; }
+.profiles-tasks-toggle { position: relative; }
+.tasks-badge { position: absolute; top: -3px; right: -3px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; display: grid; place-items: center; background: #b05a41; color: #fff; font-size: 8px; }
+.profile-task { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.profile-task.is-clickable { cursor: pointer; }
+.profile-task.is-clickable:hover { background: rgba(var(--reader-ink), .04); }
 .profile-task-main { min-width: 0; display: grid; gap: 2px; }
 .profile-task-main strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .profile-task-main span { display: flex; align-items: center; gap: 5px; color: var(--chrome); font-size: 8px; }
 .profile-task-error { color: #a04b3c !important; }
+.profile-task-error-detail { margin-top: 4px; padding: 6px 8px; border-left: 2px solid #a04b3c; color: #a04b3c; background: rgba(160, 75, 60, .06); font-size: 8px; line-height: 1.7; word-break: break-all; }
 .profile-task-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .profile-task-primary { padding: 4px 9px; border: 1px solid var(--line); border-radius: 4px; background: rgba(var(--reader-ink), .05); color: rgb(var(--reader-ink)); font-size: 8px; cursor: pointer; }
 .profile-task-primary:hover { background: rgba(var(--reader-ink), .1); }
