@@ -331,7 +331,7 @@ export default function App() {
   }, [activeBook, setEntityProfilesMap])
 
   return (
-    <div className={`app-shell ${immersive ? 'app-immersive' : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={`app-shell ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
       {!immersive ? <WindowBar pinned={pinned} onTogglePin={() => setPinned((current) => !current)} /> : null}
       {activeBook && source ? (
