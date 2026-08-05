@@ -145,13 +145,16 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     readPercent: Number(progress.percent) || 0,
   })
 
-  const loadEntityContext = async (names) => {
+  const loadEntityContext = async (names, options = {}) => {
     if (!entitySelection) return { excerpts: [], totalMatches: 0 }
     const terms = Array.isArray(names) ? names : [names]
-    if (source.kind === 'text') return readerRef.current?.lookupEntity?.(terms, entitySelection) || { excerpts: [], totalMatches: 0 }
-    if (source.kind === 'epub') return readerRef.current?.lookupEntity?.(terms, entitySelection) || { excerpts: [], totalMatches: 0 }
+    // 增量更新时从上份资料卡的阅读位置开始检索（本地检索免费，省的是发给模型的 token）。
+    const from = Number(options.fromReadPosition) || 0
+    if (source.kind === 'text') return readerRef.current?.lookupEntity?.(terms, { ...entitySelection, fromReadPercent: from > 0 ? from : 0 }) || { excerpts: [], totalMatches: 0 }
+    if (source.kind === 'epub') return readerRef.current?.lookupEntity?.(terms, { ...entitySelection, fromReadPercent: from > 0 ? from : 0 }) || { excerpts: [], totalMatches: 0 }
     const before = Number(entitySelection.readPosition) || 0
-    const responses = await Promise.all(terms.flatMap((name) => searchVariants(name, settings.scriptConversion)).filter((value, index, items) => items.indexOf(value) === index).map((name) => window.readerAPI.searchText(book.path, name)))
+    const searchOptions = { sample: true, fromOffset: from > 0 ? Math.max(0, from - 2000) : 0 }
+    const responses = await Promise.all(terms.flatMap((name) => searchVariants(name, settings.scriptConversion)).filter((value, index, items) => items.indexOf(value) === index).map((name) => window.readerAPI.searchText(book.path, name, searchOptions)))
     const matches = responses.flatMap((response) => response.results || []).filter((item) => item.matchOffset < Math.max(0, before - 32)).filter((item, index, items) => items.findIndex((candidate) => candidate.matchOffset === item.matchOffset) === index).sort((a, b) => a.matchOffset - b.matchOffset)
     const excerpts = matches.map((item, index) => {
       let chapter = '此前内容'
@@ -162,7 +165,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       return { order: index + 1, chapter, text: item.label }
     })
     if (entitySelection.currentExcerpt && terms.some((term) => entitySelection.currentExcerpt.includes(term))) excerpts.push({ order: excerpts.length + 1, chapter: entitySelection.chapterLabel || activeChapter?.label || '当前位置', text: entitySelection.currentExcerpt })
-    return { excerpts, totalMatches: excerpts.length, truncated: responses.some((response) => response.truncated) }
+    const reportedTotal = responses.reduce((sum, response) => sum + (Number(response.total) || 0), 0)
+    return { excerpts, totalMatches: Math.max(reportedTotal, excerpts.length), truncated: responses.some((response) => response.truncated) }
   }
   const profileTypes = ['全部', ...['人物', '物品', '地点', '组织', '能力', '事件', '未分类'].filter((type) => entityProfiles.some((item) => (item.type || '未分类') === type))]
   const filteredProfiles = entityProfiles.filter((item) => (profileType === '全部' || (item.type || '未分类') === profileType) && (!profileQuery.trim() || `${item.name}\n${(item.aliases || []).join(' ')}\n${item.summary}\n${(item.relations || []).map((relation) => `${relation.targetName} ${relation.label}`).join(' ')}`.toLocaleLowerCase('zh-CN').includes(profileQuery.trim().toLocaleLowerCase('zh-CN'))))
@@ -379,7 +383,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           <header><div><BookOpenCheck size={17} /><strong>《{book.title}》设定集</strong><span>{entityProfiles.length} 条</span></div><button onClick={() => setPanel(null)} title="关闭设定集"><X size={16} /></button></header>
           <label className="profile-collection-search"><Search size={14} /><input value={profileQuery} onChange={(event) => setProfileQuery(event.target.value)} placeholder="搜索人物、物品、地点或资料内容" /></label>
           <nav className="profile-type-tabs" aria-label="资料类型">{profileTypes.map((type) => <button className={profileType === type ? 'active' : ''} key={type} onClick={() => { setProfileType(type); setSelectedProfileId('') }}>{type}<span>{type === '全部' ? entityProfiles.length : entityProfiles.filter((item) => (item.type || '未分类') === type).length}</span></button>)}</nav>
-          {filteredProfiles.length ? <div className="profile-collection-content"><nav>{Object.entries(groupedProfiles).map(([group, profiles]) => <section key={group}><h3>{group}</h3>{profiles.map((profile) => <button className={selectedProfile?.id === profile.id ? 'active' : ''} key={profile.id} onClick={() => setSelectedProfileId(profile.id)}><strong>{profile.name}</strong><span>{profile.aliases?.length ? `别名 ${profile.aliases.slice(0, 2).join('、')} · ` : ''}总结至 {Math.round((profile.readPercent || 0) * 100)}%</span></button>)}</section>)}</nav>{selectedProfile ? <article><header><div><strong>{selectedProfile.name}</strong><span>{selectedProfile.type || '未分类'} · 已读范围内找到 {selectedProfile.totalMatches} 处{selectedProfile.identityLocked ? ' · 人工关联已锁定' : ''}</span>{selectedProfile.aliases?.length ? <em>别名：{selectedProfile.aliases.join('、')}</em> : null}</div><button onClick={() => setIdentityProfile(selectedProfile)}>管理关联</button></header><div>{selectedProfile.summary}</div><EntityDetails details={selectedProfile.details} /><EntityRelations relations={selectedProfile.relations} inbound={inboundRelations} resolveProfile={resolveProfile} onOpen={(profile) => setSelectedProfileId(profile.id)} /><footer>{selectedProfile.providerName} / {selectedProfile.model} · 更新于 {new Date(selectedProfile.createdAt).toLocaleString('zh-CN')}</footer></article> : null}</div> : <div className="profiles-empty"><BookOpenCheck size={28} /><strong>{entityProfiles.length ? '没有匹配的资料' : '本书还没有资料卡'}</strong><span>{entityProfiles.length ? '换个关键词或类型试试' : '选中人物、物品或地点，右键选择“查看资料”'}</span></div>}
+          {filteredProfiles.length ? <div className="profile-collection-content"><nav>{Object.entries(groupedProfiles).map(([group, profiles]) => <section key={group}><h3>{group}</h3>{profiles.map((profile) => <button className={selectedProfile?.id === profile.id ? 'active' : ''} key={profile.id} onClick={() => setSelectedProfileId(profile.id)}><strong>{profile.name}</strong><span>{profile.aliases?.length ? `别名 ${profile.aliases.slice(0, 2).join('、')} · ` : ''}总结至 {Math.round((profile.readPercent || 0) * 100)}%</span></button>)}</section>)}</nav>{selectedProfile ? <article><header><div><strong>{selectedProfile.name}</strong><span>{selectedProfile.type || '未分类'} · 已读范围内找到 {selectedProfile.totalMatches} 处{selectedProfile.identityLocked ? ' · 人工关联已锁定' : ''}{selectedProfile.incremental ? ' · 增量更新' : ''}{selectedProfile.truncated ? ' · 输出曾被截断' : ''}</span>{selectedProfile.aliases?.length ? <em>别名：{selectedProfile.aliases.join('、')}</em> : null}</div><button onClick={() => setIdentityProfile(selectedProfile)}>管理关联</button></header><div>{selectedProfile.summary}</div><EntityDetails details={selectedProfile.details} /><EntityRelations relations={selectedProfile.relations} inbound={inboundRelations} resolveProfile={resolveProfile} onOpen={(profile) => setSelectedProfileId(profile.id)} /><footer>{selectedProfile.providerName} / {selectedProfile.model} · 更新于 {new Date(selectedProfile.createdAt).toLocaleString('zh-CN')}</footer></article> : null}</div> : <div className="profiles-empty"><BookOpenCheck size={28} /><strong>{entityProfiles.length ? '没有匹配的资料' : '本书还没有资料卡'}</strong><span>{entityProfiles.length ? '换个关键词或类型试试' : '选中人物、物品或地点，右键选择“查看资料”'}</span></div>}
         </aside>
       ) : null}
       {panel === 'search' && !immersive ? (

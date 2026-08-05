@@ -9,6 +9,7 @@ const { DOMParser } = require('@xmldom/xmldom')
 const { collectModelCatalog } = require('./modelCatalog.cjs')
 const { parseProfileJson } = require('./jsonRepair.cjs')
 const { buildProfileMessages } = require('./profilePrompt.cjs')
+const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
 let mainWindow
 let bossHidden = false
@@ -67,31 +68,6 @@ function sanitizeAiErrorText(value, secret = '') {
   return text
     .replace(/Bearer\s+[^\s"']+/gi, 'Bearer [已隐藏]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[已隐藏]')
-}
-
-function selectSummaryExcerpts(items, limit = 48, maxChars = 32000) {
-  const unique = []
-  const seen = new Set()
-  for (const item of items) {
-    const fingerprint = item.text.replace(/[\s\p{P}\p{S}]+/gu, '').slice(0, 260)
-    if (!fingerprint || seen.has(fingerprint)) continue
-    seen.add(fingerprint)
-    unique.push(item)
-  }
-  const picked = unique.length <= limit ? unique : [
-    ...unique.slice(0, Math.ceil(limit * 0.3)),
-    ...Array.from({ length: Math.floor(limit * 0.4) }, (_, index) => unique[Math.floor((index + 1) * unique.length / (Math.floor(limit * 0.4) + 1))]).filter(Boolean),
-    ...unique.slice(-Math.floor(limit * 0.3)),
-  ]
-  const result = []
-  let chars = 0
-  for (const item of picked) {
-    const size = item.text.length + (item.chapter?.length || 0) + 20
-    if (chars + size > maxChars) continue
-    chars += size
-    result.push(item)
-  }
-  return result
 }
 
 function validateProviderUrl(value) {
@@ -847,17 +823,54 @@ ipcMain.handle('books:get-text-toc', async (_event, filePath) => {
   return cached.tocPromise
 })
 
-ipcMain.handle('books:search-text', async (_event, { filePath, query }) => {
+ipcMain.handle('books:search-text', async (_event, { filePath, query, sample, fromOffset }) => {
   const cached = largeTextCache.get(filePath)
   const queries = (Array.isArray(query) ? query : [query]).map((value) => String(value || '').trim()).filter(Boolean)
   if (!cached || !queries.length) return { results: [], truncated: false }
   const results = []
   const limit = 5000
   const seen = new Set()
+  const minOffset = Math.max(0, Number(fromOffset) || 0)
+  if (sample) {
+    // 两趟均匀采样：先数总量，再按步长挑选，几千章的书也能覆盖全程而不是只覆盖开头。
+    const needles = queries.map((value) => iconv.encode(value, cached.encoding)).filter((needle) => needle.length)
+    const counts = needles.map((needle) => {
+      let count = 0
+      let position = minOffset
+      while (true) {
+        const found = cached.data.indexOf(needle, position)
+        if (found < 0) break
+        count += 1
+        position = found + Math.max(1, needle.length)
+      }
+      return count
+    })
+    const total = counts.reduce((sum, count) => sum + count, 0)
+    needles.forEach((needle, needleIndex) => {
+      const budget = Math.max(1, Math.round((limit * counts[needleIndex]) / Math.max(1, total)))
+      const stride = Math.max(1, Math.ceil(counts[needleIndex] / budget))
+      let hit = 0
+      let position = minOffset
+      while (results.length < limit) {
+        const found = cached.data.indexOf(needle, position)
+        if (found < 0) break
+        hit += 1
+        position = found + Math.max(1, needle.length)
+        if ((hit - 1) % stride !== 0 || seen.has(found)) continue
+        const lineStart = paragraphBoundary(cached.data, found, 'backward', cached.encoding)
+        const lineEnd = paragraphBoundary(cached.data, found + needle.length, 'forward', cached.encoding)
+        const label = iconv.decode(cached.data.subarray(lineStart, lineEnd), cached.encoding).replace(/[\r\n]+/g, ' ').trim()
+        results.push({ label: label.slice(0, 180), offset: lineStart, matchOffset: found })
+        seen.add(found)
+      }
+    })
+    results.sort((a, b) => a.matchOffset - b.matchOffset)
+    return { results, truncated: total > results.length, total }
+  }
   let truncated = false
   for (const needleText of queries) {
     const needle = iconv.encode(needleText, cached.encoding)
-    let position = 0
+    let position = minOffset
     while (results.length < limit) {
       const found = cached.data.indexOf(needle, position)
       if (found < 0) break
@@ -1061,10 +1074,15 @@ async function summarizeEntity(event, input) {
   const model = String(input?.model || provider.model || '').trim().slice(0, 160)
   if (!model) return { ok: false, error: { stage: 'setup', status: 0, code: 'MODEL_REQUIRED', message: '请选择或填写模型' } }
   const name = String(input?.name || '').trim().slice(0, 80)
-  const excerpts = (Array.isArray(input?.excerpts) ? input.excerpts : []).slice(0, 160).map((item, index) => ({
+  // 高频名称（如主角）命中极多：缩短单片段窗口，同样预算可覆盖更多章节。
+  const totalMatches = Number(input?.totalMatches) || 0
+  const denseContext = totalMatches > 600 || (Array.isArray(input?.excerpts) && input.excerpts.length > 120)
+  const perExcerptMaxChars = denseContext ? 420 : 900
+  // 候选池放宽到 400 条（本地 IPC 无成本），让信息密度打分有更多候选可选。
+  const excerpts = (Array.isArray(input?.excerpts) ? input.excerpts : []).slice(0, 400).map((item, index) => ({
     order: Number(item?.order) || index + 1,
     chapter: String(item?.chapter || '').slice(0, 120),
-    text: String(item?.text || '').replace(/\s+/g, ' ').trim().slice(0, 900),
+    text: String(item?.text || '').replace(/\s+/g, ' ').trim().slice(0, perExcerptMaxChars),
   })).filter((item) => item.text)
   const knownEntities = (Array.isArray(input?.knownEntities) ? input.knownEntities : []).slice(0, 120).map((item) => ({
     name: String(item?.name || '').slice(0, 80),
@@ -1072,9 +1090,20 @@ async function summarizeEntity(event, input) {
     distinctFrom: (Array.isArray(item?.distinctFrom) ? item.distinctFrom : []).slice(0, 30).map((value) => String(value).slice(0, 80)),
     identityLocked: Boolean(item?.identityLocked),
   })).filter((item) => item.name)
+  // 增量更新：旧资料卡 + 只送上次进度之后的新片段，重复查看主角时大幅省 token。
+  const previousInput = input?.previousProfile && typeof input.previousProfile === 'object' ? input.previousProfile : null
+  const previousProfile = previousInput && String(previousInput.summary || '').trim() ? {
+    type: String(previousInput.type || '').slice(0, 20),
+    summary: String(previousInput.summary || '').slice(0, 1200),
+    details: Object.fromEntries(Object.entries(previousInput.details && typeof previousInput.details === 'object' ? previousInput.details : {}).slice(0, 10).map(([key, value]) => [String(key).slice(0, 40), String(value || '').slice(0, 400)]).filter(([, value]) => value)),
+    relations: (Array.isArray(previousInput.relations) ? previousInput.relations : []).slice(0, 12).map((item) => ({ targetName: String(item?.targetName || '').slice(0, 80), label: String(item?.label || '').slice(0, 40) })).filter((item) => item.targetName),
+  } : null
   if (!name || !excerpts.length) return { ok: false, error: { stage: 'search', status: 0, code: 'NO_PRIOR_EVIDENCE', message: '在当前阅读位置之前没有找到可用于总结的相关片段' } }
-  // Deduplicate frequent-name hits and sample first/latest/middle chapters before sending.
-  const compactExcerpts = selectSummaryExcerpts(excerpts)
+  // 按信息密度选片段：身份/关系信号词与已知实体共现优先，首尾锚点必保，每章限 3 条。
+  // 预算分档：增量更新最小，高频名称（如主角）适中，低频名称宽松（反正命中少）。
+  const knownNames = [...new Set(knownEntities.flatMap((item) => [item.name, ...(item.aliases || [])]))]
+  const budget = previousProfile ? { limit: 24, maxChars: 12000 } : denseContext ? { limit: 40, maxChars: 24000 } : { limit: 48, maxChars: 32000 }
+  const compactExcerpts = selectSummaryExcerpts(excerpts, { ...budget, knownNames })
   if (!compactExcerpts.length) return { ok: false, error: { stage: 'summary', status: 0, code: 'SUMMARY_CONTEXT_TOO_LARGE', message: '已读依据过大，请缩小检索范围后重试' } }
   const controller = new AbortController()
   let timedOut = false
@@ -1083,14 +1112,19 @@ async function summarizeEntity(event, input) {
   const requestedMaxTokens = Math.max(4096, Math.min(8192, Number(input?.maxTokens ?? provider.maxTokens) || 4096))
   try {
     let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
-    const messages = buildProfileMessages({ name, knownEntities, totalMatches: Number(input?.totalMatches) || excerpts.length, excerpts: compactExcerpts })
+    const messages = buildProfileMessages({ name, knownEntities, totalMatches: Number(input?.totalMatches) || excerpts.length, excerpts: compactExcerpts, previousProfile })
     const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
     }, 'summary', controller.signal,
       (text) => event.sender.send('ai:summary-progress', { phase: 'first-chunk', text: text.slice(0, 80) }),
-      () => { if (timeout) { clearTimeout(timeout); timeout = null }; event.sender.send('ai:summary-progress', { phase: 'stream-started' }) })
+      () => {
+        // 首字节前 30 秒超时；开始后每个 chunk 重置 60 秒心跳超时，流中途挂起也能失败退出。
+        if (timeout) clearTimeout(timeout)
+        timeout = setTimeout(() => { timedOut = true; controller.abort() }, 60000)
+        event.sender.send('ai:summary-progress', { phase: 'stream-started' })
+      })
     let response
     try { response = await execute(tokenParameter) }
     catch (error) {
@@ -1158,7 +1192,7 @@ async function summarizeEntity(event, input) {
     profile.truncated = truncated
     return { ok: true, profile, summary: profile.summary, finishReason, usage: response?.usage || null, providerId: provider.id, providerName: provider.name, model }
   } catch (error) {
-    return { ok: false, error: error.aiError || { stage: 'summary', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商在 30 秒内没有返回资料，请减少已读依据、降低输出长度或检查供应商连接' : sanitizeAiErrorText(error.message) } }
+    return { ok: false, error: error.aiError || { stage: 'summary', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商响应超时，请检查供应商连接、减少已读依据或稍后重试' : sanitizeAiErrorText(error.message) } }
   } finally { if (timeout) clearTimeout(timeout) }
 }
 
@@ -1181,6 +1215,7 @@ async function runProfileSelfTest(fixturePath) {
       providerId: provider?.id,
       model: provider?.model,
       knownEntities: fixture.knownEntities || [],
+      previousProfile: fixture.previousProfile || null,
     })
     const profile = result.profile
     const report = {

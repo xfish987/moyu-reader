@@ -230,20 +230,39 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     lookupEntity: (names, target) => {
       const terms = (Array.isArray(names) ? names : [names]).map((value) => String(value || '').trim()).filter(Boolean)
       const cutoffParagraph = Number.isFinite(target?.paragraphIndex) ? target.paragraphIndex : paragraphs.length - 1
-      const excerpts = []
-      for (let paragraphIndex = 0; paragraphIndex <= cutoffParagraph; paragraphIndex += 1) {
-        const full = paragraphs[paragraphIndex] || ''
-        const value = paragraphIndex === cutoffParagraph && Number.isFinite(target?.endOffset) ? full.slice(0, target.endOffset) : full
+      const fromPercent = Number(target?.fromReadPercent) || 0
+      const fromParagraph = fromPercent > 0 ? Math.max(0, Math.min(cutoffParagraph, Math.floor(fromPercent * cutoffParagraph) - 20)) : 0
+      const valueAt = (index) => {
+        const full = paragraphs[index] || ''
+        return index === cutoffParagraph && Number.isFinite(target?.endOffset) ? full.slice(0, target.endOffset) : full
+      }
+      // 第一趟只数总量；第二趟按步长均匀采样。数百万字的书命中数万次时，
+      // 5000 条上限也能覆盖全程，而不是只堆在开头章节。
+      let total = 0
+      for (let index = fromParagraph; index <= cutoffParagraph; index += 1) {
+        const value = valueAt(index)
         for (const term of terms) {
           let found = value.indexOf(term)
-          while (found >= 0 && excerpts.length < 5000) {
-            const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= paragraphIndex ? index : match, -1)
-            excerpts.push({ order: excerpts.length + 1, chapter: chapterIndex >= 0 ? chapters[chapterIndex].label : `段落 ${paragraphIndex + 1}`, text: value.slice(Math.max(0, found - 150), Math.min(value.length, found + term.length + 220)) })
+          while (found >= 0) { total += 1; found = value.indexOf(term, found + Math.max(1, term.length)) }
+        }
+      }
+      const limit = 5000
+      const stride = Math.max(1, Math.ceil(total / limit))
+      const excerpts = []
+      let hit = 0
+      for (let paragraphIndex = fromParagraph; paragraphIndex <= cutoffParagraph && excerpts.length < limit; paragraphIndex += 1) {
+        const value = valueAt(paragraphIndex)
+        const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= paragraphIndex ? index : match, -1)
+        for (const term of terms) {
+          let found = value.indexOf(term)
+          while (found >= 0 && excerpts.length < limit) {
+            hit += 1
+            if ((hit - 1) % stride === 0) excerpts.push({ order: excerpts.length + 1, chapter: chapterIndex >= 0 ? chapters[chapterIndex].label : `段落 ${paragraphIndex + 1}`, text: value.slice(Math.max(0, found - 150), Math.min(value.length, found + term.length + 220)) })
             found = value.indexOf(term, found + Math.max(1, term.length))
           }
         }
       }
-      return { excerpts, totalMatches: excerpts.length, truncated: excerpts.length >= 5000 }
+      return { excerpts, totalMatches: total, truncated: total > excerpts.length }
     },
   }), [chapters, onBoundaryNext, onBoundaryPrev, page, pageCount, paragraphs, paragraphSpans, jumpToParagraph])
 

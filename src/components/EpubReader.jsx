@@ -572,16 +572,29 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
       const excerpts = []
       const sections = book.spine?.spineItems || []
       const currentIndex = Math.max(0, Number(selection?.spineIndex) || 0)
+      // 长书按节跨步采样 + 每节限量：5000 条上限覆盖全程，而不是堆在前面的章节。
+      // 增量更新时从上份资料卡的进度开始（百分比到节号是近似映射，留 10%+1 节余量宁可多扫）。
+      const fromPercent = Number(selection?.fromReadPercent) || 0
+      const startIndex = fromPercent > 0 ? Math.max(0, Math.min(currentIndex, Math.floor(fromPercent * currentIndex * 0.9) - 1)) : 0
+      const span = Math.max(1, currentIndex - startIndex)
+      const sectionStride = Math.max(1, Math.ceil(span / 1200))
+      const visitedEstimate = Math.ceil(span / sectionStride)
+      const perSectionCap = Math.max(2, Math.floor(4900 / visitedEstimate))
+      const visited = new Set()
       const addMatches = (text, chapter) => {
+        let sectionHits = 0
         for (const name of terms) {
           let position = text.indexOf(name)
-          while (position >= 0 && excerpts.length < 5000) {
+          while (position >= 0 && excerpts.length < 5000 && sectionHits < perSectionCap) {
             excerpts.push({ order: excerpts.length + 1, chapter, text: text.slice(Math.max(0, position - 150), Math.min(text.length, position + name.length + 220)).replace(/\s+/g, ' ').trim() })
+            sectionHits += 1
             position = text.indexOf(name, position + Math.max(1, name.length))
           }
         }
       }
-      for (let index = 0; index < currentIndex && excerpts.length < 5000; index += 1) {
+      const scanSection = async (index) => {
+        if (index < 0 || index >= currentIndex || visited.has(index) || excerpts.length >= 5000) return
+        visited.add(index)
         const section = sections[index]
         try {
           await section.load(book.load.bind(book))
@@ -590,6 +603,9 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
           addMatches(section.document?.body?.textContent || '', chapter)
         } catch {} finally { section.unload() }
       }
+      for (let index = startIndex; index < currentIndex && excerpts.length < 5000; index += sectionStride) await scanSection(index)
+      // 最近几节必须扫描（当前状态锚点），不受跨步影响。
+      for (let index = Math.max(startIndex, currentIndex - 8); index < currentIndex; index += 1) await scanSection(index)
       const currentChapter = [...tocRef.current].reverse().find((item) => splitHref(item.href).hrefPath === splitHref(selection?.href).hrefPath)?.label || `第 ${currentIndex + 1} 节`
       addMatches(`${selection?.chapterBefore || ''} ${selection?.text || ''}`, currentChapter)
       return { excerpts, totalMatches: excerpts.length, truncated: excerpts.length >= 5000 }

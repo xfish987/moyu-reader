@@ -4,11 +4,11 @@ import AISettingsModal from './AISettingsModal'
 import EntityDetails from './EntityDetails'
 import EntityRelations from './EntityRelations'
 
-function pickRepresentative(items, limit = 120) {
+function pickRepresentative(items, limit = 400) {
   if (items.length <= limit) return items
-  const first = items.slice(0, 30)
-  const last = items.slice(-60)
-  const middle = items.slice(30, -60)
+  const first = items.slice(0, 100)
+  const last = items.slice(-150)
+  const middle = items.slice(100, -150)
   const slots = limit - first.length - last.length
   const sampled = Array.from({ length: slots }, (_, index) => middle[Math.floor(index * middle.length / slots)]).filter(Boolean)
   return [...first, ...sampled, ...last]
@@ -41,8 +41,17 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
         return
       }
       const lookupNames = cachedProfile ? [cachedProfile.name, ...(cachedProfile.aliases || []), selection.text] : [selection.text]
-      const context = await loadContext([...new Set(lookupNames.filter(Boolean))])
-      const excerpts = pickRepresentative(context.excerpts || [])
+      const uniqueNames = [...new Set(lookupNames.filter(Boolean))]
+      // 增量更新：有旧卡且进度更靠后时，只检索旧卡位置之后的新片段，随旧卡一起发给模型。
+      let incremental = Boolean(cachedProfile && isLaterProgress)
+      let context = await loadContext(uniqueNames, incremental ? { fromReadPosition: Number(cachedProfile.readPosition) || 0 } : {})
+      let excerpts = pickRepresentative(context.excerpts || [])
+      if (incremental && !excerpts.length) {
+        // 增量检索为空（位置映射偏差等）时回退全量检索，保证链路不断。
+        incremental = false
+        context = await loadContext(uniqueNames)
+        excerpts = pickRepresentative(context.excerpts || [])
+      }
       setContextInfo({ ...context, sentCount: excerpts.length })
       if (!excerpts.length) {
         setError({ stage: 'search', status: 0, code: 'NO_PRIOR_EVIDENCE', message: '当前阅读位置之前没有找到这个名称的相关片段' })
@@ -58,6 +67,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
         model: provider.model || provider.models?.[0],
         maxTokens: Math.min(8000, provider.maxTokens || 2000),
         knownEntities: entityProfiles.map(({ name, aliases, distinctFrom, identityLocked }) => ({ name, aliases, distinctFrom, identityLocked })),
+        previousProfile: incremental ? { type: cachedProfile.type, summary: cachedProfile.summary, details: cachedProfile.details, relations: cachedProfile.relations } : null,
       })
       if (!result.ok) {
         setError(result.error)
@@ -65,7 +75,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
         return
       }
       const generated = result.profile || { canonicalName: selection.text, aliases: [], type: '未分类', summary: result.summary, evidence: [] }
-      const next = { id: cachedProfile?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: generated.canonicalName || selection.text, aliases: [...new Set([...(cachedProfile?.identityLocked ? (cachedProfile.aliases || []) : []), ...(generated.aliases || []), ...(generated.canonicalName !== selection.text ? [selection.text] : [])])], type: generated.type || '未分类', summary: generated.summary || result.summary, details: generated.details || {}, relations: generated.relations || [], evidence: generated.evidence || [], identityConfidence: generated.identityConfidence || 'low', identityLocked: Boolean(cachedProfile?.identityLocked), distinctFrom: cachedProfile?.distinctFrom || [], providerId: result.providerId, providerName: result.providerName, model: result.model, totalMatches: context.totalMatches || excerpts.length, sentCount: excerpts.length, readPosition: selection.readPosition, readPercent: selection.readPercent, createdAt: Date.now() }
+      const next = { id: cachedProfile?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: generated.canonicalName || selection.text, aliases: [...new Set([...(cachedProfile?.identityLocked ? (cachedProfile.aliases || []) : []), ...(generated.aliases || []), ...(generated.canonicalName !== selection.text ? [selection.text] : [])])], type: generated.type || '未分类', summary: generated.summary || result.summary, details: generated.details || {}, relations: generated.relations || [], evidence: generated.evidence || [], identityConfidence: generated.identityConfidence || 'low', identityLocked: Boolean(cachedProfile?.identityLocked), distinctFrom: cachedProfile?.distinctFrom || [], incremental, providerId: result.providerId, providerName: result.providerName, model: result.model, totalMatches: context.totalMatches || excerpts.length, sentCount: excerpts.length, readPosition: selection.readPosition, readPercent: selection.readPercent, createdAt: Date.now() }
       setProfile(next)
       setStatus('complete')
       onSave?.(next)
@@ -123,7 +133,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
               <EntityDetails details={profile.details} />
               <EntityRelations relations={profile.relations} />
               {profile.evidence?.length ? <div className="entity-evidence"><strong>已读内容依据</strong>{profile.evidence.map((item, index) => <p key={index}><span>{item.chapter || `片段 ${index + 1}`}</span>{item.text}</p>)}</div> : null}
-              <div className="entity-meta"><span><MapPin size={13} /> 总结到当前阅读位置</span><span>找到 {profile.totalMatches} 处 · 使用 {profile.sentCount} 处</span><span>{profile.providerName} / {profile.model}</span>{profile.truncated ? <span>输出达到长度上限，末尾内容已省略，可点“更新到当前进度”重试补全</span> : null}</div>
+              <div className="entity-meta"><span><MapPin size={13} /> 总结到当前阅读位置</span><span>找到 {profile.totalMatches} 处 · 使用 {profile.sentCount} 处</span><span>{profile.providerName} / {profile.model}</span>{profile.incremental ? <span>增量更新（基于旧卡 + 新读片段）</span> : null}{profile.truncated ? <span>输出达到长度上限，末尾内容已省略，可点“更新到当前进度”重试补全</span> : null}</div>
             </>
           ) : null}
           {error ? <div className="ai-error-card" role="alert"><strong>{error.message}</strong><div><span>阶段：{error.stage}</span><span>状态码：{error.status || '无'}</span><span>错误码：{error.code}</span></div><button onClick={() => navigator.clipboard.writeText(diagnostic)}><Copy size={13} /> 复制诊断信息</button></div> : null}

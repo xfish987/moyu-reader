@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('readerAPI', {
   openBook: (filePath, encoding) => ipcRenderer.invoke('books:open', filePath, encoding),
   readTextChunk: (filePath, offset, direction) => ipcRenderer.invoke('books:read-text-chunk', { filePath, offset, direction }),
   getTextToc: (filePath) => ipcRenderer.invoke('books:get-text-toc', filePath),
-  searchText: (filePath, query) => ipcRenderer.invoke('books:search-text', { filePath, query }),
+  searchText: (filePath, query, options) => ipcRenderer.invoke('books:search-text', { filePath, query, ...(options || {}) }),
   deleteSource: (filePath) => ipcRenderer.invoke('books:delete-source', filePath),
   saveShareImage: (payload) => ipcRenderer.invoke('notes:save-share', payload),
   exportNotes: (payload) => ipcRenderer.invoke('notes:export-markdown', payload),
