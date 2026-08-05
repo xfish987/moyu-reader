@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { BookOpenText, Check, DatabaseBackup, FileInput, FolderOpen, ImagePlus, Library, ListChecks, MapPin, NotebookPen, Plus, RefreshCw, Search, ServerCog, Tags, Trash2, X } from 'lucide-react'
+import { BookOpenText, Check, DatabaseBackup, FileInput, FolderOpen, ImagePlus, Keyboard, Library, ListChecks, MapPin, NotebookPen, Plus, RefreshCw, Search, ServerCog, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
 import CoverEditor from './CoverEditor'
 import NotesLibrary from './NotesLibrary'
 import AISettingsModal from './AISettingsModal'
+import ShortcutsModal from './ShortcutsModal'
 
 const COVER_COLORS = ['#315c57', '#935746', '#354d6b', '#786844', '#624c63', '#41616d']
 
@@ -119,7 +120,7 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
   )
 }
 
-export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onUpdateNote, onExportNotes, bookMetadata }) {
+export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onUpdateNote, onExportNotes, bookMetadata, shortcuts, setShortcuts }) {
   const [view, setView] = useState('shelf')
   const [activeCategory, setActiveCategory] = useState('全部书籍')
   const [managedBook, setManagedBook] = useState(null)
@@ -130,6 +131,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const [selecting, setSelecting] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const lastBook = books.find((book) => book.id === lastBookId)
 
   const counts = books.reduce((result, book) => {
@@ -184,6 +186,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         </div>
         <div className="shelf-actions">
           <button className="icon-command" onClick={() => setAiSettingsOpen(true)} title="AI 设置" aria-label="AI 设置"><ServerCog size={16} /></button>
+          <button className="icon-command" onClick={() => setShortcutsOpen(true)} title="快捷键" aria-label="快捷键"><Keyboard size={16} /></button>
           <button className="icon-command" onClick={onImportData} title="导入阅读数据" aria-label="导入阅读数据"><FileInput size={16} /></button>
           <button className="icon-command" onClick={onExportData} title="导出阅读数据" aria-label="导出阅读数据"><DatabaseBackup size={16} /></button>
           {directory ? <button className="icon-command" onClick={onRefresh} disabled={loading} title="刷新书架"><RefreshCw size={17} className={loading ? 'spinning' : ''} /></button> : null}
@@ -192,6 +195,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         </div>
       </div>
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
+      {shortcutsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutsOpen(false)} /> : null}
 
       <nav className="library-tabs" aria-label="书架页面">
         <button className={view === 'shelf' ? 'active' : ''} onClick={() => setView('shelf')}><Library size={15} /> 书架</button>

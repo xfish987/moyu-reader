@@ -3,6 +3,7 @@ import Bookshelf from './components/Bookshelf'
 import ReaderView from './components/ReaderView'
 import WindowBar from './components/WindowBar'
 import { useStoredState } from './hooks'
+import { DEFAULT_SHORTCUTS, normalizeKey } from './shortcuts'
 import { mergeEntityProfiles as mergeProfiles, removeEntityProfile, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
 
 const DEFAULT_SETTINGS = {
@@ -29,6 +30,7 @@ export default function App() {
   const [notesMap, setNotesMap] = useStoredState('reader:notes', {})
   const [coversMap, setCoversMap, coversReady] = useStoredState('reader:covers', {})
   const [pinned, setPinned] = useStoredState('reader:pinned', false)
+  const [shortcuts, setShortcuts] = useStoredState('reader:shortcuts', DEFAULT_SHORTCUTS)
   const [lastBookId, setLastBookId] = useStoredState('reader:last-book', '')
   const [statusMap, setStatusMap] = useStoredState('reader:book-status', {})
   const [bookmarksMap, setBookmarksMap] = useStoredState('reader:bookmarks', {})
@@ -85,6 +87,8 @@ export default function App() {
 
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => { window.readerAPI?.setPinned(pinned) }, [pinned])
+  // 老板键是全局快捷键，注册在主进程：配置变化时同步过去重注册。
+  useEffect(() => { window.readerAPI?.updateBossKey?.(shortcuts.boss || DEFAULT_SHORTCUTS.boss) }, [shortcuts.boss])
   useEffect(() => {
     if (settings.showProgress === undefined) setSettings((current) => ({ ...current, showProgress: true }))
   }, [setSettings, settings.showProgress])
@@ -259,17 +263,24 @@ export default function App() {
   const toggleImmersive = useCallback(() => setImmersive((current) => !current), [])
 
   const shortcut = useCallback((event) => {
-    if (!activeBook) return
+    const pressed = normalizeKey(event)
+    if (!pressed) return
     const target = event.target
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return
-    const key = event.key.toLowerCase()
-    if (key === 'a' || key === 'arrowleft') {
+    // 输入框中不拦截字母键（要打字），功能键（F1–F12）照常生效。
+    if ((target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && !pressed.startsWith('F')) return
+    if (pressed === (shortcuts.toggleProfiles || 'F1')) {
+      event.preventDefault()
+      window.readerAPI?.toggleProfilesWindow?.()
+      return
+    }
+    if (!activeBook) return
+    if (pressed === (shortcuts.prevPage || 'a') || event.key === 'ArrowLeft') {
       event.preventDefault()
       readerActionRef.current?.goLeft()
-    } else if (key === 'd' || key === 'arrowright') {
+    } else if (pressed === (shortcuts.nextPage || 'd') || event.key === 'ArrowRight') {
       event.preventDefault()
       readerActionRef.current?.goRight()
-    } else if (event.key === 'F11') {
+    } else if (pressed === (shortcuts.immersive || 'F11')) {
       event.preventDefault()
       toggleImmersive()
     } else if (event.key === '+' || event.key === '=') {
@@ -279,7 +290,7 @@ export default function App() {
       event.preventDefault()
       setSettings((current) => ({ ...current, opacity: Math.max(0.15, +(current.opacity - 0.05).toFixed(2)) }))
     }
-  }, [activeBook, setSettings, toggleImmersive])
+  }, [activeBook, setSettings, shortcuts, toggleImmersive])
 
   useEffect(() => {
     window.addEventListener('keydown', shortcut)
@@ -397,6 +408,8 @@ export default function App() {
             } catch (error) { showError('导出笔记', error) }
           }}
           bookMetadata={bookMetadata}
+          shortcuts={shortcuts}
+          setShortcuts={setShortcuts}
         />
       )}
     </div>

@@ -1228,3 +1228,51 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 /* 任务完成顶部通知 */
 .profiles-toast { position: fixed; top: 54px; left: 50%; z-index: 30; transform: translateX(-50%); max-width: 82%; padding: 8px 16px; border: 1px solid var(--line); border-radius: 16px; background: #33413c; color: var(--paper); box-shadow: var(--shadow-2); font-size: var(--text-xs); cursor: pointer; animation: panel-in var(--t-fast) ease-out; }
 .profiles-toast.is-error { background: #5c332c; }
+
+/* ============================================================
+   设定集窗口可读性：资料正文是“内容”，按内容排版而非界面装饰文字。
+   profiles-window 独立加载、不在 reader-view 内，需要自带阅读变量兜底。
+   ============================================================ */
+.profiles-window, .profiles-fab-window {
+  --reader-bg: var(--paper);
+  --reader-ink: 42, 46, 43;
+  --chrome: var(--ink-2);
+  --ink-3: #6e7770;   /* 窗口内元信息加深一档，避免与纸面底色过近 */
+}
+.profiles-window .profiles-window-header span { color: var(--ink-2); font-size: var(--text-xs); }
+.profiles-window .profile-collection-search input { font-size: var(--text-sm); }
+.profiles-window .profile-type-tabs button { font-size: var(--text-xs); }
+.profiles-window .profile-collection-content > nav strong { font-size: var(--text-sm); }
+.profiles-window .profile-collection-content > nav span { color: var(--ink-2); font-size: var(--text-xs); }
+.profiles-window .profile-collection-content > article > header strong { font-size: 17px; }
+.profiles-window .profile-collection-content > article > header span,
+.profiles-window .profile-collection-content > article > header em,
+.profiles-window .profile-collection-content > article > footer { color: var(--ink-2); font-size: var(--text-xs); }
+.profiles-window .profile-collection-content > article > div { font: 14px/1.9 var(--font-serif); }
+.profiles-window .profile-task-main strong { font-size: var(--text-sm); }
+.profiles-window .profile-task-main span { color: var(--ink-2); font-size: var(--text-xs); }
+.profiles-window .profiles-empty strong { font-size: var(--text-md); }
+.profiles-window .profiles-empty span { color: var(--ink-2); font-size: var(--text-xs); }
+/* 资料卡正文与明细（设定集窗口与弹层共用组件） */
+.entity-summary { font: 13px/1.9 var(--font-serif); }
+.entity-details dd { font: 12px/1.75 var(--font-serif); }
+.entity-relations button strong { font-size: var(--text-xs); }
+.entity-evidence p { font: 11px/1.7 var(--font-serif); }
+
+/* ============================================================
+   快捷键设置弹层
+   ============================================================ */
+.shortcuts-modal { width: min(460px, calc(100% - 40px)); }
+.shortcuts-list { display: grid; gap: 2px; }
+.shortcut-row { min-height: 44px; padding: 7px 2px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.shortcut-row:last-of-type { border-bottom: 0; }
+.shortcut-row > div { display: grid; gap: 2px; }
+.shortcut-row strong { font-size: var(--text-md); font-weight: 500; }
+.shortcut-row span { color: var(--ink-3); font-size: var(--text-xs); }
+.shortcut-key { min-width: 64px; height: 30px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
+.shortcut-key:hover { border-color: var(--accent); }
+.shortcut-key.capturing { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-tint); }
+.shortcut-tip { margin: 12px 0 0; color: var(--ink-3); font-size: var(--text-xs); line-height: 1.7; }
+.shortcut-footer { margin-top: 12px; display: flex; justify-content: flex-end; }
+.shortcut-footer button { height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 6px; background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
+.shortcut-footer button:hover { background: var(--paper-2); color: var(--ink); }

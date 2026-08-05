@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('readerAPI', {
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
   setPinned: (enabled) => ipcRenderer.send('window:pin', enabled),
+  updateBossKey: (key) => ipcRenderer.send('shortcuts:boss-key', key),
   onExternalBooks: (callback) => {
     const listener = (_event, books) => callback(books)
     ipcRenderer.on('books:open-external', listener)

@@ -1587,6 +1587,20 @@ ipcMain.on('window:pin', (_event, enabled) => {
   mainWindow.setAlwaysOnTop(windowPinned, 'floating')
 })
 
+// 老板键是全局快捷键，按键可在书架页“快捷键”里修改（仅 F1–F12，字母会劫持系统输入）。
+let bossAccelerator = null
+function registerBossKey(key) {
+  const accelerator = /^F([1-9]|1[0-2])$/.test(String(key || '')) ? String(key) : 'F10'
+  if (bossAccelerator === accelerator) return
+  if (bossAccelerator) { try { globalShortcut.unregister(bossAccelerator) } catch {} }
+  bossAccelerator = null
+  try {
+    if (globalShortcut.register(accelerator, toggleBossKey)) bossAccelerator = accelerator
+    else logEvent('boss-key-register-failed', accelerator)
+  } catch (error) { logEvent('boss-key-register-error', String(error)) }
+}
+ipcMain.on('shortcuts:boss-key', (_event, key) => registerBossKey(key))
+
 if (!hasSingleInstanceLock) {
   app.quit()
 } else {
@@ -1602,7 +1616,7 @@ if (!hasSingleInstanceLock) {
     if (process.env.MOYU_PROFILE_SELFTEST) { await runProfileSelfTest(process.env.MOYU_PROFILE_SELFTEST); return }
     queueExternalFiles(process.argv.slice(1))
     await createWindow()
-    globalShortcut.register('F10', toggleBossKey)
+    registerBossKey('F10')
   })
 }
 app.on('open-file', (event, filePath) => {
