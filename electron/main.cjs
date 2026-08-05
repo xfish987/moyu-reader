@@ -886,7 +886,8 @@ async function openProfilesFabWindow() {
   watchWindow(profilesFabWindow, 'fab')
   profilesFabWindow.on('closed', () => { profilesFabWindow = null })
   profilesFabWindow.on('move', () => {
-    // 用户拖动松手后自动回吸到阅读窗口右缘。
+    // 用户拖动松手后自动回吸到阅读窗口右缘；手动拖拽进行中不回吸。
+    if (fabManualDrag) return
     clearTimeout(profilesFabSnapTimer)
     profilesFabSnapTimer = setTimeout(snapFabToReader, 350)
   })
@@ -906,6 +907,18 @@ ipcMain.on('profiles:expand', () => {
   if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
   profilesFabWindow = null
   openProfilesWindow('', true)
+})
+// 悬浮图标手动拖拽：渲染端按位移增量驱动，拖动中暂停自动回吸，松手后回吸一次。
+let fabManualDrag = false
+ipcMain.on('profiles:fab-drag', (_event, delta) => {
+  if (!profilesFabWindow || profilesFabWindow.isDestroyed()) return
+  fabManualDrag = true
+  const [x, y] = profilesFabWindow.getPosition()
+  profilesFabWindow.setPosition(x + Math.round(delta?.dx || 0), y + Math.round(delta?.dy || 0))
+})
+ipcMain.on('profiles:fab-drag-end', () => {
+  fabManualDrag = false
+  snapFabToReader()
 })
 
 function supportedBookPaths(values = []) {

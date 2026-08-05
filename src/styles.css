@@ -1215,10 +1215,10 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .profile-alias-input button { padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: rgba(var(--reader-ink), .05); color: rgb(var(--reader-ink)); font-size: var(--text-xs); cursor: pointer; }
 
 /* 悬浮图标小窗 */
-/* 悬浮图标小窗：整个窗口（含按钮）都是拖拽区，按住即移动；
-   未发生位移的按下-松开仍是 click，触发展开。 */
+/* 悬浮图标小窗：按钮用 JS 手动拖拽（press-move 阈值判定），不能设为
+   drag 区——Windows 会把单击吞进原生窗口拖动；窗体边缘仍是原生拖拽区。 */
 .profiles-fab-window { height: 100vh; display: grid; place-items: center; background: var(--reader-bg); -webkit-app-region: drag; user-select: none; }
-.profiles-fab-button { width: 42px; height: 58px; border: 1px solid var(--line); border-radius: 21px; display: grid; place-items: center; gap: 2px; background: var(--reader-bg); color: rgb(var(--reader-ink)); box-shadow: var(--shadow-2); cursor: pointer; }
+.profiles-fab-button { width: 42px; height: 58px; border: 1px solid var(--line); border-radius: 21px; display: grid; place-items: center; gap: 2px; background: var(--reader-bg); color: rgb(var(--reader-ink)); box-shadow: var(--shadow-2); cursor: pointer; -webkit-app-region: no-drag; touch-action: none; }
 .profiles-fab-button:hover { background: rgba(var(--reader-ink), .07); }
 .profiles-fab-button span { color: var(--chrome); font-size: var(--text-xs); }
 

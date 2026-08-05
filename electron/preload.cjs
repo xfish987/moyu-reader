@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('readerAPI', {
   toggleProfilesWindow: () => ipcRenderer.invoke('profiles:toggle'),
   collapseProfilesWindow: () => ipcRenderer.send('profiles:collapse'),
   expandProfilesWindow: () => ipcRenderer.send('profiles:expand'),
+  dragProfilesFab: (delta) => ipcRenderer.send('profiles:fab-drag', delta),
+  dragProfilesFabEnd: () => ipcRenderer.send('profiles:fab-drag-end'),
   sendProfilesSync: (snapshot) => ipcRenderer.send('profiles:sync', snapshot),
   onProfilesSync: (callback) => {
     const listener = (_event, snapshot) => callback(snapshot)
