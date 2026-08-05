@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, net, safeStorage, screen, shell } = require('electron')
 const path = require('path')
 const fs = require('fs/promises')
+const fsSync = require('fs')
 const { createHash, randomUUID } = require('crypto')
 const chardet = require('chardet')
 const iconv = require('iconv-lite')
@@ -27,6 +28,34 @@ let closingWindow = false
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 const largeTextCache = new Map()
 const epubMetadataCache = new Map()
+
+// ===== 持续运行日志：userData/logs/main.log，超过 512KB 轮替为 main.old.log =====
+// 记录主进程异常、渲染进程崩溃、各窗口控制台错误与关键窗口事件，供故障排查。
+// 纯原生崩溃瞬间无法记录，但崩溃前最后一个事件一定在日志里。
+const LOG_DIR = () => path.join(app.getPath('userData'), 'logs')
+const LOG_FILE = () => path.join(LOG_DIR(), 'main.log')
+function logEvent(kind, detail) {
+  try {
+    fsSync.mkdirSync(LOG_DIR(), { recursive: true })
+    const file = LOG_FILE()
+    if (fsSync.existsSync(file) && fsSync.statSync(file).size > 512 * 1024) {
+      try { fsSync.renameSync(file, path.join(LOG_DIR(), 'main.old.log')) } catch {}
+    }
+    const text = detail === undefined ? '' : typeof detail === 'string' ? detail : JSON.stringify(detail)
+    fsSync.appendFileSync(file, `${new Date().toISOString()} [${kind}] ${text}\n`)
+  } catch {}
+}
+process.on('uncaughtException', (error) => logEvent('uncaughtException', error?.stack || String(error)))
+process.on('unhandledRejection', (reason) => logEvent('unhandledRejection', reason?.stack || String(reason)))
+app.on('render-process-gone', (_event, webContents, details) => logEvent('render-process-gone', { url: webContents?.getURL?.(), reason: details?.reason, exitCode: details?.exitCode }))
+app.on('child-process-gone', (_event, details) => logEvent('child-process-gone', { type: details?.type, reason: details?.reason, exitCode: details?.exitCode }))
+function watchWindow(win, tag) {
+  if (!win || win.isDestroyed()) return
+  win.webContents.on('console-message', (_event, level, message) => {
+    if (level >= 2) logEvent(`console:${tag}`, String(message).slice(0, 500))
+  })
+  win.webContents.on('preload-error', (_event, preloadPath, error) => logEvent(`preload-error:${tag}`, String(error)))
+}
 const LARGE_TEXT_THRESHOLD = 500_000
 const TEXT_CHUNK_SIZE = 32_000
 const STORE_VERSION = 1
@@ -623,6 +652,8 @@ async function createWindow() {
     mainWindow.loadURL('http://127.0.0.1:5173')
   }
 
+  logEvent('window:create-main', { version: app.getVersion() })
+  watchWindow(mainWindow, 'main')
   mainWindow.once('ready-to-show', () => {
     if (restored.maximized) mainWindow.maximize()
     mainWindow.show()
@@ -752,6 +783,8 @@ async function openProfilesWindow(focusName = '', forceDock = false) {
   })
   if (app.isPackaged) profilesWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'profiles' } })
   else profilesWindow.loadURL('http://127.0.0.1:5173?window=profiles')
+  logEvent('window:open-profiles', { forceDock })
+  watchWindow(profilesWindow, 'profiles')
   profilesWindow.on('closed', () => { profilesWindow = null; profilesLastDock = null })
   profilesWindow.on('move', scheduleProfilesWindowBoundsSave)
   profilesWindow.on('resize', scheduleProfilesWindowBoundsSave)
@@ -760,6 +793,7 @@ async function openProfilesWindow(focusName = '', forceDock = false) {
   // 再销毁窗口，否则在窗口回调里销毁自身会让主进程崩溃（0xc000041d）。
   profilesWindow.on('minimize', (event) => {
     event.preventDefault()
+    logEvent('profiles:minimize-to-fab')
     setImmediate(() => collapseProfilesToFab())
   })
   // 初始处于吸附位置（首次停靠或从图标展开）时进入吸附状态。
@@ -848,6 +882,8 @@ async function openProfilesFabWindow() {
   })
   if (app.isPackaged) profilesFabWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'profiles-fab' } })
   else profilesFabWindow.loadURL('http://127.0.0.1:5173?window=profiles-fab')
+  logEvent('window:open-fab')
+  watchWindow(profilesFabWindow, 'fab')
   profilesFabWindow.on('closed', () => { profilesFabWindow = null })
   profilesFabWindow.on('move', () => {
     // 用户拖动松手后自动回吸到阅读窗口右缘。
@@ -858,6 +894,7 @@ async function openProfilesFabWindow() {
 }
 
 function collapseProfilesToFab() {
+  logEvent('profiles:collapse-to-fab')
   if (profilesWindow && !profilesWindow.isDestroyed()) profilesWindow.destroy()
   profilesWindow = null
   profilesLastDock = null

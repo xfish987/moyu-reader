@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory=$true)][int]$TargetPid,
-  [Parameter(Mandatory=$true)][ValidateSet('move','minimize','restore')][string]$Op,
+  [Parameter(Mandatory=$true)][ValidateSet('move','minimize','restore','press-min')][string]$Op,
   [string]$TitlePart = '',
   [int]$MinWidth = 400,
   [int]$X = 0, [int]$Y = 0, [int]$W = 0, [int]$H = 0
@@ -54,5 +54,6 @@ switch ($Op) {
   'move'     { [WinOps3]::MoveWindow($h, $X, $Y, $W, $H, $true) | Out-Null }
   'minimize' { [WinOps3]::ShowWindow($h, 6) | Out-Null }
   'restore'  { [WinOps3]::RestoreNormal($h) }
+  'press-min' { [WinOps3]::PostMessage($h, 0x0112, [IntPtr]0xF020, [IntPtr]::Zero) | Out-Null }
 }
 Write-Output "ok $Op"
