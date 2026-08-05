@@ -1023,8 +1023,10 @@ ipcMain.handle('books:search-text', async (_event, { filePath, query, sample, fr
   const minOffset = Math.max(0, Number(fromOffset) || 0)
   if (sample) {
     // 两趟均匀采样：先数总量，再按步长挑选，几千章的书也能覆盖全程而不是只覆盖开头。
+    // 长扫描周期性让出主进程事件循环，保证设定集窗口等其他 IPC 不被卡住。
     const needles = queries.map((value) => iconv.encode(value, cached.encoding)).filter((needle) => needle.length)
-    const counts = needles.map((needle) => {
+    const counts = []
+    for (const needle of needles) {
       let count = 0
       let position = minOffset
       while (true) {
@@ -1032,11 +1034,13 @@ ipcMain.handle('books:search-text', async (_event, { filePath, query, sample, fr
         if (found < 0) break
         count += 1
         position = found + Math.max(1, needle.length)
+        if (count % 20000 === 0) await new Promise((resolve) => setImmediate(resolve))
       }
-      return count
-    })
+      counts.push(count)
+    }
     const total = counts.reduce((sum, count) => sum + count, 0)
-    needles.forEach((needle, needleIndex) => {
+    for (let needleIndex = 0; needleIndex < needles.length; needleIndex += 1) {
+      const needle = needles[needleIndex]
       const budget = Math.max(1, Math.round((limit * counts[needleIndex]) / Math.max(1, total)))
       const stride = Math.max(1, Math.ceil(counts[needleIndex] / budget))
       let hit = 0
@@ -1046,6 +1050,7 @@ ipcMain.handle('books:search-text', async (_event, { filePath, query, sample, fr
         if (found < 0) break
         hit += 1
         position = found + Math.max(1, needle.length)
+        if (hit % 20000 === 0) await new Promise((resolve) => setImmediate(resolve))
         if ((hit - 1) % stride !== 0 || seen.has(found)) continue
         const lineStart = paragraphBoundary(cached.data, found, 'backward', cached.encoding)
         const lineEnd = paragraphBoundary(cached.data, found + needle.length, 'forward', cached.encoding)
@@ -1053,7 +1058,7 @@ ipcMain.handle('books:search-text', async (_event, { filePath, query, sample, fr
         results.push({ label: label.slice(0, 180), offset: lineStart, matchOffset: found })
         seen.add(found)
       }
-    })
+    }
     results.sort((a, b) => a.matchOffset - b.matchOffset)
     return { results, truncated: total > results.length, total }
   }

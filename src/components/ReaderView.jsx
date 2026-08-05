@@ -225,7 +225,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         return
       }
       patchProfileTask(task.id, {
-        status: 'ready',
+        status: 'queued',
         contextInfo: { ...context, sentCount: excerpts.length },
         prepared: { excerpts, context, incremental, providerId: provider.id, model: provider.model || provider.models?.[0], maxTokens: Math.min(8000, provider.maxTokens || 2000) },
       })
@@ -275,8 +275,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     else runProfileTaskGenerate(nextTask)
   }, [profileTasks])
 
-  // 换书时清空任务。
+  // 换书时清空任务；阅读器卸载（返回书架/关书）时清空设定集窗口内容。
   useEffect(() => { setProfileTasks([]) }, [book.id])
+  useEffect(() => () => {
+    window.readerAPI.sendProfilesSync?.({ bookId: null, bookTitle: '', entityProfiles: [], linkAlias: '', profileTasks: [] })
+  }, [])
 
   // 早期版本曾把破损 JSON 存成 summary；后台静默本地修复（不调用模型）。
   useEffect(() => {

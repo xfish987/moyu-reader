@@ -1132,3 +1132,7 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 
 /* 阅读器工具栏任务角标 */
 .toolbar-badge { margin-left: 2px; padding: 0 5px; border-radius: 8px; background: #62887e; color: #fff; font-size: 8px; line-height: 14px; }
+
+/* 任务完成顶部通知 */
+.profiles-toast { position: fixed; top: 54px; left: 50%; z-index: 30; transform: translateX(-50%); max-width: 82%; padding: 8px 16px; border: 1px solid var(--line); border-radius: 16px; background: #33413c; color: #f3f2ee; box-shadow: 0 10px 30px rgba(24, 28, 26, .3); font-size: 9px; cursor: pointer; animation: panel-in 150ms ease-out; }
+.profiles-toast.is-error { background: #5c332c; }

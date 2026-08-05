@@ -227,7 +227,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     },
     getLocation: () => ({ page, paragraphIndex: Math.round((positionFractionRef.current || 0) * Math.max(0, paragraphs.length - 1)), textFraction: positionFractionRef.current || 0 }),
     goToBookmark: (bookmark) => Number.isFinite(bookmark?.paragraphIndex) ? jumpToParagraph(bookmark.paragraphIndex) : setPage(bookmark?.page || 0),
-    lookupEntity: (names, target) => {
+    lookupEntity: async (names, target) => {
       const terms = (Array.isArray(names) ? names : [names]).map((value) => String(value || '').trim()).filter(Boolean)
       const cutoffParagraph = Number.isFinite(target?.paragraphIndex) ? target.paragraphIndex : paragraphs.length - 1
       const fromPercent = Number(target?.fromReadPercent) || 0
@@ -238,8 +238,10 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       }
       // 第一趟只数总量；第二趟按步长均匀采样。数百万字的书命中数万次时，
       // 5000 条上限也能覆盖全程，而不是只堆在开头章节。
+      // 长扫描周期性让出事件循环，避免卡顿设定集窗口等其他视图。
       let total = 0
       for (let index = fromParagraph; index <= cutoffParagraph; index += 1) {
+        if ((index - fromParagraph) % 600 === 599) await new Promise((resolve) => setTimeout(resolve, 0))
         const value = valueAt(index)
         for (const term of terms) {
           let found = value.indexOf(term)
@@ -251,6 +253,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       const excerpts = []
       let hit = 0
       for (let paragraphIndex = fromParagraph; paragraphIndex <= cutoffParagraph && excerpts.length < limit; paragraphIndex += 1) {
+        if ((paragraphIndex - fromParagraph) % 600 === 599) await new Promise((resolve) => setTimeout(resolve, 0))
         const value = valueAt(paragraphIndex)
         const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= paragraphIndex ? index : match, -1)
         for (const term of terms) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpenCheck, ListChecks, RefreshCw, Search, ServerCog, SquareChevronRight, X } from 'lucide-react'
 import AISettingsModal from './components/AISettingsModal'
 import EntityDetails from './components/EntityDetails'
@@ -6,11 +6,24 @@ import EntityRelations from './components/EntityRelations'
 import { isCorruptProfile } from './entityProfiles'
 
 const TYPE_ORDER = ['人物', '物品', '地点', '组织', '能力', '事件', '未分类']
+const SNAPSHOT_CACHE_KEY = 'profiles-window-snapshot'
+
+function readCachedSnapshot() {
+  try { return JSON.parse(localStorage.getItem(SNAPSHOT_CACHE_KEY)) } catch { return null }
+}
 
 // 设定集独立窗口：与阅读窗口并排存在，显示资料卡和后台生成任务队列。
 // 所有数据来自阅读窗口推送的快照；用户操作通过 profiles:action 回传阅读窗口执行。
+// 快照缓存在本地，窗口重开先渲染缓存保证秒开，新快照到达后刷新。
 export default function ProfilesWindow() {
-  const [snapshot, setSnapshot] = useState(null)
+  const [snapshot, setSnapshot] = useState(readCachedSnapshot)
+  const [toast, setToast] = useState(null)
+  const previousTasksRef = useRef([])
+
+  useEffect(() => window.readerAPI?.onProfilesSync?.((next) => {
+    setSnapshot(next)
+    try { localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next)) } catch {}
+  }), [])
   const [profileQuery, setProfileQuery] = useState('')
   const [profileType, setProfileType] = useState('全部')
   const [selectedProfileId, setSelectedProfileId] = useState('')
@@ -59,10 +72,36 @@ export default function ProfilesWindow() {
     return (desired && (profile.relations || []).find((relation) => relation.relation === desired)?.targetName) || '未归属'
   }
   const groupedProfiles = filteredProfiles.reduce((groups, profile) => { const key = relationGroup(profile); (groups[key] ||= []).push(profile); return groups }, {})
+  // 任务完成/失败时窗口顶部通知；点击：成功直达资料卡，失败直达任务详情。
+  useEffect(() => {
+    const previous = new Map(previousTasksRef.current.map((task) => [task.id, task.status]))
+    previousTasksRef.current = profileTasks
+    if (!previous.size) return
+    const changed = profileTasks.find((task) => previous.has(task.id) && previous.get(task.id) !== task.status && ['done', 'error'].includes(task.status))
+    if (!changed) return
+    setToast({
+      id: changed.id,
+      kind: changed.status,
+      profileId: changed.profileId || null,
+      text: changed.status === 'done' ? `「${changed.name}」资料卡已生成，点击查看` : `「${changed.name}」生成失败，点击查看原因`,
+    })
+  }, [profileTasks])
+
+  useEffect(() => {
+    if (!toast) return undefined
+    const timer = setTimeout(() => setToast(null), 6000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
   const activeTaskCount = profileTasks.filter((task) => !['done', 'error'].includes(task.status)).length
 
   return (
     <main className="profiles-window">
+      {toast ? <button className={`profiles-toast is-${toast.kind}`} onClick={() => {
+        if (toast.kind === 'done' && toast.profileId) { setSelectedProfileId(toast.profileId); setTasksOpen(false) }
+        else { setTasksOpen(true); setExpandedTaskId(toast.id) }
+        setToast(null)
+      }}>{toast.text}</button> : null}
       <header className="profiles-window-header">
         <div><BookOpenCheck size={17} /><strong>{snapshot?.bookTitle ? `《${snapshot.bookTitle}》设定集` : '设定集'}</strong><span>{entityProfiles.length} 条{activeTaskCount ? ` · ${activeTaskCount} 个任务进行中` : ''}</span></div>
         <div className="profile-panel-actions">
@@ -78,16 +117,14 @@ export default function ProfilesWindow() {
               <div className="profile-task-main">
                 <strong>{task.name}</strong>
                 {task.status === 'pending' ? <span>排队等待检索…</span> : null}
-                {task.status === 'searching' ? <span><RefreshCw className="spin" size={12} /> 正在检索已读依据…</span> : null}
-                {task.status === 'ready' ? <span>已找到 {task.contextInfo?.totalMatches ?? 0} 处依据，将使用 {task.contextInfo?.sentCount ?? 0} 条{task.incremental ? ' · 增量更新' : ''}</span> : null}
-                {task.status === 'queued' ? <span>排队等待生成…</span> : null}
-                {task.status === 'generating' ? <span><RefreshCw className="spin" size={12} /> 正在生成资料卡…</span> : null}
+                {task.status === 'searching' ? <span><RefreshCw className="spin" size={12} /> 检索资料中（本地，不消耗 token）…</span> : null}
+                {task.status === 'queued' ? <span>已找到 {task.contextInfo?.totalMatches ?? 0} 处依据，排队等待生成…</span> : null}
+                {task.status === 'generating' ? <span><RefreshCw className="spin" size={12} /> AI 生成资料卡中…</span> : null}
                 {task.status === 'done' ? <span>资料卡已生成</span> : null}
                 {task.status === 'error' ? <span className="profile-task-error">生成失败{expandedTaskId === task.id ? '，点击收起详情' : '，点击查看详情'}</span> : null}
                 {task.status === 'error' && expandedTaskId === task.id ? <div className="profile-task-error-detail">{task.error?.message || '未知错误'}{task.error?.code ? `（错误码 ${task.error.code}）` : ''}</div> : null}
               </div>
               <div className="profile-task-actions">
-                {task.status === 'ready' ? <button className="profile-task-primary" onClick={() => window.readerAPI?.sendProfilesAction?.({ type: 'confirm', taskId: task.id })}>{task.hasCached ? (task.incremental ? '更新资料' : '重新生成') : '生成资料'}</button> : null}
                 {task.status === 'done' ? <button className="profile-task-primary" onClick={() => { setSelectedProfileId(task.profileId || ''); setTasksOpen(false); window.readerAPI?.sendProfilesAction?.({ type: 'dismiss', taskId: task.id }) }}>查看</button> : null}
                 {task.status === 'error' ? <button className="profile-task-primary" onClick={(event) => { event.stopPropagation(); window.readerAPI?.sendProfilesAction?.({ type: 'retry', taskId: task.id }) }}>重试</button> : null}
                 <button className="profile-task-dismiss" onClick={(event) => { event.stopPropagation(); window.readerAPI?.sendProfilesAction?.({ type: 'dismiss', taskId: task.id }) }} title="删除任务"><X size={12} /></button>
