@@ -13,3 +13,4 @@ NVIDIA Corporation/
 Thumbs.db
 Start-CodexWithClash.ps1
 capacitor.config.json
+.playwright-mcp/
