@@ -1,0 +1,15 @@
+- main [ref=f1e3]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - strong [ref=f1e9]: 设定集
+      - generic [ref=f1e10]: 0 条
+    - generic [ref=f1e11]:
+      - button "AI 供应商" [ref=f1e12] [cursor=pointer]
+      - button "收起为屏幕右缘悬浮图标" [ref=f1e25] [cursor=pointer]
+  - textbox [ref=f1e33]:
+    - /placeholder: 搜索人物、物品、地点、别名或资料内容，回车直达
+  - navigation "资料类型" [ref=f1e34]:
+    - button "全部0" [ref=f1e35] [cursor=pointer]
+  - generic [ref=f1e36]:
+    - strong [ref=f1e40]: 等待阅读窗口同步
+    - generic [ref=f1e41]: 打开一本书后，这里会显示它的设定集

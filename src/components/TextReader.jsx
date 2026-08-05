@@ -24,7 +24,7 @@ function highlightedParagraph(text, notes) {
   return parts
 }
 
-const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity }, ref) {
+const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile }, ref) {
   const viewportRef = useRef(null)
   const shellRef = useRef(null)
   const contentRef = useRef(null)
@@ -324,9 +324,12 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     event.preventDefault()
     setSelection(nextSelection)
     const canLookupEntity = nextSelection.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(nextSelection.text)
-    const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity })
+    const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(nextSelection.text))
+    const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
     if (action === 'note') setSelection({ ...nextSelection, editing: true })
-    else if (action === 'lookup-entity') onLookupEntity?.(nextSelection)
+    else if (action === 'lookup-entity') onLookupEntity?.(nextSelection, 'generate')
+    else if (action === 'view-entity') onLookupEntity?.(nextSelection, 'view')
+    else if (action === 'link-entity') onLookupEntity?.(nextSelection, 'link')
   }
 
   const collectSelection = (comment, color) => {

@@ -109,7 +109,7 @@ function getPageDirection(document) {
   }
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -292,9 +292,12 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
           if (!selectedText || !payload) return
           event.preventDefault()
           const canLookupEntity = payload.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(payload.text)
-          const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity })
+          const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(payload.text))
+          const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
           if (action === 'note') setSelPopup({ ...payload, editing: true })
-          else if (action === 'lookup-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi })
+          else if (action === 'lookup-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'generate')
+          else if (action === 'view-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'view')
+          else if (action === 'link-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'link')
         })
       }
       fitFullPageBackground(view.document)

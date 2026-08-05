@@ -1067,3 +1067,63 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* 设定集独立窗口 */
+.profiles-window { height: 100vh; display: flex; flex-direction: column; color: rgb(var(--reader-ink)); background: var(--reader-bg); overflow: hidden; }
+.profiles-window-header { flex: 0 0 46px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.profiles-window-header > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.profiles-window-header strong { max-width: 380px; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.profiles-window-header span { color: var(--chrome); font-size: 9px; }
+.profiles-window-header button { width: 30px; height: 30px; border: 0; border-radius: 5px; display: grid; place-items: center; background: transparent; color: var(--chrome); cursor: pointer; }
+.profiles-window-header button:hover { background: rgba(var(--reader-ink), .07); }
+.profiles-window > .profile-tasks { flex: 0 0 auto; }
+.profiles-window > .profile-collection-search { flex: 0 0 auto; }
+.profiles-window > .profile-type-tabs { flex: 0 0 auto; }
+.profiles-window > .profile-collection-content { flex: 1; min-height: 0; }
+.profiles-window > .profile-link-picker { flex: 1; min-height: 0; display: grid; grid-template-rows: 34px 46px minmax(0, 1fr); }
+.profiles-window > .profiles-empty { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--chrome); text-align: center; }
+.profiles-empty strong { color: rgb(var(--reader-ink)); font-size: 12px; }
+.profiles-empty span { max-width: 300px; font-size: 9px; line-height: 1.7; }
+
+/* 生成任务队列 */
+.profile-tasks { max-height: 168px; overflow: auto; border-bottom: 1px solid var(--line); display: grid; }
+.profile-task { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.profile-task:last-child { border-bottom: 0; }
+.profile-task-main { min-width: 0; display: grid; gap: 2px; }
+.profile-task-main strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-task-main span { display: flex; align-items: center; gap: 5px; color: var(--chrome); font-size: 8px; }
+.profile-task-error { color: #a04b3c !important; }
+.profile-task-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.profile-task-primary { padding: 4px 9px; border: 1px solid var(--line); border-radius: 4px; background: rgba(var(--reader-ink), .05); color: rgb(var(--reader-ink)); font-size: 8px; cursor: pointer; }
+.profile-task-primary:hover { background: rgba(var(--reader-ink), .1); }
+.profile-task-dismiss { width: 22px; height: 22px; border: 0; border-radius: 4px; display: grid; place-items: center; background: transparent; color: var(--chrome); cursor: pointer; }
+.profile-task-dismiss:hover { background: rgba(var(--reader-ink), .07); }
+
+/* 关联到已有资料：搜索选择器 */
+.profile-link-banner { padding: 0 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(98, 136, 126, .1); }
+.profile-link-banner span { overflow: hidden; color: #4d6b62; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-link-banner button { flex: 0 0 auto; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--chrome); font-size: 8px; cursor: pointer; }
+.profile-link-list { min-height: 0; overflow: auto; }
+.profile-link-list > p { padding: 20px; color: var(--chrome); font-size: 9px; text-align: center; }
+.profile-link-list button { width: 100%; padding: 9px 14px; border: 0; border-bottom: 1px solid var(--line); display: grid; gap: 3px; text-align: left; background: transparent; color: inherit; cursor: pointer; }
+.profile-link-list button:hover { background: rgba(var(--reader-ink), .06); box-shadow: inset 3px 0 #62887e; }
+.profile-link-list strong { font-size: 11px; }
+.profile-link-list span { color: var(--chrome); font-size: 8px; }
+.profile-link-list em { overflow: hidden; color: var(--chrome); font-size: 8px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 别名 chips（右键移除）与卡内添加别名 */
+.profile-alias-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.profile-alias-chips span { padding: 1px 7px; border: 1px solid var(--line); border-radius: 9px; background: rgba(var(--reader-ink), .04); cursor: context-menu; }
+.profile-alias-chips span:hover { background: rgba(160, 75, 60, .12); border-color: #c09088; }
+.profile-alias-input { margin: 10px 19px 0; display: flex; gap: 6px; }
+.profile-alias-input input { flex: 1; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 5px; outline: 0; background: transparent; color: rgb(var(--reader-ink)); font-size: 10px; }
+.profile-alias-input button { padding: 0 12px; border: 1px solid var(--line); border-radius: 5px; background: rgba(var(--reader-ink), .05); color: rgb(var(--reader-ink)); font-size: 9px; cursor: pointer; }
+
+/* 悬浮图标小窗 */
+.profiles-fab-window { height: 100vh; display: grid; place-items: center; background: var(--reader-bg); -webkit-app-region: drag; user-select: none; }
+.profiles-fab-button { width: 42px; height: 58px; border: 1px solid var(--line); border-radius: 21px; display: grid; place-items: center; gap: 2px; background: var(--reader-bg); color: rgb(var(--reader-ink)); box-shadow: 0 8px 24px rgba(24, 28, 26, .25); cursor: pointer; -webkit-app-region: no-drag; }
+.profiles-fab-button:hover { background: rgba(var(--reader-ink), .07); }
+.profiles-fab-button span { color: var(--chrome); font-size: 9px; }
+
+/* 阅读器工具栏任务角标 */
+.toolbar-badge { margin-left: 2px; padding: 0 5px; border-radius: 8px; background: #62887e; color: #fff; font-size: 8px; line-height: 14px; }

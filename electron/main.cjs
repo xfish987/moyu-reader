@@ -12,6 +12,8 @@ const { buildProfileMessages } = require('./profilePrompt.cjs')
 const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
 let mainWindow
+let profilesWindow = null
+let profilesFabWindow = null
 let bossHidden = false
 let windowPinned = false
 let pendingExternalFiles = []
@@ -639,8 +641,107 @@ async function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null
     closingWindow = false
+    if (profilesWindow && !profilesWindow.isDestroyed()) profilesWindow.destroy()
+    if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
   })
 }
+
+// 设定集独立窗口：标准带框窗口，打开时贴着阅读窗口右侧，互不遮挡。
+function openProfilesWindow(focusName = '') {
+  if (profilesWindow && !profilesWindow.isDestroyed()) {
+    if (focusName) profilesWindow.webContents.send('profiles:focus', focusName)
+    profilesWindow.show()
+    profilesWindow.focus()
+    return
+  }
+  const mainBounds = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : { x: 100, y: 100, width: 900, height: 700 }
+  const workArea = screen.getDisplayMatching(mainBounds).workArea
+  const width = Math.min(780, Math.max(520, Math.floor(workArea.width * 0.42)))
+  const height = Math.min(mainBounds.height, workArea.height)
+  const x = Math.min(mainBounds.x + mainBounds.width + 8, workArea.x + workArea.width - width)
+  const y = Math.max(workArea.y, Math.min(mainBounds.y, workArea.y + workArea.height - height))
+  profilesWindow = new BrowserWindow({
+    width,
+    height,
+    x,
+    y,
+    minWidth: 420,
+    minHeight: 360,
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
+    backgroundColor: '#f3f2ee',
+    title: '设定集',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  if (app.isPackaged) profilesWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'profiles' } })
+  else profilesWindow.loadURL('http://127.0.0.1:5173?window=profiles')
+  profilesWindow.on('closed', () => { profilesWindow = null })
+  profilesWindow.webContents.once('did-finish-load', () => {
+    mainWindow?.webContents.send('profiles:request-sync')
+    if (focusName) profilesWindow?.webContents.send('profiles:focus', focusName)
+  })
+}
+
+ipcMain.handle('profiles:open', (_event, focusName) => {
+  openProfilesWindow(String(focusName || '').slice(0, 80))
+  return true
+})
+// 阅读窗口 → 设定集窗口/悬浮图标：状态快照（资料卡 + 生成任务）。
+ipcMain.on('profiles:sync', (_event, snapshot) => {
+  for (const win of [profilesWindow, profilesFabWindow]) {
+    if (win && !win.isDestroyed()) win.webContents.send('profiles:sync', snapshot)
+  }
+})
+// 设定集窗口 → 阅读窗口：用户动作（确认生成、重试、删除等）。
+ipcMain.on('profiles:action', (_event, action) => {
+  mainWindow?.webContents.send('profiles:action', action)
+})
+
+// 收起为屏幕右缘的悬浮小图标（独立小窗，可拖动，带活动任务数）。
+function openProfilesFabWindow() {
+  if (profilesFabWindow && !profilesFabWindow.isDestroyed()) {
+    profilesFabWindow.show()
+    return
+  }
+  const mainBounds = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : screen.getPrimaryDisplay().workArea
+  const workArea = screen.getDisplayMatching(mainBounds).workArea
+  profilesFabWindow = new BrowserWindow({
+    width: 58,
+    height: 78,
+    x: workArea.x + workArea.width - 68,
+    y: workArea.y + Math.floor(workArea.height * 0.4),
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    autoHideMenuBar: true,
+    backgroundColor: '#f3f2ee',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  if (app.isPackaged) profilesFabWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'profiles-fab' } })
+  else profilesFabWindow.loadURL('http://127.0.0.1:5173?window=profiles-fab')
+  profilesFabWindow.on('closed', () => { profilesFabWindow = null })
+  profilesFabWindow.webContents.once('did-finish-load', () => mainWindow?.webContents.send('profiles:request-sync'))
+}
+
+ipcMain.on('profiles:collapse', () => {
+  if (profilesWindow && !profilesWindow.isDestroyed()) profilesWindow.destroy()
+  profilesWindow = null
+  openProfilesFabWindow()
+})
+ipcMain.on('profiles:expand', () => {
+  if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
+  profilesFabWindow = null
+  openProfilesWindow()
+})
 
 function supportedBookPaths(values = []) {
   return [...new Set(values.filter((value) => typeof value === 'string' && ['.txt', '.epub'].includes(path.extname(value).toLowerCase())))]
@@ -1269,7 +1370,13 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
       { type: 'separator' },
       { label: '添加笔记 / 评论', click: () => finish('note') },
     )
-    if (options.canLookupEntity) template.push({ label: '查看资料（仅检索已读内容）', click: () => finish('lookup-entity') })
+    if (options.canLookupEntity) {
+      template.push(
+        { label: '查看资料', enabled: Boolean(options.hasEntityProfile), click: () => finish('view-entity') },
+        { label: options.hasEntityProfile ? '更新资料（仅检索已读内容）' : '生成资料（仅检索已读内容）', click: () => finish('lookup-entity') },
+        { label: '关联到已有资料…', enabled: Boolean(options.hasAnyProfile), click: () => finish('link-entity') },
+      )
+    }
   }
   if (!template.length) return finish('cancel')
   const menu = Menu.buildFromTemplate(template)

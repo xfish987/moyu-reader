@@ -23,6 +23,31 @@ contextBridge.exposeInMainWorld('readerAPI', {
   saveAiPreferences: (preferences) => ipcRenderer.invoke('ai:save-preferences', preferences),
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
   repairProfileJson: (payload) => ipcRenderer.invoke('ai:repair-profile-json', payload),
+  openProfilesWindow: (focusName) => ipcRenderer.invoke('profiles:open', focusName || ''),
+  collapseProfilesWindow: () => ipcRenderer.send('profiles:collapse'),
+  expandProfilesWindow: () => ipcRenderer.send('profiles:expand'),
+  sendProfilesSync: (snapshot) => ipcRenderer.send('profiles:sync', snapshot),
+  onProfilesSync: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot)
+    ipcRenderer.on('profiles:sync', listener)
+    return () => ipcRenderer.removeListener('profiles:sync', listener)
+  },
+  onProfilesSyncRequest: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('profiles:request-sync', listener)
+    return () => ipcRenderer.removeListener('profiles:request-sync', listener)
+  },
+  sendProfilesAction: (action) => ipcRenderer.send('profiles:action', action),
+  onProfilesAction: (callback) => {
+    const listener = (_event, action) => callback(action)
+    ipcRenderer.on('profiles:action', listener)
+    return () => ipcRenderer.removeListener('profiles:action', listener)
+  },
+  onProfilesFocus: (callback) => {
+    const listener = (_event, name) => callback(name)
+    ipcRenderer.on('profiles:focus', listener)
+    return () => ipcRenderer.removeListener('profiles:focus', listener)
+  },
   onAiSummaryProgress: (listener) => {
     const wrapped = (_event, payload) => listener(payload)
     ipcRenderer.on('ai:summary-progress', wrapped)

@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import TextReader from './TextReader'
 
-const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollect, notes = [], onLookupEntity }, ref) {
+const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile }, ref) {
   const readerRefs = useRef(new Map())
   const pageHintsRef = useRef(new Map([[source.start, savedProgress?.page || 0]]))
   const currentChunkRef = useRef(source)
@@ -209,7 +209,9 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
               onChapters={() => {}}
               onCollect={(note) => active && onCollect?.({ ...note, chunkOffset: layer.start })}
               notes={notes.filter((note) => note.chunkOffset === layer.start)}
-              onLookupEntity={(selection) => active && onLookupEntity?.({ ...selection, chunkOffset: layer.start, chunkEnd: layer.end, readPosition: Math.max(layer.start, Math.round(layer.start + selection.localTextFraction * (layer.end - layer.start))) })}
+              onLookupEntity={(selection, mode) => active && onLookupEntity?.({ ...selection, chunkOffset: layer.start, chunkEnd: layer.end, readPosition: Math.max(layer.start, Math.round(layer.start + selection.localTextFraction * (layer.end - layer.start))) }, mode)}
+              onCheckEntityProfile={onCheckEntityProfile}
+              hasAnyProfile={hasAnyProfile}
               onBoundaryNext={active ? activateNext : undefined}
               onBoundaryPrev={active ? activatePrevious : undefined}
             />
