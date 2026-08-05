@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import TextReader from './TextReader'
 
-const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile }, ref) {
+const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry }, ref) {
   const readerRefs = useRef(new Map())
   const pageHintsRef = useRef(new Map([[source.start, savedProgress?.page || 0]]))
   const currentChunkRef = useRef(source)
@@ -180,6 +180,11 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
       await jumpToAnchor(result.offset, 'exact')
     },
     getLocation: () => ({ ...(readerRefs.current.get(currentChunkRef.current.start)?.getLocation?.() || {}), chunkOffset: currentChunkRef.current.start }),
+    // 字典百科素材：条目锚点带着 chunkOffset，转发给对应分块的 TextReader 提取。
+    getDictContext: (anchor) => {
+      const target = anchor?.chunkOffset ?? currentChunkRef.current.start
+      return readerRefs.current.get(target)?.getDictContext?.(anchor) || null
+    },
     goToBookmark: async (bookmark) => {
       if (bookmark.chunkOffset === currentChunkRef.current.start) return readerRefs.current.get(currentChunkRef.current.start)?.goToBookmark(bookmark)
       pendingParagraphRef.current = bookmark.paragraphIndex
@@ -210,6 +215,9 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
               onCollect={(note) => active && onCollect?.({ ...note, chunkOffset: layer.start })}
               notes={notes.filter((note) => note.chunkOffset === layer.start)}
               onLookupEntity={(selection, mode) => active && onLookupEntity?.({ ...selection, chunkOffset: layer.start, chunkEnd: layer.end, readPosition: Math.max(layer.start, Math.round(layer.start + selection.localTextFraction * (layer.end - layer.start))) }, mode)}
+              onLookupDict={(selection) => active && onLookupDict?.({ ...selection, chunkOffset: layer.start })}
+              dictEntries={dictEntries.filter((entry) => entry.anchor?.chunkOffset === layer.start)}
+              onOpenDictEntry={onOpenDictEntry}
               onCheckEntityProfile={onCheckEntityProfile}
               hasAnyProfile={hasAnyProfile}
               onBoundaryNext={active ? activateNext : undefined}

@@ -5,26 +5,46 @@ import { convertChinese } from '../chineseConversion'
 
 const CHAPTER_PATTERN = /^(?:(?:正文\s*)?第\s*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟]+\s*[章节卷部篇回集幕]\s*.{0,50}|(?:卷|部|篇|章)\s*[0-9０-９零〇一二三四五六七八九十百千万两]+(?:[\s:：.-]+.{0,45})?|(?:序章|序言|前言|楔子|引子|后记|尾声|终章|大结局)(?:[\s:：.-]+.{0,45})?|(?:番外|外传|附录)\s*[0-9０-９零〇一二三四五六七八九十百千万两]*(?:[\s:：.-]+.{0,45})?|(?:chapter|part|volume|book)\s+[0-9ivxlcdm]+(?:[\s:：.-]+.{0,50})?)$/i
 
-function highlightedParagraph(text, notes) {
-  if (!notes?.length) return text
-  const ranges = notes.map((note) => ({ note, start: text.indexOf(note.text) }))
-    .filter((item) => item.start >= 0 && item.note.text)
-    .sort((a, b) => a.start - b.start)
+// 段落内渲染两类标记：笔记高亮（按文本匹配）与字典百科划线（按锚点偏移）。
+// 起点相同或重叠时先到先得，笔记优先。
+function highlightedParagraph(text, notes, dictEntries, onOpenDictEntry) {
+  const ranges = []
+  for (const note of notes || []) {
+    const start = text.indexOf(note.text)
+    if (start >= 0 && note.text) ranges.push({ start, end: start + note.text.length, note })
+  }
+  for (const entry of dictEntries || []) {
+    const { startOffset: start, endOffset: end } = entry.anchor || {}
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start && end <= text.length) ranges.push({ start, end, entry })
+  }
   if (!ranges.length) return text
+  ranges.sort((a, b) => a.start - b.start || (a.note ? -1 : 1) - (b.note ? -1 : 1))
   const parts = []
   let cursor = 0
-  ranges.forEach(({ note, start }) => {
-    if (start < cursor) return
-    if (start > cursor) parts.push(text.slice(cursor, start))
-    const end = start + note.text.length
-    parts.push(<mark className={`text-highlight is-${note.color || 'amber'}`} key={note.id}>{text.slice(start, end)}</mark>)
-    cursor = end
+  ranges.forEach((range) => {
+    if (range.start < cursor) return
+    if (range.start > cursor) parts.push(text.slice(cursor, range.start))
+    if (range.note) {
+      parts.push(<mark className={`text-highlight is-${range.note.color || 'amber'}`} key={range.note.id}>{text.slice(range.start, range.end)}</mark>)
+    } else {
+      const entry = range.entry
+      parts.push(
+        <mark
+          className="dict-highlight"
+          key={entry.id}
+          title="字典百科：点击查看 AI 解说"
+          onMouseUp={(event) => event.stopPropagation()}
+          onClick={(event) => { event.stopPropagation(); onOpenDictEntry?.(entry) }}
+        >{text.slice(range.start, range.end)}</mark>,
+      )
+    }
+    cursor = range.end
   })
   if (cursor < text.length) parts.push(text.slice(cursor))
   return parts
 }
 
-const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile }, ref) {
+const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry }, ref) {
   const viewportRef = useRef(null)
   const shellRef = useRef(null)
   const contentRef = useRef(null)
@@ -55,6 +75,17 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     }
     return map
   }, [notes])
+
+  // 段落下标 → 该段的字典百科条目，用于在正文中渲染可点击的划线。
+  const dictByParagraph = useMemo(() => {
+    const map = new Map()
+    for (const entry of dictEntries || []) {
+      const index = entry.anchor?.paragraphIndex
+      if (!Number.isFinite(index)) continue
+      map.set(index, [...(map.get(index) || []), entry])
+    }
+    return map
+  }, [dictEntries])
 
   const displayContent = useMemo(() => convertChinese(content, settings.scriptConversion), [content, settings.scriptConversion])
   const paragraphs = useMemo(() => displayContent
@@ -226,6 +257,24 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       jumpToParagraph(Math.max(0, index))
     },
     getLocation: () => ({ page, paragraphIndex: Math.round((positionFractionRef.current || 0) * Math.max(0, paragraphs.length - 1)), textFraction: positionFractionRef.current || 0 }),
+    // 字典百科素材：选中段落、前后文，以及所在章节全文（超 2 万字符时以选中段为中心截取）。
+    getDictContext: (anchor) => {
+      const index = Number(anchor?.paragraphIndex)
+      if (!Number.isFinite(index) || index < 0 || index >= paragraphs.length) return null
+      const paragraph = paragraphs[index] || ''
+      const contextBefore = paragraphs.slice(Math.max(0, index - 12), index).join('\n').slice(-3000)
+      const contextAfter = paragraphs.slice(index + 1, index + 13).join('\n').slice(0, 3000)
+      const chapterIndex = chapters.reduce((match, chapter, i) => (chapter.index <= index ? i : match), -1)
+      const chapterStart = chapterIndex >= 0 ? chapters[chapterIndex].index : 0
+      const chapterEnd = chapterIndex >= 0 && chapterIndex + 1 < chapters.length ? chapters[chapterIndex + 1].index : paragraphs.length
+      let chapterText = paragraphs.slice(chapterStart, chapterEnd).join('\n')
+      if (chapterText.length > 20000) {
+        const headLength = paragraphs.slice(chapterStart, index).join('\n').length
+        const from = Math.max(0, Math.min(headLength - 10000, chapterText.length - 20000))
+        chapterText = chapterText.slice(from, from + 20000)
+      }
+      return { paragraph, contextBefore, contextAfter, chapterText }
+    },
     goToBookmark: (bookmark) => Number.isFinite(bookmark?.paragraphIndex) ? jumpToParagraph(bookmark.paragraphIndex) : setPage(bookmark?.page || 0),
     lookupEntity: async (names, target) => {
       const terms = (Array.isArray(names) ? names : [names]).map((value) => String(value || '').trim()).filter(Boolean)
@@ -330,6 +379,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(nextSelection.text))
     const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
     if (action === 'note') setSelection({ ...nextSelection, editing: true })
+    else if (action === 'dictionary') onLookupDict?.(nextSelection)
     else if (action === 'lookup-entity') onLookupEntity?.(nextSelection, 'generate')
     else if (action === 'view-entity') onLookupEntity?.(nextSelection, 'view')
     else if (action === 'link-entity') onLookupEntity?.(nextSelection, 'link')
@@ -398,7 +448,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
                 onClick={(event) => openMarker(event, index)}
               ><MessageSquareQuote size={12} />{paragraphNotes.length > 1 ? <em>{paragraphNotes.length}</em> : null}</button>
             ) : null
-            const paragraphContent = <span className="paragraph-text">{highlightedParagraph(paragraph, paragraphNotes)}</span>
+            const paragraphContent = <span className="paragraph-text">{highlightedParagraph(paragraph, paragraphNotes, dictByParagraph.get(index), onOpenDictEntry)}</span>
             return isChapter
               ? <h2 key={index} data-paragraph={index}>{paragraphContent}{noteMarker}</h2>
               : <p key={index} data-paragraph={index}>{paragraphContent}{noteMarker}</p>

@@ -26,6 +26,8 @@ export default function ProfilesWindow() {
   const [linkQuery, setLinkQuery] = useState('')
   const [aliasInputFor, setAliasInputFor] = useState(null)
   const [aliasText, setAliasText] = useState('')
+  // 左侧条目右键菜单：更新生成 / 删除。
+  const [entryMenu, setEntryMenu] = useState(null)
 
   useEffect(() => {
     document.title = snapshot?.bookTitle ? `设定集 - ${snapshot.bookTitle}` : '设定集'
@@ -85,6 +87,25 @@ export default function ProfilesWindow() {
     return () => clearTimeout(timer)
   }, [toast])
 
+  // 右键菜单打开后，点击任意处或滚动时收起。
+  useEffect(() => {
+    if (!entryMenu) return undefined
+    const close = () => setEntryMenu(null)
+    window.addEventListener('mousedown', close)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('blur', close)
+    }
+  }, [entryMenu])
+
+  const openEntryMenu = (event, profile) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedProfileId(profile.id)
+    setEntryMenu({ profile, x: Math.min(event.clientX, window.innerWidth - 150), y: Math.min(event.clientY, window.innerHeight - 90) })
+  }
+
   const activeTaskCount = profileTasks.filter((task) => !['done', 'error'].includes(task.status)).length
 
   return (
@@ -143,7 +164,7 @@ export default function ProfilesWindow() {
           <nav className="profile-type-tabs" aria-label="资料类型">{profileTypes.map((type) => <button className={profileType === type ? 'active' : ''} key={type} onClick={() => { setProfileType(type); setSelectedProfileId('') }}>{type}<span>{type === '全部' ? entityProfiles.length : entityProfiles.filter((item) => (item.type || '未分类') === type).length}</span></button>)}</nav>
           {filteredProfiles.length ? (
             <div className="profile-collection-content">
-              <nav>{Object.entries(groupedProfiles).map(([group, profiles]) => <section key={group}><h3>{group}</h3>{profiles.map((profile) => <button className={selectedProfile?.id === profile.id ? 'active' : ''} key={profile.id} onClick={() => setSelectedProfileId(profile.id)}><strong>{profile.name}</strong><span>{profile.aliases?.length ? `别名 ${profile.aliases.slice(0, 2).join('、')} · ` : ''}总结至 {Math.round((profile.readPercent || 0) * 100)}%</span></button>)}</section>)}</nav>
+              <nav>{Object.entries(groupedProfiles).map(([group, profiles]) => <section key={group}><h3>{group}</h3>{profiles.map((profile) => <button className={selectedProfile?.id === profile.id ? 'active' : ''} key={profile.id} onClick={() => setSelectedProfileId(profile.id)} onContextMenu={(event) => openEntryMenu(event, profile)} title="右键：更新生成 / 删除"><strong>{profile.name}</strong><span>{profile.aliases?.length ? `别名 ${profile.aliases.slice(0, 2).join('、')} · ` : ''}总结至 {Math.round((profile.readPercent || 0) * 100)}%</span></button>)}</section>)}</nav>
               {selectedProfile ? (
                 <article>
                   <header>
@@ -167,6 +188,18 @@ export default function ProfilesWindow() {
         </>
       )}
       <AISettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onChange={() => {}} />
+      {entryMenu ? (
+        <div className="profile-entry-menu" style={{ left: entryMenu.x, top: entryMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
+          <button onClick={() => { window.readerAPI?.sendProfilesAction?.({ type: 'update-profile', profileId: entryMenu.profile.id }); setEntryMenu(null) }}>更新生成（按当前已读进度）</button>
+          <button className="is-danger" onClick={() => {
+            if (window.confirm(`删除「${entryMenu.profile.name}」的资料卡？此操作不可撤销。`)) {
+              window.readerAPI?.sendProfilesAction?.({ type: 'delete-profile', profileId: entryMenu.profile.id })
+              setSelectedProfileId('')
+            }
+            setEntryMenu(null)
+          }}>删除</button>
+        </div>
+      ) : null}
     </main>
   )
 }

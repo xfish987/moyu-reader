@@ -10,6 +10,7 @@ const { DOMParser } = require('@xmldom/xmldom')
 const { collectModelCatalog } = require('./modelCatalog.cjs')
 const { parseProfileJson } = require('./jsonRepair.cjs')
 const { buildProfileMessages } = require('./profilePrompt.cjs')
+const { buildDictionaryMessages, buildFollowupMessages } = require('./dictionaryPrompt.cjs')
 const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
 let mainWindow
@@ -71,12 +72,14 @@ const STORE_KEYS = new Set([
   'reader:notes',
   'reader:covers',
   'reader:pinned',
+  'reader:shortcuts',
   'reader:last-book',
   'reader:book-status',
   'reader:bookmarks',
   'reader:book-metadata',
   'reader:window-bounds',
   'reader:entity-profiles',
+  'reader:dictionary',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -683,6 +686,7 @@ async function createWindow() {
     closingWindow = false
     if (profilesWindow && !profilesWindow.isDestroyed()) profilesWindow.destroy()
     if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
+    if (dictionaryWindow && !dictionaryWindow.isDestroyed()) dictionaryWindow.destroy()
   })
 }
 
@@ -692,6 +696,7 @@ function scheduleCompanionFollow() {
   companionFollowTimer = setTimeout(() => {
     companionFollowTimer = null
     followProfilesToMain()
+    followDictionaryToMain()
     snapFabToReader()
     if (companionFollowAgain) { companionFollowAgain = false; scheduleCompanionFollow() }
   }, 60)
@@ -927,6 +932,102 @@ ipcMain.on('profiles:fab-drag', (_event, delta) => {
 ipcMain.on('profiles:fab-drag-end', () => {
   fabManualDrag = false
   snapFabToReader()
+})
+
+// ===== 字典百科窗口：吸附在阅读窗口外上侧，同宽跟随，不遮挡正文 =====
+// 上侧空间不足（阅读窗贴屏幕顶）时落到下侧。高度可由用户调整并跟随保持，
+// 横向位置与宽度始终与阅读窗对齐；阅读窗移动/缩放时实时跟随。
+let dictionaryWindow = null
+let dictPlacement = 'above'
+let lastDictSnapshot = null
+
+function dictionaryOpenBounds() {
+  const bounds = mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : { x: 100, y: 100, width: 900, height: 700 }
+  const workArea = screen.getDisplayMatching(bounds).workArea
+  const spaceAbove = bounds.y - workArea.y - 8
+  const spaceBelow = workArea.y + workArea.height - (bounds.y + bounds.height) - 8
+  const desired = Math.min(480, Math.max(280, Math.floor(bounds.height * 0.55)))
+  dictPlacement = spaceAbove >= 240 || spaceAbove >= spaceBelow ? 'above' : 'below'
+  const height = Math.max(220, Math.min(desired, dictPlacement === 'above' ? spaceAbove : spaceBelow))
+  const x = Math.max(workArea.x, Math.min(bounds.x, workArea.x + workArea.width - bounds.width))
+  const y = dictPlacement === 'above'
+    ? Math.max(workArea.y, bounds.y - height - 8)
+    : Math.min(bounds.y + bounds.height + 8, workArea.y + workArea.height - height)
+  return { x, y, width: bounds.width, height }
+}
+
+function followDictionaryToMain() {
+  if (!dictionaryWindow || dictionaryWindow.isDestroyed() || !mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return
+  const bounds = mainWindow.getBounds()
+  const workArea = screen.getDisplayMatching(bounds).workArea
+  const current = dictionaryWindow.getBounds()
+  const x = Math.max(workArea.x, Math.min(bounds.x, workArea.x + workArea.width - bounds.width))
+  const y = dictPlacement === 'above'
+    ? Math.max(workArea.y, bounds.y - current.height - 8)
+    : Math.min(bounds.y + bounds.height + 8, workArea.y + workArea.height - current.height)
+  if (current.x !== x || current.y !== y || current.width !== bounds.width) {
+    dictionaryWindow.setBounds({ x, y, width: bounds.width, height: current.height })
+  }
+}
+
+async function openDictionaryWindow(entryId = '') {
+  if (dictionaryWindow && !dictionaryWindow.isDestroyed()) {
+    if (entryId) dictionaryWindow.webContents.send('dict:focus', entryId)
+    dictionaryWindow.show()
+    dictionaryWindow.focus()
+    return
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const bounds = dictionaryOpenBounds()
+  dictionaryWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: 480,
+    minHeight: 220,
+    minimizable: false,
+    maximizable: false,
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
+    backgroundColor: '#f3f2ee',
+    title: '字典百科',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  if (app.isPackaged) dictionaryWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'dictionary' } })
+  else dictionaryWindow.loadURL('http://127.0.0.1:5173?window=dictionary')
+  logEvent('window:open-dictionary', { placement: dictPlacement })
+  watchWindow(dictionaryWindow, 'dict')
+  dictionaryWindow.on('closed', () => { dictionaryWindow = null })
+  dictionaryWindow.webContents.once('did-finish-load', () => {
+    if (lastDictSnapshot) dictionaryWindow?.webContents.send('dict:sync', lastDictSnapshot)
+    mainWindow?.webContents.send('dict:request-sync')
+    if (entryId) dictionaryWindow?.webContents.send('dict:focus', entryId)
+  })
+}
+
+ipcMain.handle('dict:open', async (_event, entryId) => {
+  await openDictionaryWindow(String(entryId || '').slice(0, 120))
+  return true
+})
+ipcMain.on('dict:close', () => {
+  if (dictionaryWindow && !dictionaryWindow.isDestroyed()) dictionaryWindow.close()
+})
+// 阅读窗口 → 字典窗口：条目快照（主进程留存一份，新开的窗口立即可用）。
+ipcMain.on('dict:sync', (_event, snapshot) => {
+  lastDictSnapshot = snapshot || null
+  if (dictionaryWindow && !dictionaryWindow.isDestroyed()) dictionaryWindow.webContents.send('dict:sync', snapshot)
+})
+// 字典窗口 → 阅读窗口：重新生成、追问、删除追问等动作。
+ipcMain.on('dict:action', (_event, action) => {
+  if (action?.type === 'jump-to-source' && mainWindow && !mainWindow.isDestroyed()) {
+    // 点击引用块跳原文：把阅读窗提到前台，让用户看到落点。
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  mainWindow?.webContents.send('dict:action', action)
 })
 
 function supportedBookPaths(values = []) {
@@ -1504,6 +1605,78 @@ async function summarizeEntity(event, input) {
 
 ipcMain.handle('ai:summarize-entity', summarizeEntity)
 
+// 字典百科：解释选中文字 / 回答追问。提示词在主进程组装（与资料卡同一模式），
+// 渲染端只传素材；返回纯文本解释，不做 JSON 解析。
+ipcMain.handle('ai:dictionary-chat', async (event, input) => {
+  const config = await loadAiConfig()
+  const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId)) || config.providers[0]
+  if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
+  const model = String(input?.model || provider.model || '').trim().slice(0, 160)
+  if (!model) return { ok: false, error: { stage: 'setup', status: 0, code: 'MODEL_REQUIRED', message: '请选择或填写模型' } }
+  const mode = input?.mode === 'followup' ? 'followup' : 'explain'
+  const textOf = (value, limit) => String(value || '').trim().slice(0, limit)
+  const entityProfiles = (Array.isArray(input?.entityProfiles) ? input.entityProfiles : []).slice(0, 40).map((item) => ({
+    name: textOf(item?.name, 80),
+    aliases: (Array.isArray(item?.aliases) ? item.aliases : []).slice(0, 10).map((value) => textOf(value, 80)).filter(Boolean),
+    type: textOf(item?.type, 20),
+    summary: textOf(item?.summary, 400),
+  })).filter((item) => item.name)
+  const payload = {
+    bookTitle: textOf(input?.bookTitle, 120),
+    author: textOf(input?.author, 80),
+    chapterLabel: textOf(input?.chapterLabel, 160),
+    readPercent: Math.max(0, Math.min(1, Number(input?.readPercent) || 0)),
+    selectedText: textOf(input?.selectedText, 2000),
+    paragraph: textOf(input?.paragraph, 4000),
+    contextBefore: textOf(input?.contextBefore, 6000),
+    contextAfter: textOf(input?.contextAfter, 6000),
+    chapterText: textOf(input?.chapterText, 24000),
+    explanation: textOf(input?.explanation, 4000),
+    followUps: (Array.isArray(input?.followUps) ? input.followUps : []).slice(-8).map((item) => ({ question: textOf(item?.question, 500), answer: textOf(item?.answer, 4000) })),
+    question: textOf(input?.question, 500),
+    entityProfiles,
+  }
+  if (!payload.selectedText) return { ok: false, error: { stage: 'dictionary', status: 0, code: 'EMPTY_SELECTION', message: '选中的文字为空' } }
+  if (mode === 'followup' && !payload.question) return { ok: false, error: { stage: 'dictionary', status: 0, code: 'EMPTY_QUESTION', message: '追问内容为空' } }
+  const messages = mode === 'followup' ? buildFollowupMessages(payload) : buildDictionaryMessages(payload)
+  const controller = new AbortController()
+  let timedOut = false
+  let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
+  const requestedMaxTokens = Math.max(1024, Math.min(8192, Number(input?.maxTokens ?? provider.maxTokens) || 4096))
+  try {
+    let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
+    const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
+    }, 'dictionary', controller.signal,
+      null,
+      () => {
+        // 首字节前 30 秒超时；流开始后每个 chunk 重置 60 秒心跳超时。
+        if (timeout) clearTimeout(timeout)
+        timeout = setTimeout(() => { timedOut = true; controller.abort() }, 60000)
+      })
+    let response
+    try { response = await execute(tokenParameter) }
+    catch (error) {
+      const detail = `${error.aiError?.code || ''} ${error.aiError?.message || ''}`
+      const canFallback = provider.tokenParameter === 'auto' && error.aiError?.status === 400 && /max[_ -]?(completion[_ -]?)?tokens|unknown parameter|unsupported/i.test(detail)
+      if (!canFallback) throw error
+      tokenParameter = tokenParameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
+      response = await execute(tokenParameter)
+    }
+    const choice = response?.choices?.[0]
+    const text = responseText(choice?.message).trim()
+    if (!text) {
+      const refusal = choice?.message?.refusal
+      return { ok: false, error: { stage: 'dictionary', status: 200, code: choice?.finish_reason === 'content_filter' || refusal ? 'CONTENT_FILTERED' : 'EMPTY_RESPONSE', message: sanitizeAiErrorText(refusal || '供应商没有返回解释') } }
+    }
+    return { ok: true, text: text.slice(0, 4000), providerId: provider.id, providerName: provider.name, model }
+  } catch (error) {
+    return { ok: false, error: error.aiError || { stage: 'dictionary', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商响应超时，请检查供应商连接后重试' : sanitizeAiErrorText(error.message) } }
+  } finally { if (timeout) clearTimeout(timeout) }
+})
+
 // Headless smoke test of the profile chain against the locally stored provider:
 //   MOYU_PROFILE_SELFTEST=test-profile-fixture.json npx electron .
 // MOYU_TEST_API_KEY can override the stored key (useful when the stored key was
@@ -1552,6 +1725,8 @@ async function runProfileSelfTest(fixturePath) {
 }
 
 ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((resolve) => {
+  // 自动化测试钩子：设置 MOYU_TEST_MENU_ACTION 时直接返回指定动作，不弹原生菜单。
+  if (process.env.MOYU_TEST_MENU_ACTION) { resolve(process.env.MOYU_TEST_MENU_ACTION); return }
   let settled = false
   const finish = (value) => { if (!settled) { settled = true; resolve(value) } }
   const template = []
@@ -1560,6 +1735,7 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
       { label: '复制', role: 'copy', click: () => finish('copy') },
       { type: 'separator' },
       { label: '添加笔记 / 评论', click: () => finish('note') },
+      { label: '字典百科（AI 解说这段文字）', click: () => finish('dictionary') },
     )
     if (options.canLookupEntity) {
       template.push(

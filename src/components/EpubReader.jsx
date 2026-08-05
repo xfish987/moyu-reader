@@ -109,7 +109,7 @@ function getPageDirection(document) {
   }
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -130,6 +130,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   const readingRtlRef = useRef(false)
   const appliedDirectionRef = useRef(null)
   const locationsReadyRef = useRef(false)
+  const lastPercentRef = useRef(0)
   const navLockRef = useRef(0)
   const pagingRef = useRef(false)
   const initialDataRef = useRef(data)
@@ -188,6 +189,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         const precise = book.locations?.percentageFromCfi?.(location.start.cfi)
         if (Number.isFinite(precise)) percent = precise
       }
+      lastPercentRef.current = percent
       progressCallbackRef.current({
         cfi: location.start.cfi,
         href: resolveTocHref(location, rendition, book, tocRef.current),
@@ -253,20 +255,48 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         const rect = range.getBoundingClientRect()
         const above = frameRect.top - hostRect.top + rect.top
         let chapterBefore = ''
+        let paragraph = ''
         try {
           const prefixRange = contents.document.createRange()
           prefixRange.selectNodeContents(contents.document.body)
           prefixRange.setEnd(range.startContainer, range.startOffset)
           chapterBefore = prefixRange.toString().replace(/\s+/g, ' ').trim().slice(-120000)
         } catch {}
+        // 选中文字所在的完整段落（块级元素文本），供字典百科作为语境锚点。
+        try {
+          const container = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement
+          const block = container?.closest?.('p, li, blockquote, h1, h2, h3, h4, h5, div, section')
+          paragraph = (block?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 4000)
+        } catch {}
+        // 字典百科条目的精确定位信息：章节名按选中处所在节匹配目录；
+        // 百分比优先用 cfi 精确换算，定位表未生成时退回当前阅读进度（选中处就在可视页上，足够准）。
+        const selectionHref = rendition.currentLocation()?.start?.href || ''
+        let chapterLabel = ''
+        try {
+          chapterLabel = [...(tocRef.current || [])].reverse().find((item) => splitHref(item.href).hrefPath === splitHref(selectionHref).hrefPath)?.label || ''
+        } catch {}
+        let readPercent = lastPercentRef.current || 0
+        try {
+          const precise = book.locations?.percentageFromCfi?.(cfiRange)
+          if (Number.isFinite(precise)) readPercent = precise
+        } catch {}
+        if (!readPercent) {
+          // 定位表未生成且尚无进度事件（刚打开书）：用节号+页号折算近似百分比。
+          const start = rendition.currentLocation()?.start
+          const spineCount = Math.max(1, book.spine?.spineItems?.length || 1)
+          readPercent = ((Number(start?.index) || 0) + ((start?.displayed?.page || 1) - 1) / Math.max(1, start?.displayed?.total || 1)) / spineCount
+        }
         selectedContentsRef.current = contents
         setNotePopup(null)
         const payload = {
           text: text.slice(0, 500),
           cfi: cfiRange,
-          href: rendition.currentLocation()?.start?.href || '',
+          href: selectionHref,
           spineIndex: Number(rendition.currentLocation()?.start?.index) || 0,
           chapterBefore,
+          paragraph,
+          chapterLabel,
+          readPercent,
           left: Math.max(150, Math.min(hostRect.width - 150, frameRect.left - hostRect.left + rect.left + rect.width / 2)),
           below: above < 230,
           top: above < 230 ? frameRect.top - hostRect.top + rect.bottom + 10 : Math.max(10, above - 12),
@@ -295,6 +325,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
           const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(payload.text))
           const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
           if (action === 'note') setSelPopup({ ...payload, editing: true })
+          else if (action === 'dictionary') onLookupDict?.(payload)
           else if (action === 'lookup-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'generate')
           else if (action === 'view-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'view')
           else if (action === 'link-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'link')
@@ -454,7 +485,15 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         }
       } catch {}
     }
-  }, [notes, data])
+    // 字典百科条目：不同颜色的高亮，点击重新打开上次的 AI 解说。
+    for (const entry of dictEntries || []) {
+      if (!entry.anchor?.cfi) continue
+      try {
+        rendition.annotations.highlight(entry.anchor.cfi, { dictId: entry.id }, () => onOpenDictEntry?.(entry), 'reader-dict-highlight', { fill: '#4f8f6a', 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' })
+        annotationsRef.current.push({ cfi: entry.anchor.cfi, type: 'highlight' })
+      } catch {}
+    }
+  }, [notes, dictEntries, data])
 
   const closeSelectionPopup = () => {
     selectedContentsRef.current?.window?.getSelection()?.removeAllRanges()
@@ -628,7 +667,34 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
     },
     getLocation: () => {
       const start = renditionRef.current?.currentLocation?.()?.start
-      return { cfi: start?.cfi, href: start?.href, page: start?.displayed?.page || 1 }
+      return { cfi: start?.cfi, href: start?.href, page: start?.displayed?.page || 1, spineIndex: Number(start?.index) || 0 }
+    },
+    // 字典百科素材：按条目记录的 href 加载该节，提取上下文与章节全文（超 2 万字符以选中处为中心截取）。
+    getDictContext: async (anchor) => {
+      const book = bookRef.current
+      if (!book || !anchor?.href) return null
+      try {
+        await book.ready
+        const targetPath = splitHref(anchor.href).hrefPath
+        const section = (book.spine?.spineItems || []).find((item) => splitHref(item.href).hrefPath === targetPath)
+        if (!section) return null
+        await section.load(book.load.bind(book))
+        const full = (section.document?.body?.textContent || '').replace(/\s+/g, ' ').trim()
+        section.unload?.()
+        if (!full) return null
+        const selected = String(anchor.text || '')
+        const needle = selected.slice(0, 40)
+        const pos = needle ? full.indexOf(needle) : -1
+        let chapterText = full
+        if (full.length > 20000) {
+          const center = pos >= 0 ? pos : Math.floor(full.length / 2)
+          const from = Math.max(0, Math.min(center - 10000, full.length - 20000))
+          chapterText = full.slice(from, from + 20000)
+        }
+        const contextBefore = pos > 0 ? full.slice(Math.max(0, pos - 3000), pos) : ''
+        const contextAfter = pos >= 0 ? full.slice(pos + selected.length, pos + selected.length + 3000) : ''
+        return { paragraph: anchor.paragraph || '', contextBefore, contextAfter, chapterText }
+      } catch { return null }
     },
     goToBookmark: (bookmark) => bookmark?.cfi && renditionRef.current?.display(bookmark.cfi),
     }

@@ -36,6 +36,7 @@ export default function App() {
   const [bookmarksMap, setBookmarksMap] = useStoredState('reader:bookmarks', {})
   const [bookMetadata, setBookMetadata] = useStoredState('reader:book-metadata', {})
   const [entityProfilesMap, setEntityProfilesMap] = useStoredState('reader:entity-profiles', {})
+  const [dictionaryMap, setDictionaryMap] = useStoredState('reader:dictionary', {})
   const [directoryBooks, setDirectoryBooks] = useState([])
   const [activeBook, setActiveBook] = useState(null)
   const [source, setSource] = useState(null)
@@ -148,7 +149,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap].forEach(migrateMap)
+    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap].forEach(migrateMap)
     const currentBook = books.find((book) => (book.legacyId || book.path) === lastBookId)
     if (currentBook && currentBook.id !== lastBookId) setLastBookId(currentBook.id)
     setBookMetadata((current) => {
@@ -160,11 +161,14 @@ export default function App() {
       })
       return changed ? next : current
     })
-  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCoversMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setStatusMap, setTagsMap])
+  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setStatusMap, setTagsMap])
 
   const removeBook = (book) => {
     setManualBooks((current) => current.filter((item) => item.id !== book.id && item.path !== book.path))
     setHiddenBooks((current) => current.includes(book.id) ? current : [...current, book.id])
+    // 书籍删除时，字典百科解释与设定集随这本书的阅读数据一起消失。
+    setDictionaryMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
+    setEntityProfilesMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
   }
 
   const relocateBook = async (book) => {
@@ -341,6 +345,16 @@ export default function App() {
     setEntityProfilesMap((current) => ({ ...current, [activeBook.id]: removeEntityProfile(current[activeBook.id] || [], profileId) }))
   }, [activeBook, setEntityProfilesMap])
 
+  const saveDictEntry = useCallback((entry) => {
+    if (!activeBook || !entry) return
+    setDictionaryMap((current) => {
+      const list = current[activeBook.id] || []
+      const index = list.findIndex((item) => item.id === entry.id)
+      const next = index >= 0 ? list.map((item) => (item.id === entry.id ? entry : item)) : [...list, entry]
+      return { ...current, [activeBook.id]: next }
+    })
+  }, [activeBook, setDictionaryMap])
+
   return (
     <div className={`app-shell ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
@@ -372,6 +386,8 @@ export default function App() {
           onMergeEntityProfiles={mergeEntityProfiles}
           onSplitEntityAlias={splitEntityAlias}
           onDeleteEntityProfile={deleteEntityProfile}
+          dictionaryEntries={dictionaryMap[activeBook.id] || []}
+          onSaveDictEntry={saveDictEntry}
         />
       ) : (
         <Bookshelf

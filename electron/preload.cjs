@@ -22,6 +22,31 @@ contextBridge.exposeInMainWorld('readerAPI', {
   refreshAiProvider: (providerId) => ipcRenderer.invoke('ai:refresh-provider', providerId),
   saveAiPreferences: (preferences) => ipcRenderer.invoke('ai:save-preferences', preferences),
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
+  dictionaryChat: (payload) => ipcRenderer.invoke('ai:dictionary-chat', payload),
+  openDictionaryWindow: (entryId) => ipcRenderer.invoke('dict:open', entryId || ''),
+  closeDictionaryWindow: () => ipcRenderer.send('dict:close'),
+  sendDictSync: (snapshot) => ipcRenderer.send('dict:sync', snapshot),
+  onDictSync: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot)
+    ipcRenderer.on('dict:sync', listener)
+    return () => ipcRenderer.removeListener('dict:sync', listener)
+  },
+  onDictSyncRequest: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('dict:request-sync', listener)
+    return () => ipcRenderer.removeListener('dict:request-sync', listener)
+  },
+  sendDictAction: (action) => ipcRenderer.send('dict:action', action),
+  onDictAction: (callback) => {
+    const listener = (_event, action) => callback(action)
+    ipcRenderer.on('dict:action', listener)
+    return () => ipcRenderer.removeListener('dict:action', listener)
+  },
+  onDictFocus: (callback) => {
+    const listener = (_event, entryId) => callback(entryId)
+    ipcRenderer.on('dict:focus', listener)
+    return () => ipcRenderer.removeListener('dict:focus', listener)
+  },
   repairProfileJson: (payload) => ipcRenderer.invoke('ai:repair-profile-json', payload),
   openProfilesWindow: (focusName) => ipcRenderer.invoke('profiles:open', focusName || ''),
   toggleProfilesWindow: () => ipcRenderer.invoke('profiles:toggle'),

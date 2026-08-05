@@ -1276,3 +1276,89 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .shortcut-footer { margin-top: 12px; display: flex; justify-content: flex-end; }
 .shortcut-footer button { height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 6px; background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
 .shortcut-footer button:hover { background: var(--paper-2); color: var(--ink); }
+
+/* ============================================================
+   字典百科：正文划线标记 + 独立解说窗口（吸附阅读窗外上侧）
+   注意：本应用的 Electron 页面 UA 默认样式不生效（裸 p/blockquote/section
+   均为 inline），这里所有元素必须显式声明 display，布局全靠类名。
+   ============================================================ */
+/* 已解释过的文字：下划线变色，点击重新打开上次解释。与笔记高亮共存。 */
+mark.dict-highlight {
+  background: transparent;
+  color: inherit;
+  border-bottom: 2px solid var(--accent, #7fa089);
+  cursor: pointer;
+  padding-bottom: 1px;
+}
+mark.dict-highlight:hover { background: var(--accent-bg, rgba(127, 160, 137, .14)); }
+
+.dictionary-window {
+  --reader-bg: var(--paper);
+  --reader-ink: 42, 46, 43;
+  --chrome: var(--ink-2);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  color: rgb(var(--reader-ink));
+  background: var(--reader-bg);
+  overflow: hidden;
+}
+.dictionary-header { flex: 0 0 40px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.dictionary-title { min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--chrome); }
+.dictionary-title strong { display: block; max-width: 320px; overflow: hidden; color: rgb(var(--reader-ink)); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.dictionary-title span { display: block; font-size: var(--text-xs); }
+.dictionary-nav { display: flex; align-items: center; gap: 2px; }
+.dictionary-nav button { width: 26px; height: 26px; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--chrome); cursor: pointer; }
+.dictionary-nav button:hover { background: rgba(var(--reader-ink), .07); }
+
+/* 主体：左侧边栏 + 右侧详情 */
+.dictionary-main { flex: 1; min-height: 0; display: flex; }
+.dictionary-sidebar { flex: 0 0 168px; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; border-right: 1px solid var(--line); overflow-y: auto; }
+.dictionary-sidebar button { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; cursor: pointer; }
+.dictionary-sidebar button:hover { background: rgba(var(--reader-ink), .06); }
+.dictionary-sidebar button.active { background: var(--accent-bg, rgba(127, 160, 137, .16)); }
+.dictionary-sidebar button strong { display: block; overflow: hidden; color: rgb(var(--reader-ink)); font-size: var(--text-xs); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.dictionary-sidebar button span { display: block; overflow: hidden; color: var(--chrome); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+
+.dictionary-detail { flex: 1; min-width: 0; display: block; padding: 12px 16px; overflow-y: auto; }
+/* 引用块：整段可点击，跳转原文 */
+.dictionary-quote { display: block; width: 100%; margin: 0 0 12px; padding: 8px 12px; border: 0; border-left: 3px solid var(--accent, #7fa089); border-radius: 0 var(--r-sm) var(--r-sm) 0; background: rgba(var(--reader-ink), .04); text-align: left; cursor: pointer; }
+.dictionary-quote:hover { background: var(--accent-bg, rgba(127, 160, 137, .14)); }
+.dictionary-quote .quote-text { display: block; color: rgb(var(--reader-ink)); font-family: var(--font-serif); font-size: var(--text-md); line-height: 1.8; word-break: break-word; }
+.dictionary-quote .quote-meta { display: block; margin-top: 5px; color: var(--chrome); font-size: var(--text-xs); }
+
+.dictionary-answer { display: block; }
+.dictionary-answer p, .followup-answer p { display: block; margin: 0; font-size: var(--text-md); line-height: 1.9; white-space: pre-wrap; word-break: break-word; }
+.dictionary-answer-actions { margin: 8px 0 4px; display: flex; align-items: center; gap: 10px; }
+.dictionary-answer-actions button { height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 5px; background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
+.dictionary-answer-actions button:hover:not(:disabled) { background: rgba(var(--reader-ink), .06); color: rgb(var(--reader-ink)); }
+.dictionary-answer-actions button:disabled { opacity: .5; cursor: default; }
+.dictionary-meta { display: block; color: var(--chrome); font-size: var(--text-xs); }
+.dictionary-pending { display: flex; align-items: center; gap: 7px; padding: 8px 0; color: var(--chrome); font-size: var(--text-sm); }
+.dictionary-error { display: flex; align-items: center; gap: 10px; padding: 6px 0; color: var(--danger, #a2543d); font-size: var(--text-sm); }
+.dictionary-error span { display: block; }
+.dictionary-error button { height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); display: inline-flex; align-items: center; background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
+
+.dictionary-followup { display: block; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.followup-question { display: flex; align-items: flex-start; gap: 8px; }
+.followup-question p { flex: 1; display: block; margin: 0; padding: 6px 10px; border-radius: var(--r-sm); background: var(--accent-bg, rgba(127, 160, 137, .12)); font-size: var(--text-sm); line-height: 1.7; }
+.followup-question button { flex: 0 0 auto; width: 24px; height: 24px; margin-top: 4px; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--chrome); cursor: pointer; }
+.followup-question button:hover { color: var(--danger, #a2543d); background: rgba(var(--reader-ink), .06); }
+.followup-answer { display: block; margin-top: 8px; padding-left: 12px; }
+
+.dictionary-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--chrome); text-align: center; }
+.dictionary-empty strong { display: block; color: rgb(var(--reader-ink)); font-size: var(--text-sm); }
+.dictionary-empty span { display: block; max-width: 300px; font-size: var(--text-xs); line-height: 1.7; }
+
+.dictionary-ask { flex: 0 0 auto; padding: 8px 10px; border-top: 1px solid var(--line); display: flex; align-items: flex-end; gap: 8px; }
+.dictionary-ask textarea { flex: 1; display: block; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface, #fcfaf4); color: rgb(var(--reader-ink)); font-family: var(--font-ui); font-size: var(--text-sm); line-height: 1.6; resize: none; outline: none; }
+.dictionary-ask textarea:focus { border-color: var(--accent, #7fa089); }
+.dictionary-ask button { flex: 0 0 auto; width: 34px; height: 34px; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--accent, #7fa089); color: #fff; cursor: pointer; }
+.dictionary-ask button:disabled { opacity: .45; cursor: default; }
+
+/* 设定集左侧条目右键菜单：更新生成 / 删除 */
+.profile-entry-menu { position: fixed; z-index: 60; min-width: 148px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface, #fcfaf4); box-shadow: 0 6px 20px rgba(0, 0, 0, .12); display: flex; flex-direction: column; }
+.profile-entry-menu button { padding: 7px 10px; border: 0; border-radius: 4px; background: transparent; color: rgb(var(--reader-ink)); font-size: var(--text-xs); text-align: left; cursor: pointer; }
+.profile-entry-menu button:hover { background: rgba(var(--reader-ink), .07); }
+.profile-entry-menu button.is-danger { color: var(--danger, #a2543d); }
+.profile-entry-menu button.is-danger:hover { background: var(--danger-bg, rgba(162, 84, 61, .12)); }
