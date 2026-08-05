@@ -756,9 +756,11 @@ async function openProfilesWindow(focusName = '', forceDock = false) {
   profilesWindow.on('move', scheduleProfilesWindowBoundsSave)
   profilesWindow.on('resize', scheduleProfilesWindowBoundsSave)
   // 原生最小化按钮（−）：不收进任务栏，收起为阅读窗右缘的悬浮图标。
+  // 注意：minimize 事件由 WM_SYSCOMMAND 同步触发，必须等消息处理返回后
+  // 再销毁窗口，否则在窗口回调里销毁自身会让主进程崩溃（0xc000041d）。
   profilesWindow.on('minimize', (event) => {
     event.preventDefault()
-    collapseProfilesToFab()
+    setImmediate(() => collapseProfilesToFab())
   })
   // 初始处于吸附位置（首次停靠或从图标展开）时进入吸附状态。
   profilesLastDock = (x === dockX && y === dockY) ? { x, y } : null
