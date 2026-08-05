@@ -3,7 +3,7 @@ import Bookshelf from './components/Bookshelf'
 import ReaderView from './components/ReaderView'
 import WindowBar from './components/WindowBar'
 import { useStoredState } from './hooks'
-import { mergeEntityProfiles as mergeProfiles, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
+import { mergeEntityProfiles as mergeProfiles, removeEntityProfile, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -325,6 +325,11 @@ export default function App() {
     })
   }, [activeBook, setEntityProfilesMap])
 
+  const deleteEntityProfile = useCallback((profileId) => {
+    if (!activeBook) return
+    setEntityProfilesMap((current) => ({ ...current, [activeBook.id]: removeEntityProfile(current[activeBook.id] || [], profileId) }))
+  }, [activeBook, setEntityProfilesMap])
+
   return (
     <div className={`app-shell ${immersive ? 'app-immersive' : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
@@ -355,6 +360,7 @@ export default function App() {
           onUpdateEntityIdentity={updateEntityIdentity}
           onMergeEntityProfiles={mergeEntityProfiles}
           onSplitEntityAlias={splitEntityAlias}
+          onDeleteEntityProfile={deleteEntityProfile}
         />
       ) : (
         <Bookshelf

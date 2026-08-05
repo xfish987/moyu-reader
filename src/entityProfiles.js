@@ -1,5 +1,15 @@
 const unique = (values) => [...new Set(values.filter(Boolean))]
 
+// 早期版本曾把破损的原始 JSON 当作 summary 存进缓存，这类坏卡可以本地修复或删除。
+export function isCorruptProfile(profile) {
+  const summary = String(profile?.summary || '').trim()
+  return /^\{\s*"(type|canonicalName|aliases|summary)"/.test(summary)
+}
+
+export function removeEntityProfile(profiles, profileId) {
+  return (profiles || []).filter((item) => item.id !== profileId)
+}
+
 export function upsertEntityProfile(profiles, incoming) {
   const next = [...(profiles || [])]
   const incomingNames = new Set([incoming.name, ...(incoming.aliases || [])].filter(Boolean))

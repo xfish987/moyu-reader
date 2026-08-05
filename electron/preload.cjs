@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('readerAPI', {
   refreshAiProvider: (providerId) => ipcRenderer.invoke('ai:refresh-provider', providerId),
   saveAiPreferences: (preferences) => ipcRenderer.invoke('ai:save-preferences', preferences),
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
+  repairProfileJson: (payload) => ipcRenderer.invoke('ai:repair-profile-json', payload),
   onAiSummaryProgress: (listener) => {
     const wrapped = (_event, payload) => listener(payload)
     ipcRenderer.on('ai:summary-progress', wrapped)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mergeEntityProfiles, setEntityIdentity, splitEntityAlias, upsertEntityProfile } from './src/entityProfiles.js'
+import { isCorruptProfile, mergeEntityProfiles, removeEntityProfile, setEntityIdentity, splitEntityAlias, upsertEntityProfile } from './src/entityProfiles.js'
 
 const base = { id: 'a', name: '韩立', aliases: ['二愣子'], distinctFrom: [], readPosition: 100, summary: '旧资料' }
 const updated = upsertEntityProfile([base], { id: 'new', name: '韩立', aliases: ['韩跑跑'], readPosition: 200, summary: '新资料' })
@@ -22,6 +22,16 @@ const merged = mergeEntityProfiles(split, 'a', 'b', 600)
 assert.equal(merged.length, 1)
 assert.ok(merged[0].aliases.includes('二愣子'))
 assert.equal(merged[0].identityLocked, true)
+
+// 损坏缓存检测：summary 是裸 JSON 的旧卡要被识别，正常卡不误报。
+assert.equal(isCorruptProfile({ summary: '{"type":"人物","canonicalName":"方运","summary":"..."}' }), true)
+assert.equal(isCorruptProfile({ summary: '本书主角，寒门子弟。' }), false)
+assert.equal(isCorruptProfile({}), false)
+
+// 删除资料卡：按 id 移除，其余不受影响。
+const afterDelete = removeEntityProfile(merged, 'a')
+assert.equal(afterDelete.length, 0)
+assert.equal(removeEntityProfile(merged, 'missing').length, 1)
 
 console.log('entity profile identity tests passed')
 

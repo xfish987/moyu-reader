@@ -852,6 +852,17 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .search-results small { color: var(--chrome); font-size: 8px; }
 .search-results p { margin: 0; padding: 38px 16px; color: var(--chrome); font-size: 10px; text-align: center; }
 .profile-collection-panel { position: absolute; z-index: 14; top: 58px; right: 16px; bottom: 18px; width: min(680px, calc(100% - 32px)); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; display: grid; grid-template-rows: 52px 48px 38px minmax(0, 1fr); color: rgb(var(--reader-ink)); background: var(--reader-bg); box-shadow: 0 18px 52px rgba(24, 28, 26, .24); animation: panel-in 150ms ease-out; }
+.profile-collection-panel.is-floating { height: min(640px, calc(100% - 32px)); animation: none; }
+.profile-collection-panel > header { cursor: grab; user-select: none; touch-action: none; }
+.profile-collection-panel > header:active { cursor: grabbing; }
+.profile-panel-actions { display: flex; align-items: center; gap: 2px; }
+.profile-collection-fab { position: absolute; z-index: 14; top: 40%; right: 10px; width: 42px; min-height: 42px; padding: 6px 0; border: 1px solid var(--line); border-radius: 21px; display: grid; place-items: center; gap: 2px; background: var(--reader-bg); color: rgb(var(--reader-ink)); box-shadow: 0 10px 30px rgba(24, 28, 26, .28); cursor: pointer; animation: panel-in 150ms ease-out; }
+.profile-collection-fab:hover { background: rgba(var(--reader-ink), .07); }
+.profile-collection-fab span { color: var(--chrome); font-size: 9px; }
+.profile-corrupt-note { margin: 12px 19px 0; padding: 9px 12px; border: 1px solid #c8a15a; border-radius: 6px; color: #8a6420; background: rgba(200, 161, 90, .12); font-size: 9px; }
+.profile-article-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.profile-article-actions button { padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--chrome); font-size: 8px; cursor: pointer; }
+.profile-article-actions button:hover { background: rgba(var(--reader-ink), .07); }
 .profile-collection-panel > header { padding: 0 13px 0 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
 .profile-collection-panel > header > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .profile-collection-panel > header strong { max-width: 350px; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }

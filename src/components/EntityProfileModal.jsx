@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookOpenCheck, Copy, MapPin, RefreshCw, ServerCog, ShieldCheck, X } from 'lucide-react'
+import { BookOpenCheck, Copy, MapPin, RefreshCw, ServerCog, ShieldCheck, Trash2, X } from 'lucide-react'
 import AISettingsModal from './AISettingsModal'
 import EntityDetails from './EntityDetails'
 import EntityRelations from './EntityRelations'
+import { isCorruptProfile } from '../entityProfiles'
 
 function pickRepresentative(items, limit = 400) {
   if (items.length <= limit) return items
@@ -14,7 +15,7 @@ function pickRepresentative(items, limit = 400) {
   return [...first, ...sampled, ...last]
 }
 
-export default function EntityProfileModal({ selection, loadContext, cachedProfile, entityProfiles = [], onSave, onClose }) {
+export default function EntityProfileModal({ selection, loadContext, cachedProfile, entityProfiles = [], onSave, onDelete, onClose }) {
   const [settings, setSettings] = useState(null)
   const [profile, setProfile] = useState(cachedProfile || null)
   const [contextInfo, setContextInfo] = useState(null)
@@ -91,6 +92,27 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
     if (!cachedProfile || isLaterProgress) run()
   }, [])
 
+  // 早期版本曾把破损 JSON 存成 summary；打开时本地修复（不调用模型），修好后自动替换缓存。
+  useEffect(() => {
+    if (!cachedProfile || !isCorruptProfile(cachedProfile)) return undefined
+    let cancelled = false
+    window.readerAPI.repairProfileJson?.({ text: cachedProfile.summary, name: cachedProfile.name }).then((result) => {
+      if (cancelled || !result?.ok || !result.profile?.summary) return
+      const recovered = { ...cachedProfile, type: result.profile.type, summary: result.profile.summary, details: result.profile.details, relations: result.profile.relations, evidence: result.profile.evidence, recovered: true }
+      setProfile(recovered)
+      onSave?.(recovered)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const corrupt = Boolean(profile && isCorruptProfile(profile))
+  const handleDelete = () => {
+    if (!cachedProfile || !onDelete) return
+    if (!window.confirm(`删除「${cachedProfile.name}」的资料卡？此操作不可撤销。`)) return
+    onDelete(cachedProfile.id)
+    onClose()
+  }
+
   useEffect(() => {
     if (!['searching', 'summarizing'].includes(status)) return undefined
     const startedAt = Date.now()
@@ -120,7 +142,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
       <section className="entity-profile-modal" role="dialog" aria-modal="true" aria-label={`${selection.text}的资料回顾`}>
         <header className="ai-modal-header">
           <div><BookOpenCheck size={20} /><div><strong>{selection.text} · 资料回顾</strong><span>只依据当前位置之前已经读过的内容</span></div></div>
-          <div className="dialog-header-actions"><button className="icon-command" onClick={() => setSettingsOpen(true)} title="AI 供应商"><ServerCog size={17} /></button><button className="icon-command" onClick={onClose} title="关闭"><X size={18} /></button></div>
+          <div className="dialog-header-actions">{cachedProfile ? <button className="icon-command" onClick={handleDelete} title="删除这份资料卡"><Trash2 size={16} /></button> : null}<button className="icon-command" onClick={() => setSettingsOpen(true)} title="AI 供应商"><ServerCog size={17} /></button><button className="icon-command" onClick={onClose} title="关闭"><X size={18} /></button></div>
         </header>
         <div className="entity-profile-body">
           <div className="spoiler-safe-note"><ShieldCheck size={16} /><span><strong>防剧透检索</strong><small>没有读取当前选区之后的章节，也没有使用外部资料。</small></span></div>
@@ -129,6 +151,8 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
           ) : profile ? (
             <>
               <div className="entity-profile-title"><span>{profile.type || '未分类'}</span><strong>{profile.name}</strong>{profile.aliases?.length ? <small>别名：{profile.aliases.join('、')}</small> : null}</div>
+              {corrupt ? <div className="ai-error-card" role="alert"><strong>这份资料卡的内容异常（早期版本留下的损坏缓存），可点右下角“重新生成”，或点右上角删除。</strong></div> : null}
+              {profile.recovered ? <div className="spoiler-safe-note"><ShieldCheck size={16} /><span><strong>已从损坏缓存自动修复</strong><small>未调用模型，本地还原了结构化内容。</small></span></div> : null}
               <div className="entity-summary">{profile.summary}</div>
               <EntityDetails details={profile.details} />
               <EntityRelations relations={profile.relations} />
@@ -138,7 +162,7 @@ export default function EntityProfileModal({ selection, loadContext, cachedProfi
           ) : null}
           {error ? <div className="ai-error-card" role="alert"><strong>{error.message}</strong><div><span>阶段：{error.stage}</span><span>状态码：{error.status || '无'}</span><span>错误码：{error.code}</span></div><button onClick={() => navigator.clipboard.writeText(diagnostic)}><Copy size={13} /> 复制诊断信息</button></div> : null}
         </div>
-        <footer className="dialog-footer"><span>{provider ? `${provider.name} · ${provider.model || '未选模型'}` : '尚未设置供应商'}</span><div><button className="secondary-button" onClick={onClose}>关闭</button><button className="primary-button" onClick={run} disabled={['searching', 'summarizing'].includes(status) || (Boolean(cachedProfile) && !isLaterProgress && !error)}><RefreshCw size={14} /> {cachedProfile && !isLaterProgress && !error ? '已是当前进度最新资料' : profile ? '更新到当前进度' : '重新尝试'}</button></div></footer>
+        <footer className="dialog-footer"><span>{provider ? `${provider.name} · ${provider.model || '未选模型'}` : '尚未设置供应商'}</span><div><button className="secondary-button" onClick={onClose}>关闭</button><button className="primary-button" onClick={run} disabled={['searching', 'summarizing'].includes(status) || (Boolean(cachedProfile) && !isLaterProgress && !error && !corrupt)}><RefreshCw size={14} /> {corrupt ? '重新生成' : cachedProfile && !isLaterProgress && !error ? '已是当前进度最新资料' : profile ? '更新到当前进度' : '重新尝试'}</button></div></footer>
       </section>
       <AISettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onChange={(value) => setSettings(value)} />
     </div>

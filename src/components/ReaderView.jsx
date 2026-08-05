@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, ChevronLeft, ChevronRight, List, Maximize, Minimize2, NotebookPen, Search, Settings2, Trash2, X } from 'lucide-react'
+import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, ChevronLeft, ChevronRight, List, Maximize, Minimize2, NotebookPen, Search, Settings2, SquareChevronRight, Trash2, X } from 'lucide-react'
 import EpubReader from './EpubReader'
 import LargeTextReader from './LargeTextReader'
 import ReaderSettings from './ReaderSettings'
@@ -9,8 +9,9 @@ import EntityIdentityModal from './EntityIdentityModal'
 import EntityDetails from './EntityDetails'
 import EntityRelations from './EntityRelations'
 import { searchVariants, useChineseConversionReady } from '../chineseConversion'
+import { isCorruptProfile } from '../entityProfiles'
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias }) {
+export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile }) {
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
@@ -30,7 +31,37 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [profileType, setProfileType] = useState('全部')
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [identityProfile, setIdentityProfile] = useState(null)
+  const [profilePanelPos, setProfilePanelPos] = useState(null)
+  const [profilePanelCollapsed, setProfilePanelCollapsed] = useState(false)
+  const profileDragRef = useRef(null)
   const chromeTimerRef = useRef(null)
+
+  // 设定集面板可拖拽：按住标题栏移动，松手停在该位置（会话内保持）。
+  const startProfilePanelDrag = (event) => {
+    if (event.button !== 0 || event.target.closest('button')) return
+    const panelElement = event.currentTarget.closest('.profile-collection-panel')
+    const host = panelElement?.offsetParent
+    if (!panelElement || !host) return
+    event.preventDefault()
+    const rect = panelElement.getBoundingClientRect()
+    const hostRect = host.getBoundingClientRect()
+    profileDragRef.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, hostRect, width: rect.width, height: rect.height }
+    const onMove = (moveEvent) => {
+      const drag = profileDragRef.current
+      if (!drag) return
+      setProfilePanelPos({
+        x: Math.max(0, Math.min(moveEvent.clientX - drag.hostRect.left - drag.dx, drag.hostRect.width - drag.width)),
+        y: Math.max(0, Math.min(moveEvent.clientY - drag.hostRect.top - drag.dy, drag.hostRect.height - 48)),
+      })
+    }
+    const onUp = () => {
+      profileDragRef.current = null
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
 
   const updateProgress = useCallback((next) => {
     setProgress(next)
@@ -378,13 +409,16 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
-      {panel === 'profiles' && !immersive ? (
-        <aside className="profile-collection-panel">
-          <header><div><BookOpenCheck size={17} /><strong>《{book.title}》设定集</strong><span>{entityProfiles.length} 条</span></div><button onClick={() => setPanel(null)} title="关闭设定集"><X size={16} /></button></header>
+      {panel === 'profiles' && !immersive && !profilePanelCollapsed ? (
+        <aside className={`profile-collection-panel ${profilePanelPos ? 'is-floating' : ''}`} style={profilePanelPos ? { left: `${profilePanelPos.x}px`, top: `${profilePanelPos.y}px`, right: 'auto', bottom: 'auto' } : undefined}>
+          <header onPointerDown={startProfilePanelDrag} title="按住标题栏可拖动面板"><div><BookOpenCheck size={17} /><strong>《{book.title}》设定集</strong><span>{entityProfiles.length} 条</span></div><div className="profile-panel-actions"><button onClick={() => setProfilePanelCollapsed(true)} title="收起为右侧悬浮图标"><SquareChevronRight size={16} /></button><button onClick={() => setPanel(null)} title="关闭设定集"><X size={16} /></button></div></header>
           <label className="profile-collection-search"><Search size={14} /><input value={profileQuery} onChange={(event) => setProfileQuery(event.target.value)} placeholder="搜索人物、物品、地点或资料内容" /></label>
           <nav className="profile-type-tabs" aria-label="资料类型">{profileTypes.map((type) => <button className={profileType === type ? 'active' : ''} key={type} onClick={() => { setProfileType(type); setSelectedProfileId('') }}>{type}<span>{type === '全部' ? entityProfiles.length : entityProfiles.filter((item) => (item.type || '未分类') === type).length}</span></button>)}</nav>
-          {filteredProfiles.length ? <div className="profile-collection-content"><nav>{Object.entries(groupedProfiles).map(([group, profiles]) => <section key={group}><h3>{group}</h3>{profiles.map((profile) => <button className={selectedProfile?.id === profile.id ? 'active' : ''} key={profile.id} onClick={() => setSelectedProfileId(profile.id)}><strong>{profile.name}</strong><span>{profile.aliases?.length ? `别名 ${profile.aliases.slice(0, 2).join('、')} · ` : ''}总结至 {Math.round((profile.readPercent || 0) * 100)}%</span></button>)}</section>)}</nav>{selectedProfile ? <article><header><div><strong>{selectedProfile.name}</strong><span>{selectedProfile.type || '未分类'} · 已读范围内找到 {selectedProfile.totalMatches} 处{selectedProfile.identityLocked ? ' · 人工关联已锁定' : ''}{selectedProfile.incremental ? ' · 增量更新' : ''}{selectedProfile.truncated ? ' · 输出曾被截断' : ''}</span>{selectedProfile.aliases?.length ? <em>别名：{selectedProfile.aliases.join('、')}</em> : null}</div><button onClick={() => setIdentityProfile(selectedProfile)}>管理关联</button></header><div>{selectedProfile.summary}</div><EntityDetails details={selectedProfile.details} /><EntityRelations relations={selectedProfile.relations} inbound={inboundRelations} resolveProfile={resolveProfile} onOpen={(profile) => setSelectedProfileId(profile.id)} /><footer>{selectedProfile.providerName} / {selectedProfile.model} · 更新于 {new Date(selectedProfile.createdAt).toLocaleString('zh-CN')}</footer></article> : null}</div> : <div className="profiles-empty"><BookOpenCheck size={28} /><strong>{entityProfiles.length ? '没有匹配的资料' : '本书还没有资料卡'}</strong><span>{entityProfiles.length ? '换个关键词或类型试试' : '选中人物、物品或地点，右键选择“查看资料”'}</span></div>}
+          {filteredProfiles.length ? <div className="profile-collection-content"><nav>{Object.entries(groupedProfiles).map(([group, profiles]) => <section key={group}><h3>{group}</h3>{profiles.map((profile) => <button className={selectedProfile?.id === profile.id ? 'active' : ''} key={profile.id} onClick={() => setSelectedProfileId(profile.id)}><strong>{profile.name}</strong><span>{profile.aliases?.length ? `别名 ${profile.aliases.slice(0, 2).join('、')} · ` : ''}总结至 {Math.round((profile.readPercent || 0) * 100)}%</span></button>)}</section>)}</nav>{selectedProfile ? <article><header><div><strong>{selectedProfile.name}</strong><span>{selectedProfile.type || '未分类'} · 已读范围内找到 {selectedProfile.totalMatches} 处{selectedProfile.identityLocked ? ' · 人工关联已锁定' : ''}{selectedProfile.incremental ? ' · 增量更新' : ''}{selectedProfile.truncated ? ' · 输出曾被截断' : ''}</span>{selectedProfile.aliases?.length ? <em>别名：{selectedProfile.aliases.join('、')}</em> : null}</div><div className="profile-article-actions"><button onClick={() => setIdentityProfile(selectedProfile)}>管理关联</button><button onClick={() => { if (window.confirm(`删除「${selectedProfile.name}」的资料卡？此操作不可撤销。`)) { onDeleteEntityProfile?.(selectedProfile.id); setSelectedProfileId('') } }}>删除</button></div></header>{isCorruptProfile(selectedProfile) ? <div className="profile-corrupt-note">这份资料卡内容异常（早期版本留下的损坏缓存），建议删除后回到正文选中名称重新生成。</div> : null}<div>{selectedProfile.summary}</div><EntityDetails details={selectedProfile.details} /><EntityRelations relations={selectedProfile.relations} inbound={inboundRelations} resolveProfile={resolveProfile} onOpen={(profile) => setSelectedProfileId(profile.id)} /><footer>{selectedProfile.providerName} / {selectedProfile.model} · 更新于 {new Date(selectedProfile.createdAt).toLocaleString('zh-CN')}</footer></article> : null}</div> : <div className="profiles-empty"><BookOpenCheck size={28} /><strong>{entityProfiles.length ? '没有匹配的资料' : '本书还没有资料卡'}</strong><span>{entityProfiles.length ? '换个关键词或类型试试' : '选中人物、物品或地点，右键选择“查看资料”'}</span></div>}
         </aside>
+      ) : null}
+      {panel === 'profiles' && !immersive && profilePanelCollapsed ? (
+        <button className="profile-collection-fab" style={profilePanelPos ? { top: `${profilePanelPos.y + 8}px` } : undefined} onClick={() => setProfilePanelCollapsed(false)} title="展开设定集"><BookOpenCheck size={17} /><span>{entityProfiles.length}</span></button>
       ) : null}
       {panel === 'search' && !immersive ? (
         <aside className="search-panel">
@@ -404,7 +438,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
-      {entitySelection ? <EntityProfileModal selection={entitySelection} loadContext={loadEntityContext} cachedProfile={[...entityProfiles].reverse().find((item) => item.name === entitySelection.text || item.aliases?.includes(entitySelection.text))} entityProfiles={entityProfiles} onSave={onSaveEntityProfile} onClose={() => setEntitySelection(null)} /> : null}
+      {entitySelection ? <EntityProfileModal selection={entitySelection} loadContext={loadEntityContext} cachedProfile={[...entityProfiles].reverse().find((item) => item.name === entitySelection.text || item.aliases?.includes(entitySelection.text))} entityProfiles={entityProfiles} onSave={onSaveEntityProfile} onDelete={onDeleteEntityProfile} onClose={() => setEntitySelection(null)} /> : null}
       {identityProfile ? <EntityIdentityModal profile={entityProfiles.find((item) => item.id === identityProfile.id) || identityProfile} profiles={entityProfiles} onSave={onUpdateEntityIdentity} onMerge={onMergeEntityProfiles} onSplit={onSplitEntityAlias} onClose={() => setIdentityProfile(null)} /> : null}
     </main>
   )

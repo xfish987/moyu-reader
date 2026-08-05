@@ -1067,6 +1067,38 @@ ipcMain.handle('ai:save-preferences', async (_event, input) => {
   return publicAiConfig(config)
 })
 
+// 把模型输出的 JSON 归一化为资料卡结构；类型缺失时按 details 字段推断。
+function normalizeParsedProfile(parsed, name) {
+  const parsedDetails = parsed?.details && typeof parsed.details === 'object' ? parsed.details : {}
+  let inferredType = String(parsed?.type || '未分类').slice(0, 20)
+  if (inferredType === '未分类') {
+    const detailKeys = Object.keys(parsedDetails)
+    if (detailKeys.some((key) => ['protagonistRelation', 'firstEncounter', 'relationships', 'identity'].includes(key))) inferredType = '人物'
+    else if (detailKeys.some((key) => ['owner', 'acquisition', 'purpose'].includes(key))) inferredType = '物品'
+    else if (detailKeys.some((key) => ['location', 'features', 'relatedPeople', 'relatedEvents'].includes(key))) inferredType = '地点'
+  }
+  return {
+    type: inferredType,
+    canonicalName: String(parsed?.canonicalName || name).trim().slice(0, 80) || name,
+    aliases: (Array.isArray(parsed?.aliases) ? parsed.aliases : []).map((value) => String(value).trim().slice(0, 80)).filter(Boolean).slice(0, 30),
+    summary: String(parsed?.summary || '').trim().slice(0, 4000),
+    details: Object.fromEntries(Object.entries(parsedDetails).slice(0, 12).map(([key, value]) => [String(key).slice(0, 40), String(value || '').trim().slice(0, 1600)]).filter(([, value]) => value)),
+    relations: (Array.isArray(parsed?.relations) ? parsed.relations : []).slice(0, 40).map((item) => ({ relation: String(item?.relation || 'related_to').slice(0, 40), targetName: String(item?.targetName || '').trim().slice(0, 80), label: String(item?.label || '').trim().slice(0, 40), note: String(item?.note || '').trim().slice(0, 500) })).filter((item) => item.targetName),
+    evidence: (Array.isArray(parsed?.evidence) ? parsed.evidence : []).slice(0, 8).map((item) => ({ chapter: String(item?.chapter || '').slice(0, 120), text: String(item?.text || '').slice(0, 500) })),
+    identityConfidence: ['high', 'medium', 'low'].includes(parsed?.identityConfidence) ? parsed.identityConfidence : 'low',
+  }
+}
+
+// 本地修复早期版本缓存的坏卡（summary 里是裸 JSON）：不调用模型，零成本。
+ipcMain.handle('ai:repair-profile-json', (_event, payload) => {
+  const text = String((payload && typeof payload === 'object' ? payload.text : payload) || '').slice(0, 200000)
+  const name = String((payload && typeof payload === 'object' ? payload.name : '') || '').trim().slice(0, 80)
+  if (!text) return { ok: false }
+  const result = parseProfileJson(text)
+  if (!result) return { ok: false }
+  return { ok: true, profile: normalizeParsedProfile(result.value, name || String(result.value?.canonicalName || '资料')) }
+})
+
 async function summarizeEntity(event, input) {
   const config = await loadAiConfig()
   const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId))
@@ -1146,25 +1178,7 @@ async function summarizeEntity(event, input) {
     let truncated = finishReason === 'length'
     const parsedResult = parseProfileJson(summary)
     if (parsedResult) {
-      const parsed = parsedResult.value
-      const parsedDetails = parsed?.details && typeof parsed.details === 'object' ? parsed.details : {}
-      let inferredType = String(parsed?.type || '未分类').slice(0, 20)
-      if (inferredType === '未分类') {
-        const detailKeys = Object.keys(parsedDetails)
-        if (detailKeys.some((key) => ['protagonistRelation', 'firstEncounter', 'relationships', 'identity'].includes(key))) inferredType = '人物'
-        else if (detailKeys.some((key) => ['owner', 'acquisition', 'purpose'].includes(key))) inferredType = '物品'
-        else if (detailKeys.some((key) => ['location', 'features', 'relatedPeople', 'relatedEvents'].includes(key))) inferredType = '地点'
-      }
-      profile = {
-        type: inferredType,
-        canonicalName: String(parsed?.canonicalName || name).trim().slice(0, 80) || name,
-        aliases: (Array.isArray(parsed?.aliases) ? parsed.aliases : []).map((value) => String(value).trim().slice(0, 80)).filter(Boolean).slice(0, 30),
-        summary: String(parsed?.summary || '').trim().slice(0, 4000),
-        details: Object.fromEntries(Object.entries(parsedDetails).slice(0, 12).map(([key, value]) => [String(key).slice(0, 40), String(value || '').trim().slice(0, 1600)]).filter(([, value]) => value)),
-        relations: (Array.isArray(parsed?.relations) ? parsed.relations : []).slice(0, 40).map((item) => ({ relation: String(item?.relation || 'related_to').slice(0, 40), targetName: String(item?.targetName || '').trim().slice(0, 80), label: String(item?.label || '').trim().slice(0, 40), note: String(item?.note || '').trim().slice(0, 500) })).filter((item) => item.targetName),
-        evidence: (Array.isArray(parsed?.evidence) ? parsed.evidence : []).slice(0, 8).map((item) => ({ chapter: String(item?.chapter || '').slice(0, 120), text: String(item?.text || '').slice(0, 500) })),
-        identityConfidence: ['high', 'medium', 'low'].includes(parsed?.identityConfidence) ? parsed.identityConfidence : 'low',
-      }
+      profile = normalizeParsedProfile(parsedResult.value, name)
       if (parsedResult.repaired) truncated = true
     }
     if (!profile) {
