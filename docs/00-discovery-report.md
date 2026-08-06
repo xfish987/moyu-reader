@@ -2,10 +2,9 @@
 
 ## 结论
 
-- 唯一可信源项目：`D:\\tools\\book\\read`。
-- 独立目标项目：`D:\\tools\\book\\moyu`。
-- 源仓库在复制时为 `main@6f490392`，工作树干净。
-- 目标通过本地 `git clone --no-hardlinks` 创建，源远程已改名为 `source-readonly`。
+- 当前唯一主项目：`D:\tools\book\moyu`（本仓库），main 分支即 UI B 正式版。
+- 原项目 `D:\tools\book\read` 已于 2026-08-06 退役删除，其全部 Git 历史保留在本仓库（main@6f490392 及之前）。
+- 本仓库最初通过本地 `git clone --no-hardlinks` 从原项目创建。
 
 ## 技术事实
 

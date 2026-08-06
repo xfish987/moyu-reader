@@ -6,7 +6,7 @@
 - 存储键及历史数据迁移流程。
 - 防剧透内容截取和 AI 安全校验。
 - `contextIsolation: true` 与 `nodeIntegration: false`。
-- 原项目 `D:\\tools\\book\\read` 的任何文件和 Git 历史。
+- 无外部禁止修改区：原 `read/` 项目已退役删除，本仓库是唯一主项目。
 
 ## 主要风险
 
