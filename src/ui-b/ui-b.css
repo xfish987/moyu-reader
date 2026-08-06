@@ -300,6 +300,7 @@
 .b-asset-row { min-height: 48px; margin-top: 12px; display: flex; align-items: center; gap: 8px; }
 .b-asset-row > div { min-width: 0; flex: 1; display: grid; gap: 4px; }
 .b-asset-row strong { overflow: hidden; color: var(--b-ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.b-rename-input { width: 100%; height: 24px; padding: 0 6px; border: 1px solid var(--b-accent); border-radius: 4px; outline: none; background: var(--b-surface-solid); color: var(--b-ink); font-size: 12px; }
 .b-asset-row span { color: var(--b-ink-3); font-size: 10px; }
 .b-icon-button { width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--b-radius); display: grid; place-items: center; background: transparent; color: var(--b-ink-2); cursor: pointer; }
 .b-icon-button:hover { border-color: var(--b-line); background: var(--b-surface-muted); color: var(--b-ink); }

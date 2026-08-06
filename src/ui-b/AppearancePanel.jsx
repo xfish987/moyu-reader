@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ImagePlus, RotateCcw, Trash2, X } from 'lucide-react'
+import { Check, ImagePlus, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
 import { DEFAULT_APPEARANCE, IRIS_ASSETS, PRESET_BACKGROUNDS, resolveBackgroundPreference } from './appearance'
 
 const THEMES = [
@@ -13,34 +13,73 @@ function SliderRow({ label, value, min, max, step, unit, onChange }) {
   return <label className="b-slider-row"><span>{label}<output>{shown}{unit}</output></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>
 }
 
+/* 用户上传的背景图进入自定义列表，与内置预设同排展示，可命名、可复选、可删除。 */
 export default function AppearancePanel({ appearance, onChange, onClose }) {
   const [scope, setScope] = useState('home')
   const [busy, setBusy] = useState(false)
+  const [thumbs, setThumbs] = useState({})
+  const [renaming, setRenaming] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
   const preference = appearance[scope]
   const resolvedPreference = resolveBackgroundPreference(preference, scope, appearance.theme)
   const displayAsset = resolvedPreference.asset
+  const custom = useMemo(() => (Array.isArray(appearance.custom) ? appearance.custom : []), [appearance.custom])
+  const isCustomCurrent = Boolean(displayAsset && displayAsset.kind !== 'builtin' && displayAsset.assetPath)
   const label = scope === 'home' ? '主页背景' : '阅读背景'
+
   useEffect(() => {
     const handleKeyDown = (event) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
+
+  // 自定义背景的缩略图走 IPC 读盘，按 id 缓存。
+  useEffect(() => {
+    let cancelled = false
+    const missing = custom.filter((entry) => entry.assetPath && !thumbs[entry.id])
+    if (!missing.length) return undefined
+    Promise.all(missing.map(async (entry) => [entry.id, await window.readerAPI?.readBackground(entry.assetPath).catch(() => '')])).then((loaded) => {
+      if (!cancelled) setThumbs((current) => ({ ...current, ...Object.fromEntries(loaded) }))
+    })
+    return () => { cancelled = true }
+  }, [custom, thumbs])
+
   const patch = (next) => onChange({ ...appearance, [scope]: { ...preference, ...next } })
-  const size = useMemo(() => preference.asset ? `${(preference.asset.sizeBytes / 1024 / 1024).toFixed(1)} MB` : '', [preference.asset])
+  const size = useMemo(() => displayAsset?.sizeBytes ? `${(displayAsset.sizeBytes / 1024 / 1024).toFixed(1)} MB` : '', [displayAsset])
 
   const choose = async () => {
     setBusy(true)
     try {
       const asset = await window.readerAPI?.chooseBackground(scope)
-      if (asset) patch({ asset, enabled: true, autoAdaptTheme: false })
+      if (asset) {
+        const entry = { ...asset, name: (asset.fileName || '自定义背景').replace(/\.[^.]+$/, '') }
+        const rest = custom.filter((item) => item.id !== entry.id)
+        onChange({ ...appearance, custom: [...rest, entry], [scope]: { ...preference, asset: entry, enabled: true, autoAdaptTheme: false } })
+      }
     } catch (error) {
       window.dispatchEvent(new CustomEvent('reader-error', { detail: `背景导入失败：${error?.message || '无法读取图片'}` }))
     } finally { setBusy(false) }
   }
 
   const remove = async () => {
-    if (preference.asset?.kind !== 'builtin' && preference.asset?.assetPath) await window.readerAPI?.deleteBackground(preference.asset.assetPath).catch(() => {})
+    if (isCustomCurrent) {
+      await window.readerAPI?.deleteBackground(displayAsset.assetPath).catch(() => {})
+      onChange({ ...appearance, custom: custom.filter((item) => item.id !== displayAsset.id), [scope]: { ...preference, asset: null, enabled: false } })
+      return
+    }
     patch({ asset: null, enabled: false })
+  }
+
+  const saveRename = () => {
+    const name = nameDraft.trim().slice(0, 20)
+    setRenaming(false)
+    if (!name || !isCustomCurrent) return
+    const renamed = { ...preference.asset, name }
+    onChange({
+      ...appearance,
+      custom: custom.map((item) => item.id === displayAsset.id ? { ...item, name } : item),
+      [scope]: { ...preference, asset: renamed },
+    })
   }
 
   const presets = PRESET_BACKGROUNDS.filter((item) => item.scopes.includes(scope))
@@ -56,11 +95,12 @@ export default function AppearancePanel({ appearance, onChange, onClose }) {
           </section>
           <section className="b-background-section">
             <div className="b-segmented" aria-label="背景范围"><button className={scope === 'home' ? 'active' : ''} onClick={() => setScope('home')}>主页背景</button><button className={scope === 'reader' ? 'active' : ''} onClick={() => setScope('reader')}>阅读背景</button></div>
-            <div className={`b-background-preview scope-${scope}`} style={{ '--b-preview-image': displayAsset?.url ? `url("${displayAsset.url}")` : 'none' }}><div className="b-preview-paper"><i /><i /><i /><i /></div><span>{displayAsset?.name || displayAsset?.fileName || `${label}未设置`}</span></div>
+            <div className={`b-background-preview scope-${scope}`} style={{ '--b-preview-image': displayAsset?.url ? `url("${displayAsset.url}")` : thumbs[displayAsset?.id] ? `url("${thumbs[displayAsset.id]}")` : 'none' }}><div className="b-preview-paper"><i /><i /><i /><i /></div><span>{displayAsset?.name || displayAsset?.fileName || `${label}未设置`}</span></div>
             <div className="b-preset-strip" aria-label={`${label}预设`}>
               {presets.map((preset) => <button key={preset.id} className={displayAsset?.id === preset.id ? 'active' : ''} onClick={() => patch({ asset: { kind: 'builtin', ...preset }, enabled: true, autoAdaptTheme: false, positionX: preset.focus?.x ?? 50, positionY: preset.focus?.y ?? 50 })}><img src={preset.url} alt="" /><span>{preset.name}</span></button>)}
+              {custom.map((entry) => <button key={entry.id} className={displayAsset?.id === entry.id ? 'active' : ''} title={entry.name || entry.fileName} onClick={() => patch({ asset: entry, enabled: true, autoAdaptTheme: false })}>{thumbs[entry.id] ? <img src={thumbs[entry.id]} alt="" /> : <img src={presets[0]?.url} alt="" style={{ visibility: 'hidden' }} />}<span>{entry.name || entry.fileName}</span></button>)}
             </div>
-            <div className="b-asset-row"><div><strong>{displayAsset?.name || displayAsset?.fileName || '使用主题默认背景'}</strong><span>{preference.autoAdaptTheme && scope === 'home' ? '跟随当前主题自动匹配' : preference.asset?.kind === 'builtin' ? '项目内置预设' : preference.asset ? `${preference.asset.mime} · ${size}` : 'JPG、PNG 或 WebP，最大 20 MB'}</span></div><button className="b-secondary-button" onClick={choose} disabled={busy}><ImagePlus size={16} />{preference.asset ? '上传替换' : '选择图片'}</button>{preference.asset && !preference.autoAdaptTheme ? <button className="b-icon-button danger" onClick={remove} title="删除背景"><Trash2 size={16} /></button> : null}</div>
+            <div className="b-asset-row"><div>{isCustomCurrent && renaming ? <input className="b-rename-input" autoFocus value={nameDraft} maxLength={20} onChange={(event) => setNameDraft(event.target.value)} onBlur={saveRename} onKeyDown={(event) => { if (event.key === 'Enter') saveRename(); if (event.key === 'Escape') setRenaming(false) }} /> : <strong>{displayAsset?.name || displayAsset?.fileName || '使用主题默认背景'}</strong>}<span>{preference.autoAdaptTheme && scope === 'home' ? '跟随当前主题自动匹配' : displayAsset?.kind === 'builtin' ? '项目内置预设' : displayAsset ? `${displayAsset.mime} · ${size}` : 'JPG、PNG 或 WebP，最大 20 MB'}</span></div>{isCustomCurrent && !renaming ? <button className="b-icon-button" onClick={() => { setNameDraft(displayAsset.name || displayAsset.fileName || ''); setRenaming(true) }} title="重命名背景" aria-label="重命名背景"><Pencil size={14} /></button> : null}<button className="b-secondary-button" onClick={choose} disabled={busy}><ImagePlus size={16} />{preference.asset ? '上传替换' : '选择图片'}</button>{preference.asset && !preference.autoAdaptTheme ? <button className="b-icon-button danger" onClick={remove} title="删除背景"><Trash2 size={16} /></button> : null}</div>
             {scope === 'home' ? <label className="b-toggle-row"><span><strong>背景跟随主题</strong><small>切换配色时自动使用匹配的内置背景</small></span><input type="checkbox" checked={Boolean(preference.autoAdaptTheme)} onChange={(event) => patch({ autoAdaptTheme: event.target.checked, enabled: true })} /></label> : null}
             <label className="b-toggle-row"><span><strong>启用{label}</strong><small>关闭后保留参数与主题设置</small></span><input type="checkbox" checked={preference.enabled} disabled={!preference.asset} onChange={(event) => patch({ enabled: event.target.checked })} /></label>
             <div className="b-tuner-grid">
