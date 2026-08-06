@@ -441,6 +441,11 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
       ? `rgba(224, 226, 220, ${settings.opacity})`
       : `rgba(36, 39, 37, ${settings.opacity})`
     rendition.themes.register('reader-settings', {
+      // html 也要透明：不少 EPUB 把白底写在 html 上，只透明 body 会
+      // 让书页白纸叠在宿主纸页上，底部露出第二层纸。
+      html: {
+        'background-color': 'transparent !important',
+      },
       body: {
         'font-family': `${fontFamily} !important`,
         'font-size': `${settings.fontSize}px !important`,
