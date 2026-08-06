@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import ePub from 'epubjs'
 import { NotePopup, SelectionPopup } from './NotePopups'
+import { truncateCompanionText } from './TextReader'
 import { convertChinese, searchVariants } from '../chineseConversion'
 
 const boundViewDocuments = new WeakSet()
@@ -695,6 +696,26 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         const contextAfter = pos >= 0 ? full.slice(pos + selected.length, pos + selected.length + 3000) : ''
         return { paragraph: anchor.paragraph || '', contextBefore, contextAfter, chapterText }
       } catch { return null }
+    },
+    // AI 陪读素材：按目录项 href 加载该节，提取整章文本。
+    // 优先按块级元素拼接保留基本换行；没有块级结构时退化为整体 textContent。
+    getChapterText: async (unit) => {
+      const book = bookRef.current
+      if (!book || !unit?.chapter?.href) return ''
+      try {
+        await book.ready
+        const targetPath = splitHref(unit.chapter.href).hrefPath
+        const section = (book.spine?.spineItems || []).find((item) => splitHref(item.href).hrefPath === targetPath)
+        if (!section) return ''
+        await section.load(book.load.bind(book))
+        const body = section.document?.body
+        const blocks = body ? [...body.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote,pre')] : []
+        const full = blocks.length
+          ? blocks.map((element) => element.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n')
+          : (body?.textContent || '').replace(/\s+/g, ' ').trim()
+        section.unload?.()
+        return truncateCompanionText(full)
+      } catch { return '' }
     },
     goToBookmark: (bookmark) => bookmark?.cfi && renditionRef.current?.display(bookmark.cfi),
     }

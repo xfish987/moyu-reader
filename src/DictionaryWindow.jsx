@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpenText, RefreshCw, SendHorizonal, Trash2, X } from 'lucide-react'
+import { BookOpenText, PanelLeftClose, PanelLeftOpen, RefreshCw, SendHorizonal, Trash2, X } from 'lucide-react'
+import ChatMessages, { MarkdownText } from './components/ChatMessages'
 
 // 字典百科独立窗口：吸附在阅读窗外上侧。
 // 左侧边栏列出本书全部已解释条目（点击只切换详情，不跳转）；
@@ -10,13 +11,27 @@ export default function DictionaryWindow() {
   const [snapshot, setSnapshot] = useState(null)
   const [selectedId, setSelectedId] = useState('')
   const [question, setQuestion] = useState('')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('dict-sidebar-collapsed') === '1')
   const bottomRef = useRef(null)
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      localStorage.setItem('dict-sidebar-collapsed', next ? '1' : '0')
+      return next
+    })
+  }
 
   useEffect(() => window.readerAPI?.onDictSync?.((next) => setSnapshot(next)), [])
   useEffect(() => window.readerAPI?.onDictFocus?.((entryId) => { if (entryId) setSelectedId(entryId) }), [])
 
   const entries = useMemo(() => snapshot?.entries || [], [snapshot])
   const entry = entries.find((item) => item.id === selectedId) || entries[entries.length - 1] || null
+  // 追问问答对展开成聊天消息：q-/a- 前缀区分同一 followup 的问题与回答，回调里 slice(2) 还原 followupId。
+  const followupMessages = useMemo(() => (entry?.followUps || []).flatMap((item) => [
+    { id: `q-${item.id}`, role: 'user', content: item.question, createdAt: item.createdAt },
+    { id: `a-${item.id}`, role: 'assistant', content: item.answer, createdAt: item.createdAt, pending: Boolean(item.pending), error: item.error || null },
+  ]), [entry])
 
   useEffect(() => {
     document.title = snapshot?.bookTitle ? `字典百科 - ${snapshot.bookTitle}` : '字典百科'
@@ -51,12 +66,22 @@ export default function DictionaryWindow() {
       </header>
       {entries.length ? (
         <div className="dictionary-main">
-          <nav className="dictionary-sidebar">
-            {[...entries].reverse().map((item) => (
-              <button key={item.id} className={entry?.id === item.id ? 'active' : ''} onClick={() => setSelectedId(item.id)} title={item.text}>
-                <strong>{item.text}</strong>
-                <span>{item.chapterLabel || '未知章节'} · {Math.round((item.readPercent || 0) * 100)}%</span>
-              </button>
+          <nav className={`dictionary-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''}`}>
+            <button className="dictionary-collapse" onClick={toggleSidebar} title={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}>
+              {sidebarCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+            </button>
+            {sidebarCollapsed ? null : [...entries].reverse().map((item) => (
+              <div className="dictionary-entry" key={item.id}>
+                <button className={`dictionary-entry-open ${entry?.id === item.id ? 'active' : ''}`} onClick={() => setSelectedId(item.id)} title={item.text}>
+                  <strong>{item.text}</strong>
+                  <span>{item.chapterLabel || '未知章节'} · {Math.round((item.readPercent || 0) * 100)}%</span>
+                </button>
+                <button
+                  className="dictionary-entry-delete"
+                  title="删除这条解释（含全部追问）"
+                  onClick={() => { if (window.confirm(`删除“${item.text}”的这条解释记录吗？其中的追问对话也会一起删除。`)) send({ type: 'delete-entry', entryId: item.id }) }}
+                ><Trash2 size={11} /></button>
+              </div>
             ))}
           </nav>
           {entry ? (
@@ -67,30 +92,28 @@ export default function DictionaryWindow() {
               </button>
               <section className="dictionary-answer">
                 {entry.generating ? (
-                  <div className="dictionary-pending"><RefreshCw className="spin" size={14} /> AI 正在结合上下文解说…</div>
+                  <div className="dictionary-pending"><span className="ai-thinking"><i /><i /><i /></span> AI 正在结合上下文解说…</div>
                 ) : entry.error ? (
                   <div className="dictionary-error"><span>解说失败：{entry.error}</span><button onClick={() => send({ type: 'regenerate', entryId: entry.id })}>重试</button></div>
                 ) : (
-                  <p>{entry.explanation}</p>
+                  <MarkdownText text={entry.explanation} />
                 )}
                 <div className="dictionary-answer-actions">
                   <button disabled={Boolean(entry.generating)} onClick={() => send({ type: 'regenerate', entryId: entry.id })} title="重新让 AI 解释这段文字"><RefreshCw size={13} className={entry.generating ? 'spin' : ''} /> 重新生成</button>
                   {entry.providerName ? <span className="dictionary-meta">{entry.providerName} / {entry.model}</span> : null}
                 </div>
               </section>
-              {(entry.followUps || []).map((item) => (
-                <section className="dictionary-followup" key={item.id}>
-                  <div className="followup-question">
-                    <p>{item.question}</p>
-                    <button title="删除这条追问及回答" onClick={() => send({ type: 'delete-followup', entryId: entry.id, followupId: item.id })}><Trash2 size={12} /></button>
-                  </div>
-                  <div className="followup-answer">
-                    {item.pending ? <div className="dictionary-pending"><RefreshCw className="spin" size={13} /> AI 正在翻章节回答…</div>
-                      : item.error ? <div className="dictionary-error"><span>回答失败：{item.error}</span><button onClick={() => send({ type: 'retry-followup', entryId: entry.id, followupId: item.id })}>重试</button></div>
-                      : <p>{item.answer}</p>}
-                  </div>
-                </section>
-              ))}
+              {followupMessages.length ? (
+                <div className="dictionary-followups">
+                  <ChatMessages
+                    messages={followupMessages}
+                    onEdit={(message, question) => send({ type: 'edit-followup', entryId: entry.id, followupId: message.id.slice(2), question })}
+                    onDelete={(message) => send({ type: 'delete-followup', entryId: entry.id, followupId: message.id.slice(2) })}
+                    onRegenerate={(message) => send({ type: 'retry-followup', entryId: entry.id, followupId: message.id.slice(2) })}
+                    onRetry={(message) => send({ type: 'retry-followup', entryId: entry.id, followupId: message.id.slice(2) })}
+                  />
+                </div>
+              ) : null}
               <div ref={bottomRef} />
             </div>
           ) : null}

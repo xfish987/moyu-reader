@@ -1,6 +1,6 @@
 {
   "name": "moyu-reader",
-  "version": "1.2.12",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "A quiet local TXT and EPUB reader for Windows",
@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
-    "test": "node test-chunks.cjs && node test-text-encodings.cjs && node test-conversion.mjs && node test-entity-profiles.mjs && node test-model-catalog.mjs && node test-json-repair.mjs && node test-excerpt-select.mjs && node test-dictionary-prompt.mjs",
+    "test": "node test-chunks.cjs && node test-text-encodings.cjs && node test-conversion.mjs && node test-entity-profiles.mjs && node test-model-catalog.mjs && node test-json-repair.mjs && node test-excerpt-select.mjs && node test-dictionary-prompt.mjs && node test-companion-prompt.mjs && node test-storyline.mjs",
     "dist": "npm run build && electron-builder --win portable",
     "preview": "vite preview --host 127.0.0.1"
   },
@@ -25,6 +25,7 @@
     "iconv-lite": "^0.6.3",
     "jszip": "3.10.1",
     "lucide-react": "^0.468.0",
+    "marked": "^18.0.9",
     "opencc-js": "1.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

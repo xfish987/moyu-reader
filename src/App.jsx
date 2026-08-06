@@ -5,6 +5,7 @@ import WindowBar from './components/WindowBar'
 import { useStoredState } from './hooks'
 import { DEFAULT_SHORTCUTS, normalizeKey } from './shortcuts'
 import { mergeEntityProfiles as mergeProfiles, removeEntityProfile, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
+import { removeStorylineEntry, upsertStorylineEntry } from './storyline'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -37,6 +38,9 @@ export default function App() {
   const [bookMetadata, setBookMetadata] = useStoredState('reader:book-metadata', {})
   const [entityProfilesMap, setEntityProfilesMap] = useStoredState('reader:entity-profiles', {})
   const [dictionaryMap, setDictionaryMap] = useStoredState('reader:dictionary', {})
+  const [companionMap, setCompanionMap] = useStoredState('reader:companion-enabled', {})
+  const [companionChatsMap, setCompanionChatsMap] = useStoredState('reader:companion-chats', {})
+  const [storylineMap, setStorylineMap] = useStoredState('reader:storyline', {})
   const [directoryBooks, setDirectoryBooks] = useState([])
   const [activeBook, setActiveBook] = useState(null)
   const [source, setSource] = useState(null)
@@ -149,7 +153,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap].forEach(migrateMap)
+    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap, setCompanionMap, setCompanionChatsMap, setStorylineMap].forEach(migrateMap)
     const currentBook = books.find((book) => (book.legacyId || book.path) === lastBookId)
     if (currentBook && currentBook.id !== lastBookId) setLastBookId(currentBook.id)
     setBookMetadata((current) => {
@@ -161,14 +165,17 @@ export default function App() {
       })
       return changed ? next : current
     })
-  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setStatusMap, setTagsMap])
+  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCompanionChatsMap, setCompanionMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setStatusMap, setStorylineMap, setTagsMap])
 
   const removeBook = (book) => {
     setManualBooks((current) => current.filter((item) => item.id !== book.id && item.path !== book.path))
     setHiddenBooks((current) => current.includes(book.id) ? current : [...current, book.id])
-    // 书籍删除时，字典百科解释与设定集随这本书的阅读数据一起消失。
+    // 书籍删除时，字典百科解释、设定集与 AI 陪读数据随这本书的阅读数据一起消失。
     setDictionaryMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
     setEntityProfilesMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
+    setCompanionMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
+    setCompanionChatsMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
+    setStorylineMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
   }
 
   const relocateBook = async (book) => {
@@ -355,6 +362,14 @@ export default function App() {
     })
   }, [activeBook, setDictionaryMap])
 
+  const deleteDictEntry = useCallback((entryId) => {
+    if (!activeBook || !entryId) return
+    setDictionaryMap((current) => {
+      const list = current[activeBook.id] || []
+      return { ...current, [activeBook.id]: list.filter((item) => item.id !== entryId) }
+    })
+  }, [activeBook, setDictionaryMap])
+
   return (
     <div className={`app-shell ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
@@ -388,6 +403,14 @@ export default function App() {
           onDeleteEntityProfile={deleteEntityProfile}
           dictionaryEntries={dictionaryMap[activeBook.id] || []}
           onSaveDictEntry={saveDictEntry}
+          onDeleteDictEntry={deleteDictEntry}
+          companionEnabled={Boolean(companionMap[activeBook.id])}
+          onToggleCompanion={() => setCompanionMap((current) => ({ ...current, [activeBook.id]: !current[activeBook.id] }))}
+          companionChats={companionChatsMap[activeBook.id] || []}
+          onSaveCompanionChats={(sessions) => setCompanionChatsMap((current) => ({ ...current, [activeBook.id]: sessions }))}
+          storylineEntries={storylineMap[activeBook.id] || []}
+          onSaveStorylineEntry={(entry) => setStorylineMap((current) => ({ ...current, [activeBook.id]: upsertStorylineEntry(current[activeBook.id] || [], entry) }))}
+          onDeleteStorylineEntry={(entryId) => setStorylineMap((current) => ({ ...current, [activeBook.id]: removeStorylineEntry(current[activeBook.id] || [], entryId) }))}
         />
       ) : (
         <Bookshelf

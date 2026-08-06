@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpenCheck, ListChecks, RefreshCw, Search, ServerCog, X } from 'lucide-react'
+import { AlertTriangle, BookOpenCheck, ListChecks, RefreshCw, ScrollText, Search, ServerCog, Trash2, X } from 'lucide-react'
 import AISettingsModal from './components/AISettingsModal'
 import EntityDetails from './components/EntityDetails'
 import EntityRelations from './components/EntityRelations'
 import { isCorruptProfile } from './entityProfiles'
+import { hasGapBefore, sortStorylineEntries } from './storyline'
+import './storyline-page.css'
 
 const TYPE_ORDER = ['人物', '物品', '地点', '组织', '能力', '事件', '未分类']
 
@@ -28,6 +30,10 @@ export default function ProfilesWindow() {
   const [aliasText, setAliasText] = useState('')
   // 左侧条目右键菜单：更新生成 / 删除。
   const [entryMenu, setEntryMenu] = useState(null)
+  // 顶层页面：条目设定（原有内容）/ 剧情梳理（AI 陪读逐章总结的时间线）。
+  const [page, setPage] = useState('profiles')
+  const [storylineQuery, setStorylineQuery] = useState('')
+  const [storylineTasksOpen, setStorylineTasksOpen] = useState(false)
 
   useEffect(() => {
     document.title = snapshot?.bookTitle ? `设定集 - ${snapshot.bookTitle}` : '设定集'
@@ -50,8 +56,14 @@ export default function ProfilesWindow() {
     setAliasText('')
   }
 
-  useEffect(() => window.readerAPI?.onProfilesFocus?.((name) => {
-    const target = entityProfiles.find((item) => item.name === name || item.aliases?.includes(name))
+  useEffect(() => window.readerAPI?.onProfilesFocus?.((payload) => {
+    // 兼容两种 payload：对象 { storyline: true } 表示切到剧情梳理页；名字字符串表示切回条目设定并选中资料卡。
+    if (payload && typeof payload === 'object') {
+      if (payload.storyline) setPage('storyline')
+      return
+    }
+    setPage('profiles')
+    const target = entityProfiles.find((item) => item.name === payload || item.aliases?.includes(payload))
     if (target) setSelectedProfileId(target.id)
   }), [entityProfiles])
 
@@ -108,6 +120,27 @@ export default function ProfilesWindow() {
 
   const activeTaskCount = profileTasks.filter((task) => !['done', 'error'].includes(task.status)).length
 
+  // 剧情梳理页数据：快照里的逐章总结按 order 排序，陪读任务单独收纳。
+  const storylineEntries = useMemo(() => sortStorylineEntries(snapshot?.storyline), [snapshot])
+  const companionTasks = useMemo(() => snapshot?.companionTasks || [], [snapshot])
+  const activeCompanionCount = companionTasks.filter((task) => !['done', 'error'].includes(task.status)).length
+  // 独立搜索：只搜剧情条目（章节/叙述/时间/地点/人物/事件），与条目设定搜索互不影响；记录在全量排序里的下标用于缺口判断。
+  const storylineQueryText = storylineQuery.trim().toLocaleLowerCase('zh-CN')
+  const visibleStoryline = storylineEntries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => !storylineQueryText || [entry.label, entry.text, entry.timePoint, entry.location, ...(entry.characters || []), ...(entry.events || [])].filter(Boolean).join('\n').toLocaleLowerCase('zh-CN').includes(storylineQueryText))
+  // 命中设定集的名称渲染成可点击 chip，点击跳回条目设定页并选中该卡。
+  const openProfile = (name) => {
+    const target = resolveProfile(name)
+    if (!target) return
+    setSelectedProfileId(target.id)
+    setPage('profiles')
+  }
+  const renderNameChip = (name) => (resolveProfile(name)
+    ? <button className="storyline-chip is-link" key={name} onClick={() => openProfile(name)} title="查看资料卡">{name}</button>
+    : <span className="storyline-chip" key={name}>{name}</span>)
+  const asText = (value) => (Array.isArray(value) ? value.filter(Boolean).join('；') : String(value || ''))
+
   return (
     <main className="profiles-window">
       {toast ? <button className={`profiles-toast is-${toast.kind}`} onClick={() => {
@@ -116,13 +149,67 @@ export default function ProfilesWindow() {
         setToast(null)
       }}>{toast.text}</button> : null}
       <header className="profiles-window-header">
-        <div><BookOpenCheck size={17} /><strong>{snapshot?.bookTitle ? `《${snapshot.bookTitle}》设定集` : '设定集'}</strong><span>{entityProfiles.length} 条{activeTaskCount ? ` · ${activeTaskCount} 个任务进行中` : ''}</span></div>
+        <div><BookOpenCheck size={17} /><strong>{snapshot?.bookTitle ? `《${snapshot.bookTitle}》设定集` : '设定集'}</strong><span>{page === 'storyline' ? `${storylineEntries.length} 条总结${activeCompanionCount ? ` · ${activeCompanionCount} 个任务进行中` : ''}` : `${entityProfiles.length} 条${activeTaskCount ? ` · ${activeTaskCount} 个任务进行中` : ''}`}</span></div>
         <div className="profile-panel-actions">
           <button className="profiles-tasks-toggle" onClick={() => setTasksOpen((current) => !current)} title="生成任务队列"><ListChecks size={16} />{activeTaskCount ? <span className="tasks-badge">{activeTaskCount}</span> : null}</button>
           <button onClick={() => setSettingsOpen(true)} title="AI 供应商"><ServerCog size={16} /></button>
         </div>
       </header>
-      {tasksOpen ? (
+      <nav className="storyline-page-tabs" aria-label="设定集页面">
+        <button className={page === 'profiles' ? 'active' : ''} onClick={() => setPage('profiles')}>条目设定</button>
+        <button className={page === 'storyline' ? 'active' : ''} onClick={() => setPage('storyline')}>剧情梳理</button>
+        {page === 'storyline' ? (
+          <button className="storyline-tasks-toggle profiles-tasks-toggle" onClick={() => setStorylineTasksOpen((current) => !current)} title="陪读总结任务"><ListChecks size={15} />{activeCompanionCount ? <span className="tasks-badge">{activeCompanionCount}</span> : null}</button>
+        ) : null}
+      </nav>
+      {page === 'storyline' ? (
+        <div className="storyline-view">
+          {storylineTasksOpen ? (
+            <div className="storyline-tasks">
+              {companionTasks.length ? companionTasks.map((task) => (
+                <div className={`storyline-task is-${task.status}`} key={task.id}>
+                  <strong>{task.label}</strong>
+                  {task.status === 'pending' ? <span>排队等待总结…</span> : null}
+                  {task.status === 'generating' ? <span><RefreshCw className="spin" size={12} /> AI 总结中…</span> : null}
+                  {task.status === 'done' ? <span>已总结</span> : null}
+                  {task.status === 'error' ? <span className="storyline-task-error">总结失败：{task.error?.message || String(task.error || '未知错误')}</span> : null}
+                </div>
+              )) : <div className="storyline-tasks-empty">暂无陪读总结任务</div>}
+            </div>
+          ) : null}
+          <label className="profile-collection-search"><Search size={14} /><input value={storylineQuery} onChange={(event) => setStorylineQuery(event.target.value)} placeholder="搜索剧情：章节、时间、地点、人物或事件" /></label>
+          {visibleStoryline.length ? (
+            <div className="storyline-timeline">
+              {visibleStoryline.map(({ entry, index }) => (
+                <div className="storyline-item" key={entry.id}>
+                  {hasGapBefore(storylineEntries, index) ? <div className="storyline-gap"><AlertTriangle size={12} /> 此处之前有章节/段落尚未总结（剧情可能不连贯）</div> : null}
+                  <article className="storyline-card">
+                    <header>
+                      <strong>{entry.label}</strong>
+                      {entry.truncated ? <span className="storyline-truncated" title="生成时输出达到长度上限">总结曾被截断</span> : null}
+                      <div className="storyline-card-actions">
+                        <button onClick={() => window.readerAPI?.sendProfilesAction?.({ type: 'storyline-regenerate', entryId: entry.id })} title="重新生成这段总结"><RefreshCw size={13} /></button>
+                        <button className="is-danger" onClick={() => { if (window.confirm(`删除「${entry.label}」的剧情总结？此操作不可撤销。`)) window.readerAPI?.sendProfilesAction?.({ type: 'storyline-delete', entryId: entry.id }) }} title="删除这段总结"><Trash2 size={13} /></button>
+                      </div>
+                    </header>
+                    {entry.timePoint ? <p className="storyline-meta"><em>时间</em>{entry.timePoint}</p> : null}
+                    {entry.location ? <p className="storyline-meta"><em>地点</em>{renderNameChip(entry.location)}</p> : null}
+                    {entry.characters?.length ? <p className="storyline-meta"><em>人物</em><span className="storyline-chips">{entry.characters.map((name) => renderNameChip(name))}</span></p> : null}
+                    {entry.events?.length ? (
+                      <div className="storyline-events"><em>事件</em><ol>{entry.events.map((event, eventIndex) => <li key={eventIndex}>{event}</li>)}</ol></div>
+                    ) : null}
+                    {asText(entry.gains) ? <p className="storyline-extra"><em>获得</em>{asText(entry.gains)}</p> : null}
+                    {asText(entry.openThreads) ? <p className="storyline-extra"><em>悬念伏笔</em>{asText(entry.openThreads)}</p> : null}
+                    {entry.text ? <p className="storyline-text">{entry.text}</p> : null}
+                  </article>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="profiles-empty"><ScrollText size={28} /><strong>{snapshot ? (storylineEntries.length ? '没有匹配的剧情总结' : '还没有剧情总结') : '等待阅读窗口同步'}</strong><span>{snapshot ? (storylineEntries.length ? '换个关键词试试' : '在阅读窗口工具栏开启「AI陪读」后，每读一章会自动总结剧情到这里') : '打开一本书后，这里会显示它的剧情梳理'}</span></div>
+          )}
+        </div>
+      ) : tasksOpen ? (
         <div className="profile-tasks-view">
           {profileTasks.length ? profileTasks.map((task) => (
             <div className={`profile-task is-${task.status}${task.status === 'error' ? ' is-clickable' : ''}`} key={task.id} onClick={() => { if (task.status === 'error') setExpandedTaskId(expandedTaskId === task.id ? null : task.id) }}>

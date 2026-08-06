@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('readerAPI', {
   saveAiPreferences: (preferences) => ipcRenderer.invoke('ai:save-preferences', preferences),
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
   dictionaryChat: (payload) => ipcRenderer.invoke('ai:dictionary-chat', payload),
+  companionSummary: (payload) => ipcRenderer.invoke('ai:companion-summary', payload),
+  companionChat: (payload) => ipcRenderer.invoke('ai:companion-chat', payload),
   openDictionaryWindow: (entryId) => ipcRenderer.invoke('dict:open', entryId || ''),
   closeDictionaryWindow: () => ipcRenderer.send('dict:close'),
   sendDictSync: (snapshot) => ipcRenderer.send('dict:sync', snapshot),
@@ -47,6 +49,25 @@ contextBridge.exposeInMainWorld('readerAPI', {
     ipcRenderer.on('dict:focus', listener)
     return () => ipcRenderer.removeListener('dict:focus', listener)
   },
+  openCompanionWindow: () => ipcRenderer.send('companion:open'),
+  sendCompanionSync: (snapshot) => ipcRenderer.send('companion:sync', snapshot),
+  onCompanionSync: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot)
+    ipcRenderer.on('companion:sync', listener)
+    return () => ipcRenderer.removeListener('companion:sync', listener)
+  },
+  onCompanionSyncRequest: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('companion:request-sync', listener)
+    return () => ipcRenderer.removeListener('companion:request-sync', listener)
+  },
+  sendCompanionAction: (action) => ipcRenderer.send('companion:action', action),
+  onCompanionAction: (callback) => {
+    const listener = (_event, action) => callback(action)
+    ipcRenderer.on('companion:action', listener)
+    return () => ipcRenderer.removeListener('companion:action', listener)
+  },
+  openProfilesStoryline: () => ipcRenderer.send('profiles:open-storyline'),
   repairProfileJson: (payload) => ipcRenderer.invoke('ai:repair-profile-json', payload),
   openProfilesWindow: (focusName) => ipcRenderer.invoke('profiles:open', focusName || ''),
   toggleProfilesWindow: () => ipcRenderer.invoke('profiles:toggle'),

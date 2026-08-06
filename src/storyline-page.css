@@ -1,0 +1,55 @@
+/* ============================================================
+   剧情梳理页：设定集窗口内的独立页面（ProfilesWindow 顶层 tab 切换）。
+   复用 profiles-window 自带的阅读变量（--reader-ink / --line / --ink-2 等），
+   只定义本页自己的 tab 行、任务面板与时间线卡片样式。
+   ============================================================ */
+
+/* 顶层页面 tab：条目设定 / 剧情梳理，右侧收纳陪读任务按钮 */
+.storyline-page-tabs { flex: 0 0 auto; padding: 0 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 4px; }
+.storyline-page-tabs > button { padding: 8px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--chrome); font-size: var(--text-xs); cursor: pointer; }
+.storyline-page-tabs > button.active { border-bottom-color: var(--accent); color: rgb(var(--reader-ink)); font-weight: 600; }
+.storyline-page-tabs .storyline-tasks-toggle { margin-left: auto; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--chrome); }
+.storyline-page-tabs .storyline-tasks-toggle:hover { background: rgba(var(--reader-ink), .07); }
+
+/* 页面容器：任务面板 + 搜索框固定，时间线滚动 */
+.storyline-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.storyline-view > .profile-collection-search { flex: 0 0 auto; }
+.storyline-view > .profiles-empty { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--chrome); text-align: center; }
+.storyline-view > .profiles-empty span { color: var(--ink-2); font-size: var(--text-xs); }
+
+/* 陪读总结任务面板（纯展示，点击 tab 行右侧图标展开/收起） */
+.storyline-tasks { flex: 0 0 auto; max-height: 180px; padding: 6px 12px; border-bottom: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.storyline-task { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); }
+.storyline-task strong { font-weight: 500; }
+.storyline-task span { color: var(--ink-2); display: inline-flex; align-items: center; gap: 4px; }
+.storyline-task.is-error span, .storyline-task-error { color: var(--danger); }
+.storyline-tasks-empty { padding: 8px 0; color: var(--ink-2); font-size: var(--text-xs); text-align: center; }
+
+/* 时间线：左侧 2px 竖线 + 节点圆点，卡片挂在线上 */
+.storyline-timeline { flex: 1; min-height: 0; padding: 14px 16px 28px; overflow-y: auto; }
+.storyline-item { position: relative; margin-left: 6px; padding: 0 0 16px 18px; border-left: 2px solid var(--line); }
+.storyline-item:last-child { padding-bottom: 4px; }
+.storyline-item::before { content: ''; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; border: 2px solid var(--paper); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(49, 97, 90, .12); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #31615a) 14%, transparent); }
+
+/* 缺口提示条：该条与前一条 order 不连续时挂在卡片上方 */
+.storyline-gap { margin: 0 0 8px; padding: 6px 10px; border: 1px dashed var(--danger); border-radius: var(--r-sm); display: flex; align-items: center; gap: 6px; color: var(--danger); background: rgba(var(--reader-ink), .03); font-size: var(--text-xs); }
+
+/* 剧情卡片：hover 轻微浮起 + 细阴影 */
+.storyline-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: rgba(var(--reader-ink), .02); display: flex; flex-direction: column; gap: 6px; transition: transform 160ms ease, box-shadow 160ms ease; }
+.storyline-card:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(var(--reader-ink), .08); }
+.storyline-card > header { display: flex; align-items: center; gap: 8px; }
+.storyline-card > header > strong { font-size: var(--text-sm); }
+.storyline-truncated { padding: 1px 6px; border-radius: 99px; background: rgba(var(--reader-ink), .08); color: var(--ink-2); font-size: var(--text-xs); }
+.storyline-card-actions { margin-left: auto; display: flex; gap: 2px; }
+.storyline-card-actions button { width: 26px; height: 26px; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--chrome); cursor: pointer; }
+.storyline-card-actions button:hover { background: rgba(var(--reader-ink), .07); }
+.storyline-card-actions button.is-danger:hover { color: var(--danger); }
+.storyline-meta, .storyline-extra { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--text-xs); }
+.storyline-meta em, .storyline-extra em, .storyline-events em { flex: 0 0 auto; color: var(--ink-2); font-style: normal; font-size: var(--text-xs); }
+.storyline-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.storyline-chip { padding: 2px 8px; border: 1px solid var(--line); border-radius: 99px; background: transparent; color: var(--ink-2); font-size: var(--text-xs); }
+button.storyline-chip.is-link { border-color: var(--accent); color: var(--accent); cursor: pointer; }
+button.storyline-chip.is-link:hover { background: rgba(98, 136, 126, .14); }
+.storyline-events { display: flex; gap: 8px; font-size: var(--text-xs); }
+.storyline-events ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.storyline-text { margin: 0; font: 13px/1.9 var(--font-serif); }

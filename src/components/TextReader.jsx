@@ -5,6 +5,14 @@ import { convertChinese } from '../chineseConversion'
 
 const CHAPTER_PATTERN = /^(?:(?:正文\s*)?第\s*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟]+\s*[章节卷部篇回集幕]\s*.{0,50}|(?:卷|部|篇|章)\s*[0-9０-９零〇一二三四五六七八九十百千万两]+(?:[\s:：.-]+.{0,45})?|(?:序章|序言|前言|楔子|引子|后记|尾声|终章|大结局)(?:[\s:：.-]+.{0,45})?|(?:番外|外传|附录)\s*[0-9０-９零〇一二三四五六七八九十百千万两]*(?:[\s:：.-]+.{0,45})?|(?:chapter|part|volume|book)\s+[0-9ivxlcdm]+(?:[\s:：.-]+.{0,50})?)$/i
 
+// AI 陪读单次总结的文本上限：超过则保留首尾、省略中间。
+const COMPANION_TEXT_LIMIT = 24000
+export function truncateCompanionText(text) {
+  const value = String(text || '')
+  if (value.length <= COMPANION_TEXT_LIMIT) return value
+  return `${value.slice(0, 14400)}\n……（中间内容省略）……\n${value.slice(-9600)}`
+}
+
 // 段落内渲染两类标记：笔记高亮（按文本匹配）与字典百科划线（按锚点偏移）。
 // 起点相同或重叠时先到先得，笔记优先。
 function highlightedParagraph(text, notes, dictEntries, onOpenDictEntry) {
@@ -274,6 +282,21 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
         chapterText = chapterText.slice(from, from + 20000)
       }
       return { paragraph, contextBefore, contextAfter, chapterText }
+    },
+    // AI 陪读素材：整章文本（chapter.index 为段落下标，切到下一章或末尾）；
+    // 无章节书按字符区间在段落拼接的全文里切片。超上限保留首尾。
+    getChapterText: (unit) => {
+      let text = ''
+      if (unit?.chapter && Number.isFinite(unit.chapter.index)) {
+        const position = chapters.findIndex((item) => item.index === unit.chapter.index)
+        if (position < 0) return ''
+        const end = position + 1 < chapters.length ? chapters[position + 1].index : paragraphs.length
+        text = paragraphs.slice(unit.chapter.index, end).join('\n')
+      } else if (Array.isArray(unit?.range)) {
+        const full = paragraphs.join('\n')
+        text = full.slice(Math.max(0, unit.range[0] || 0), Math.min(full.length, unit.range[1] ?? full.length))
+      }
+      return truncateCompanionText(text)
     },
     goToBookmark: (bookmark) => Number.isFinite(bookmark?.paragraphIndex) ? jumpToParagraph(bookmark.paragraphIndex) : setPage(bookmark?.page || 0),
     lookupEntity: async (names, target) => {

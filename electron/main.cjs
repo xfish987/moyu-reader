@@ -11,6 +11,7 @@ const { collectModelCatalog } = require('./modelCatalog.cjs')
 const { parseProfileJson } = require('./jsonRepair.cjs')
 const { buildProfileMessages } = require('./profilePrompt.cjs')
 const { buildDictionaryMessages, buildFollowupMessages } = require('./dictionaryPrompt.cjs')
+const { buildChapterSummaryMessages, buildCompanionChatMessages } = require('./companionPrompt.cjs')
 const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
 let mainWindow
@@ -80,6 +81,9 @@ const STORE_KEYS = new Set([
   'reader:window-bounds',
   'reader:entity-profiles',
   'reader:dictionary',
+  'reader:companion-enabled',
+  'reader:storyline',
+  'reader:companion-chats',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -687,6 +691,7 @@ async function createWindow() {
     if (profilesWindow && !profilesWindow.isDestroyed()) profilesWindow.destroy()
     if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
     if (dictionaryWindow && !dictionaryWindow.isDestroyed()) dictionaryWindow.destroy()
+    if (companionWindow && !companionWindow.isDestroyed()) companionWindow.destroy()
   })
 }
 
@@ -1029,6 +1034,59 @@ ipcMain.on('dict:action', (_event, action) => {
   }
   mainWindow?.webContents.send('dict:action', action)
 })
+
+// ===== 剧情提问窗口：独立标准带框窗口，不吸附阅读窗 =====
+let companionWindow = null
+let lastCompanionSnapshot = null
+
+async function openCompanionWindow() {
+  if (companionWindow && !companionWindow.isDestroyed()) {
+    companionWindow.show()
+    companionWindow.focus()
+    return
+  }
+  companionWindow = new BrowserWindow({
+    width: 960,
+    height: 680,
+    minWidth: 520,
+    minHeight: 400,
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
+    backgroundColor: '#f3f2ee',
+    title: '剧情提问',
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  if (app.isPackaged) companionWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'companion' } })
+  else companionWindow.loadURL('http://127.0.0.1:5173?window=companion')
+  logEvent('window:open-companion')
+  watchWindow(companionWindow, 'companion')
+  companionWindow.once('ready-to-show', () => companionWindow?.show())
+  companionWindow.on('closed', () => { companionWindow = null })
+  companionWindow.webContents.once('did-finish-load', () => {
+    if (lastCompanionSnapshot) companionWindow?.webContents.send('companion:sync', lastCompanionSnapshot)
+    mainWindow?.webContents.send('companion:request-sync')
+  })
+}
+
+ipcMain.on('companion:open', () => { openCompanionWindow().catch(() => {}) })
+// 阅读窗口 → 剧情提问窗口：会话快照（主进程留存一份，新开的窗口立即可用）。
+ipcMain.on('companion:sync', (_event, snapshot) => {
+  lastCompanionSnapshot = snapshot || null
+  if (companionWindow && !companionWindow.isDestroyed()) companionWindow.webContents.send('companion:sync', snapshot)
+})
+// 剧情提问窗口 → 阅读窗口：用户动作。
+ipcMain.on('companion:action', (_event, action) => {
+  mainWindow?.webContents.send('companion:action', action)
+})
+// 阅读窗口 → 设定集窗口：聚焦“故事线”视图。
+// 复用 openProfilesWindow：窗口已存在则立即发聚焦；不存在则创建，
+// 其 did-finish-load 钩子会在加载完后把 focus 参数（这里是对象形态）发过去。
+ipcMain.on('profiles:open-storyline', () => { openProfilesWindow({ storyline: true }).catch(() => {}) })
 
 function supportedBookPaths(values = []) {
   return [...new Set(values.filter((value) => typeof value === 'string' && ['.txt', '.epub'].includes(path.extname(value).toLowerCase())))]
@@ -1674,6 +1732,165 @@ ipcMain.handle('ai:dictionary-chat', async (event, input) => {
     return { ok: true, text: text.slice(0, 4000), providerId: provider.id, providerName: provider.name, model }
   } catch (error) {
     return { ok: false, error: error.aiError || { stage: 'dictionary', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商响应超时，请检查供应商连接后重试' : sanitizeAiErrorText(error.message) } }
+  } finally { if (timeout) clearTimeout(timeout) }
+})
+
+// AI 陪读：缺字段时归一化补齐，characters/events 保证数组，其余保证字符串。
+function normalizeCompanionSummary(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const stringOf = (item, limit) => String(item || '').trim().slice(0, limit)
+  const listOf = (items, count, limit) => (Array.isArray(items) ? items : []).slice(0, count).map((item) => stringOf(item, limit)).filter(Boolean)
+  return {
+    timePoint: stringOf(source.timePoint, 100),
+    location: stringOf(source.location, 100),
+    characters: listOf(source.characters, 20, 60),
+    events: listOf(source.events, 6, 200),
+    gains: stringOf(source.gains, 500),
+    openThreads: stringOf(source.openThreads, 500),
+    text: stringOf(source.text, 500),
+  }
+}
+
+// AI 陪读：根据一章全文产出结构化剧情梳理（JSON）。提示词在主进程组装，
+// 渲染端只传素材；空回复或 JSON 无法解析时自动重试 1 次。
+ipcMain.handle('ai:companion-summary', async (_event, input) => {
+  const config = await loadAiConfig()
+  const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId)) || config.providers[0]
+  if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
+  const model = String(input?.model || provider.model || '').trim().slice(0, 160)
+  if (!model) return { ok: false, error: { stage: 'setup', status: 0, code: 'MODEL_REQUIRED', message: '请选择或填写模型' } }
+  const textOf = (value, limit) => String(value || '').trim().slice(0, limit)
+  const payload = {
+    bookTitle: textOf(input?.bookTitle, 200),
+    author: textOf(input?.author, 200),
+    chapterLabel: textOf(input?.chapterLabel, 120),
+    chapterText: textOf(input?.chapterText, 24000),
+    coverageNote: textOf(input?.coverageNote, 300),
+    previousSummaries: (Array.isArray(input?.previousSummaries) ? input.previousSummaries : []).slice(0, 3).map((item) => ({
+      label: textOf(item?.label, 120),
+      text: textOf(item?.text, 500),
+    })).filter((item) => item.text),
+  }
+  if (!payload.chapterText) return { ok: false, error: { stage: 'companion', status: 0, code: 'EMPTY_CHAPTER', message: '章节内容为空' } }
+  const messages = buildChapterSummaryMessages(payload)
+  const controller = new AbortController()
+  let timedOut = false
+  let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
+  const requestedMaxTokens = Math.max(1024, Math.min(8192, Number(input?.maxTokens ?? provider.maxTokens) || 4096))
+  try {
+    let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
+    const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
+    }, 'companion', controller.signal,
+      null,
+      () => {
+        // 首字节前 30 秒超时；流开始后每个 chunk 重置 60 秒心跳超时。
+        if (timeout) clearTimeout(timeout)
+        timeout = setTimeout(() => { timedOut = true; controller.abort() }, 60000)
+      })
+    let lastError = null
+    // 防截断/空回复：解析失败或 text 为空时自动重试 1 次。
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let response
+      try { response = await execute(tokenParameter) }
+      catch (error) {
+        const detail = `${error.aiError?.code || ''} ${error.aiError?.message || ''}`
+        const canFallback = provider.tokenParameter === 'auto' && error.aiError?.status === 400 && /max[_ -]?(completion[_ -]?)?tokens|unknown parameter|unsupported/i.test(detail)
+        if (!canFallback) throw error
+        tokenParameter = tokenParameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
+        response = await execute(tokenParameter)
+      }
+      const choice = response?.choices?.[0]
+      const text = responseText(choice?.message).trim()
+      if (!text) {
+        const refusal = choice?.message?.refusal
+        lastError = { stage: 'companion', status: 200, code: choice?.finish_reason === 'content_filter' || refusal ? 'CONTENT_FILTERED' : 'EMPTY_RESPONSE', message: sanitizeAiErrorText(refusal || '供应商没有返回剧情总结') }
+        continue
+      }
+      const parsedResult = parseProfileJson(text)
+      if (parsedResult) {
+        const summary = normalizeCompanionSummary(parsedResult.value)
+        return { ok: true, summary, providerId: provider.id, providerName: provider.name, model, truncated: Boolean(parsedResult.repaired || choice?.finish_reason === 'length') }
+      }
+      lastError = { stage: 'companion', status: 200, code: 'INVALID_JSON', message: '供应商返回的剧情总结不是有效 JSON，请重试' }
+    }
+    return { ok: false, error: lastError }
+  } catch (error) {
+    return { ok: false, error: error.aiError || { stage: 'companion', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商响应超时，请检查供应商连接后重试' : sanitizeAiErrorText(error.message) } }
+  } finally { if (timeout) clearTimeout(timeout) }
+})
+
+// AI 陪读：基于剧情梳理 + 设定集 + 对话历史回答读者提问，返回纯文本。
+ipcMain.handle('ai:companion-chat', async (_event, input) => {
+  const config = await loadAiConfig()
+  const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId)) || config.providers[0]
+  if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
+  const model = String(input?.model || provider.model || '').trim().slice(0, 160)
+  if (!model) return { ok: false, error: { stage: 'setup', status: 0, code: 'MODEL_REQUIRED', message: '请选择或填写模型' } }
+  const textOf = (value, limit) => String(value || '').trim().slice(0, limit)
+  const payload = {
+    bookTitle: textOf(input?.bookTitle, 200),
+    author: textOf(input?.author, 200),
+    question: textOf(input?.question, 2000),
+    history: (Array.isArray(input?.history) ? input.history : []).slice(-10).map((item) => ({
+      role: item?.role === 'assistant' ? 'assistant' : 'user',
+      content: textOf(item?.content, 2000),
+    })).filter((item) => item.content),
+    storyline: (Array.isArray(input?.storyline) ? input.storyline : []).slice(0, 60).map((item) => ({
+      label: textOf(item?.label, 120),
+      text: textOf(item?.text, 500),
+      timePoint: textOf(item?.timePoint, 100),
+      location: textOf(item?.location, 100),
+    })).filter((item) => item.text),
+    entityProfiles: (Array.isArray(input?.entityProfiles) ? input.entityProfiles : []).slice(0, 60).map((item) => ({
+      name: textOf(item?.name, 60),
+      type: textOf(item?.type, 20),
+      summary: textOf(item?.summary, 200),
+    })).filter((item) => item.name),
+  }
+  if (!payload.question) return { ok: false, error: { stage: 'companion', status: 0, code: 'EMPTY_QUESTION', message: '问题内容为空' } }
+  const messages = buildCompanionChatMessages(payload)
+  const controller = new AbortController()
+  let timedOut = false
+  let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
+  const requestedMaxTokens = Math.max(1024, Math.min(8192, Number(input?.maxTokens ?? provider.maxTokens) || 4096))
+  try {
+    let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
+    const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
+    }, 'companion', controller.signal,
+      null,
+      () => {
+        // 首字节前 30 秒超时；流开始后每个 chunk 重置 60 秒心跳超时。
+        if (timeout) clearTimeout(timeout)
+        timeout = setTimeout(() => { timedOut = true; controller.abort() }, 60000)
+      })
+    // 空回复自动重试 1 次，仍空则报 EMPTY_RESPONSE。
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let response
+      try { response = await execute(tokenParameter) }
+      catch (error) {
+        const detail = `${error.aiError?.code || ''} ${error.aiError?.message || ''}`
+        const canFallback = provider.tokenParameter === 'auto' && error.aiError?.status === 400 && /max[_ -]?(completion[_ -]?)?tokens|unknown parameter|unsupported/i.test(detail)
+        if (!canFallback) throw error
+        tokenParameter = tokenParameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
+        response = await execute(tokenParameter)
+      }
+      const choice = response?.choices?.[0]
+      const text = responseText(choice?.message).trim()
+      if (text) return { ok: true, text: text.slice(0, 4000), providerId: provider.id, providerName: provider.name, model }
+      const refusal = choice?.message?.refusal
+      if (choice?.finish_reason === 'content_filter' || refusal) {
+        return { ok: false, error: { stage: 'companion', status: 200, code: 'CONTENT_FILTERED', message: sanitizeAiErrorText(refusal || '供应商没有返回回答') } }
+      }
+    }
+    return { ok: false, error: { stage: 'companion', status: 200, code: 'EMPTY_RESPONSE', message: '供应商没有返回回答，请重试' } }
+  } catch (error) {
+    return { ok: false, error: error.aiError || { stage: 'companion', status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : (error.code || 'UNKNOWN_ERROR'), message: timedOut ? '供应商响应超时，请检查供应商连接后重试' : sanitizeAiErrorText(error.message) } }
   } finally { if (timeout) clearTimeout(timeout) }
 })
 

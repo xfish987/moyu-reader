@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, BookOpenText, ChevronLeft, ChevronRight, List, Maximize, Minimize2, NotebookPen, Search, Settings2, Trash2, X } from 'lucide-react'
+import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, BookOpenText, ChevronLeft, ChevronRight, List, Maximize, Minimize2, MoreHorizontal, NotebookPen, Search, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import EpubReader from './EpubReader'
 import LargeTextReader from './LargeTextReader'
 import ReaderSettings from './ReaderSettings'
@@ -8,6 +8,7 @@ import AISettingsModal from './AISettingsModal'
 import EntityIdentityModal from './EntityIdentityModal'
 import { searchVariants, useChineseConversionReady } from '../chineseConversion'
 import { isCorruptProfile } from '../entityProfiles'
+import { buildCoverageNote, selectPreviousSummaries } from '../storyline'
 
 function pickRepresentative(items, limit = 400) {
   if (items.length <= limit) return items
@@ -19,7 +20,7 @@ function pickRepresentative(items, limit = 400) {
   return [...first, ...sampled, ...last]
 }
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry }) {
+export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
@@ -41,6 +42,35 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [identityProfile, setIdentityProfile] = useState(null)
   const [linkAlias, setLinkAlias] = useState('')
   const chromeTimerRef = useRef(null)
+  const toolbarRef = useRef(null)
+  const overflowRef = useRef(null)
+  const [toolbarCompact, setToolbarCompact] = useState(false)
+  const [overflowOpen, setOverflowOpen] = useState(false)
+
+  // 工具栏宽度不足时把次要按钮收纳进溢出菜单（给中间书名区留至少 ~120px）。
+  useEffect(() => {
+    const element = toolbarRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width || 0
+      setToolbarCompact(width < 620)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  // 溢出菜单：点击外部或按 Esc 关闭。
+  useEffect(() => {
+    if (!overflowOpen) return undefined
+    const onPointerDown = (event) => { if (!overflowRef.current?.contains(event.target)) setOverflowOpen(false) }
+    const onKeyDown = (event) => { if (event.key === 'Escape') setOverflowOpen(false) }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [overflowOpen])
 
   const updateProgress = useCallback((next) => {
     setProgress(next)
@@ -277,6 +307,39 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
   // 换书时清空任务；阅读器卸载（返回书架/关书）时清空设定集窗口内容。
   useEffect(() => { setProfileTasks([]) }, [book.id])
+
+  // ===== AI 陪读（状态与入队）：执行器与触发逻辑在字典百科一节之后 =====
+  const [companionTasks, setCompanionTasks] = useState([])
+  const companionTasksRef = useRef([])
+  const storylineEntriesRef = useRef(storylineEntries)
+  storylineEntriesRef.current = storylineEntries
+
+  const patchCompanionTask = (taskId, patch) => setCompanionTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...patch } : task))
+
+  // 当前阅读单元：有目录按章节（ch-N），无目录的 TXT 按 5000 字段（seg-N）；
+  // 无目录的 EPUB 无法稳定定位单元，不总结。
+  const resolveCompanionUnit = useCallback(() => {
+    if (chapters.length > 0) {
+      if (activeChapterIndex < 0) return null
+      const chapter = chapters[activeChapterIndex]
+      return { unitKey: `ch-${activeChapterIndex}`, order: activeChapterIndex, label: chapter.label, chapter }
+    }
+    if (source.kind === 'epub') return null
+    const order = source.kind === 'text-large'
+      ? Math.floor((progress.absolutePosition || 0) / 5000)
+      : Math.floor((progress.textFraction || 0) * (source.content?.length || 0) / 5000)
+    return { unitKey: `seg-${order}`, order, label: `第 ${order + 1} 段（约 ${order * 5000} 字处）`, range: [order * 5000, (order + 1) * 5000] }
+  }, [chapters, activeChapterIndex, source.kind, source.content, progress.absolutePosition, progress.textFraction])
+
+  // force 用于"重新生成"：已有总结也照常入队（完成后 upsert 覆盖旧条目）。
+  const enqueueCompanionUnit = useCallback((unit, force = false) => {
+    if (!unit) return
+    setCompanionTasks((current) => {
+      if (!force && storylineEntriesRef.current.some((entry) => entry.unitKey === unit.unitKey)) return current
+      if (current.some((task) => task.unitKey === unit.unitKey && !['done', 'error'].includes(task.status))) return current
+      return [...current, { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, unitKey: unit.unitKey, order: unit.order, label: unit.label, unit, status: 'pending', error: null, createdAt: Date.now() }]
+    })
+  }, [])
   useEffect(() => () => {
     window.readerAPI.sendProfilesSync?.({ bookId: null, bookTitle: '', entityProfiles: [], linkAlias: '', profileTasks: [] })
   }, [])
@@ -298,11 +361,14 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     window.readerAPI.sendProfilesSync?.({
       bookId: book.id,
       bookTitle: book.title,
+      bookAuthor: book.author || '',
       entityProfiles,
+      storyline: storylineEntries,
+      companionTasks: companionTasks.map((task) => ({ id: task.id, label: task.label, status: task.status, error: task.error, createdAt: task.createdAt })),
       linkAlias,
       profileTasks: profileTasks.map((task) => ({ id: task.id, name: task.name, status: task.status, incremental: task.incremental, contextInfo: task.contextInfo ? { totalMatches: task.contextInfo.totalMatches, sentCount: task.contextInfo.sentCount } : null, error: task.error, needsSetup: Boolean(task.needsSetup), profileId: task.profileId || null, hasCached: Boolean(task.cachedProfile), startedAt: task.startedAt || 0, createdAt: task.createdAt })),
     })
-  }, [book.id, book.title, entityProfiles, profileTasks, linkAlias])
+  }, [book.id, book.title, book.author, entityProfiles, storylineEntries, companionTasks, profileTasks, linkAlias])
   useEffect(() => { pushProfilesSync() }, [pushProfilesSync])
   useEffect(() => window.readerAPI.onProfilesSyncRequest?.(() => pushProfilesSync()), [pushProfilesSync])
 
@@ -336,6 +402,12 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         })
       }
     } else if (action.type === 'cancel-link') setLinkAlias('')
+    // 剧情梳理页：删除某条总结 / 用条目里留存的 unit 重新生成。
+    else if (action.type === 'storyline-delete') onDeleteStorylineEntry?.(action.entryId)
+    else if (action.type === 'storyline-regenerate') {
+      const entry = storylineEntriesRef.current.find((item) => item.id === action.entryId)
+      if (entry?.unit) enqueueCompanionUnit(entry.unit, true)
+    }
     // 设定集窗口条目右键"更新生成"：基于当前已读进度之前的内容全量重新生成。
     else if (action.type === 'update-profile') {
       const target = entityProfiles.find((item) => item.id === action.profileId)
@@ -354,7 +426,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         return [...current, { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: target.name, selection, cachedProfile: target, incremental: false, status: 'pending', contextInfo: null, prepared: null, error: null, createdAt: Date.now() }]
       })
     }
-  }), [entityProfiles, onDeleteEntityProfile, onUpdateEntityIdentity, progress.absolutePosition, progress.percent, source.kind])
+  }), [entityProfiles, enqueueCompanionUnit, onDeleteEntityProfile, onDeleteStorylineEntry, onUpdateEntityIdentity, progress.absolutePosition, progress.percent, source.kind])
 
   // ===== 字典百科：划选文字 → AI 结合上下文解说，独立窗口展示，支持重新生成与追问 =====
   const dictEntriesRef = useRef([])
@@ -530,9 +602,22 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       const entry = dictEntriesRef.current.find((item) => item.id === action.entryId)
       const followup = entry?.followUps?.find((item) => item.id === action.followupId)
       if (entry && followup) runDictFollowup(entry.id, followup)
+    } else if (action.type === 'edit-followup') {
+      // 编辑追问：改写问题、清空旧回答（追问历史里它仍未回答），然后重跑。
+      const entry = dictEntriesRef.current.find((item) => item.id === action.entryId)
+      const followup = entry?.followUps?.find((item) => item.id === action.followupId)
+      const question = String(action.question || '').trim().slice(0, 500)
+      if (!entry || !followup || !question) return
+      const nextFollowup = { ...followup, question, answer: '' }
+      onSaveDictEntry?.({ ...entry, followUps: (entry.followUps || []).map((item) => (item.id === followup.id ? nextFollowup : item)), updatedAt: Date.now() })
+      runDictFollowup(entry.id, nextFollowup)
     } else if (action.type === 'delete-followup') {
       const entry = dictEntriesRef.current.find((item) => item.id === action.entryId)
       if (entry) onSaveDictEntry?.({ ...entry, followUps: (entry.followUps || []).filter((item) => item.id !== action.followupId), updatedAt: Date.now() })
+    } else if (action.type === 'delete-entry') {
+      // 字典窗口删除整条解释（含全部追问），同时清掉它的瞬时状态。
+      onDeleteDictEntry?.(action.entryId)
+      clearDictTransient(action.entryId)
     } else if (action.type === 'jump-to-source') {
       // 字典窗口里点击引用块：跳转到书中原文位置（主进程同时会把阅读窗提到前台）。
       const entry = dictEntriesRef.current.find((item) => item.id === action.entryId)
@@ -541,7 +626,277 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       else if (entry.anchor.kind === 'text-large') readerRef.current?.goToNote?.({ chunkOffset: entry.anchor.chunkOffset, paragraphIndex: entry.anchor.paragraphIndex })
       else readerRef.current?.goToParagraph?.(entry.anchor.paragraphIndex)
     }
-  }), [onSaveDictEntry, runDictExplain, runDictFollowup])
+  }), [onSaveDictEntry, onDeleteDictEntry, runDictExplain, runDictFollowup])
+
+
+  // ===== 剧情提问：独立问答窗口的会话数据流（快照下发 + 动作回传，仿字典百科） =====
+  // 会话本体持久化在 App（reader:companion-chats）；pending/error 是瞬时状态，只进快照不落盘。
+  const companionChatsRef = useRef([])
+  companionChatsRef.current = companionChats
+  const [companionChatTransient, setCompanionChatTransient] = useState({}) // { [sessionId]: { pendingId, errorId, error } }
+  const [activeCompanionSessionId, setActiveCompanionSessionId] = useState('')
+
+  const patchCompanionChatTransient = (sessionId, patch) => setCompanionChatTransient((current) => ({ ...current, [sessionId]: { ...current[sessionId], ...patch } }))
+
+  // 所有会话变更统一走这里：同步刷新 ref（同一轮动作里连续读写不受渲染间隙影响），再经 App 落盘。
+  const saveCompanionSessions = useCallback((updater) => {
+    const next = updater(companionChatsRef.current)
+    companionChatsRef.current = next
+    onSaveCompanionChats?.(next)
+  }, [onSaveCompanionChats])
+
+  const newCompanionSession = () => ({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, title: '新会话', messages: [], createdAt: Date.now(), updatedAt: Date.now() })
+
+  // 回答指定会话里的一条（空或待重答的）assistant 消息：问题取它前面最近的一条 user 消息，
+  // 历史取该 user 消息之前的最近 10 条问答（当前问题经 question 单独传递，不进 history，避免重复）。
+  const runCompanionChat = useCallback(async (sessionId, assistantId) => {
+    const session = companionChatsRef.current.find((item) => item.id === sessionId)
+    if (!session) return
+    const messages = session.messages || []
+    const assistantIndex = messages.findIndex((item) => item.id === assistantId)
+    if (assistantIndex < 0) return
+    let userIndex = -1
+    for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+      if (messages[index].role === 'user' && String(messages[index].content || '').trim()) { userIndex = index; break }
+    }
+    if (userIndex < 0) return
+    patchCompanionChatTransient(sessionId, { pendingId: assistantId, errorId: null, error: null })
+    try {
+      const provider = await resolveDictProvider()
+      if (!provider) {
+        patchCompanionChatTransient(sessionId, { pendingId: null, errorId: assistantId, error: '请先设置并选择 AI 供应商' })
+        setAiSettingsOpen(true)
+        return
+      }
+      const history = messages
+        .slice(0, userIndex)
+        .filter((item) => (item.role === 'user' || item.role === 'assistant') && String(item.content || '').trim())
+        .slice(-10)
+        .map((item) => ({ role: item.role, content: item.content }))
+      const result = await window.readerAPI.companionChat({
+        providerId: provider.id,
+        model: provider.model || provider.models?.[0],
+        maxTokens: Math.min(4000, provider.maxTokens || 2000),
+        bookTitle: book.title,
+        author: book.author || '',
+        storyline: storylineEntriesRef.current.map(({ label, text, timePoint, location }) => ({ label, text, timePoint, location })),
+        entityProfiles: lightProfiles,
+        history,
+        question: messages[userIndex].content,
+      })
+      if (!result?.ok) {
+        patchCompanionChatTransient(sessionId, { pendingId: null, errorId: assistantId, error: result?.error?.message || '回答失败' })
+        return
+      }
+      saveCompanionSessions((current) => current.map((item) => item.id === sessionId ? {
+        ...item,
+        updatedAt: Date.now(),
+        messages: (item.messages || []).map((message) => message.id === assistantId ? { ...message, content: result.text, providerName: result.providerName, model: result.model } : message),
+      } : item))
+      patchCompanionChatTransient(sessionId, { pendingId: null, errorId: null, error: null })
+    } catch (reason) {
+      patchCompanionChatTransient(sessionId, { pendingId: null, errorId: assistantId, error: reason?.message || '回答失败' })
+    }
+  }, [book.title, book.author, lightProfiles, aiConfig, saveCompanionSessions])
+
+  // 快照：持久化会话 + 生成中/出错的瞬时状态，推给剧情提问窗口。
+  const companionSnapshotSessions = useMemo(() => companionChats.map((session) => {
+    const transient = companionChatTransient[session.id] || {}
+    return {
+      ...session,
+      messages: (session.messages || []).map((message) => ({
+        ...message,
+        pending: transient.pendingId === message.id,
+        error: transient.errorId === message.id ? transient.error : null,
+      })),
+    }
+  }), [companionChats, companionChatTransient])
+
+  const pushCompanionSync = useCallback(() => {
+    window.readerAPI.sendCompanionSync?.({
+      bookId: book.id,
+      bookTitle: book.title,
+      sessions: companionSnapshotSessions,
+      activeSessionId: activeCompanionSessionId || companionSnapshotSessions[companionSnapshotSessions.length - 1]?.id || '',
+    })
+  }, [book.id, book.title, companionSnapshotSessions, activeCompanionSessionId])
+  useEffect(() => { pushCompanionSync() }, [pushCompanionSync])
+  useEffect(() => window.readerAPI.onCompanionSyncRequest?.(() => pushCompanionSync()), [pushCompanionSync])
+  // 关闭阅读器时清空剧情提问窗口内容。
+  useEffect(() => () => { window.readerAPI.sendCompanionSync?.({ bookId: null, bookTitle: '', sessions: [] }) }, [])
+
+  // 剧情提问窗口回传的动作：会话增删选、发问、重试、重新生成、编辑、删除消息。
+  useEffect(() => window.readerAPI.onCompanionAction?.((action) => {
+    if (!action) return
+    if (action.type === 'new-session') {
+      const session = newCompanionSession()
+      saveCompanionSessions((current) => [...current, session])
+      setActiveCompanionSessionId(session.id)
+    } else if (action.type === 'select-session') {
+      if (action.sessionId) setActiveCompanionSessionId(action.sessionId)
+    } else if (action.type === 'delete-session') {
+      saveCompanionSessions((current) => current.filter((item) => item.id !== action.sessionId))
+      setCompanionChatTransient((current) => {
+        if (!current[action.sessionId]) return current
+        const next = { ...current }
+        delete next[action.sessionId]
+        return next
+      })
+      // active 被删时顺延到最新一个会话。
+      setActiveCompanionSessionId((current) => {
+        if (current && current !== action.sessionId) return current
+        const remaining = companionChatsRef.current
+        return remaining[remaining.length - 1]?.id || ''
+      })
+    } else if (action.type === 'rename-session') {
+      const title = String(action.title || '').trim().slice(0, 40)
+      if (!title) return
+      saveCompanionSessions((current) => current.map((item) => item.id === action.sessionId ? { ...item, title, updatedAt: Date.now() } : item))
+    } else if (action.type === 'send') {
+      const question = String(action.question || '').trim().slice(0, 2000)
+      if (!question) return
+      // 窗口在没有任何会话时直接发问：隐式建一个会话再追加问答。
+      let session = companionChatsRef.current.find((item) => item.id === action.sessionId) || null
+      if (!session) {
+        session = newCompanionSession()
+        saveCompanionSessions((current) => [...current, session])
+        setActiveCompanionSessionId(session.id)
+      }
+      const pairId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      const userMessage = { id: `u-${pairId}`, role: 'user', content: question, createdAt: Date.now() }
+      const assistantMessage = { id: `a-${pairId}`, role: 'assistant', content: '', createdAt: Date.now() }
+      saveCompanionSessions((current) => current.map((item) => item.id === session.id ? {
+        ...item,
+        title: item.title === '新会话' ? question.slice(0, 20) : item.title,
+        messages: [...(item.messages || []), userMessage, assistantMessage],
+        updatedAt: Date.now(),
+      } : item))
+      runCompanionChat(session.id, assistantMessage.id)
+    } else if (action.type === 'retry' || action.type === 'regenerate') {
+      const session = companionChatsRef.current.find((item) => item.id === action.sessionId)
+      if (!session?.messages?.some((item) => item.id === action.messageId && item.role === 'assistant')) return
+      if (action.type === 'regenerate') {
+        // 清掉旧回答，重新生成期间窗口显示"正在思考"。
+        saveCompanionSessions((current) => current.map((item) => item.id === session.id ? { ...item, messages: (item.messages || []).map((message) => message.id === action.messageId ? { ...message, content: '' } : message) } : item))
+      }
+      runCompanionChat(session.id, action.messageId)
+    } else if (action.type === 'edit-message') {
+      // 编辑 user 消息：改写内容、丢弃它之后的全部问答，追加空 assistant 消息重新提问。
+      const content = String(action.content || '').trim().slice(0, 2000)
+      const session = companionChatsRef.current.find((item) => item.id === action.sessionId)
+      if (!session || !content) return
+      const messages = session.messages || []
+      const index = messages.findIndex((item) => item.id === action.messageId && item.role === 'user')
+      if (index < 0) return
+      const pairId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      const assistantMessage = { id: `a-${pairId}`, role: 'assistant', content: '', createdAt: Date.now() }
+      const edited = { ...messages[index], content }
+      saveCompanionSessions((current) => current.map((item) => item.id === session.id ? {
+        ...item,
+        messages: [...messages.slice(0, index), edited, assistantMessage],
+        updatedAt: Date.now(),
+      } : item))
+      runCompanionChat(session.id, assistantMessage.id)
+    } else if (action.type === 'delete-message') {
+      const session = companionChatsRef.current.find((item) => item.id === action.sessionId)
+      if (!session) return
+      const messages = session.messages || []
+      const index = messages.findIndex((item) => item.id === action.messageId)
+      if (index < 0) return
+      // 删除 user 消息时连带删掉紧随其后的 assistant 回答，保持问答成对。
+      const dropIds = new Set([action.messageId])
+      if (messages[index].role === 'user' && messages[index + 1]?.role === 'assistant') dropIds.add(messages[index + 1].id)
+      saveCompanionSessions((current) => current.map((item) => item.id === session.id ? { ...item, messages: (item.messages || []).filter((message) => !dropIds.has(message.id)), updatedAt: Date.now() } : item))
+    }
+  }), [runCompanionChat, saveCompanionSessions])
+
+
+  // ===== AI 陪读：阅读位置变化时自动把当前章节/段落交给 AI 总结，结果存入剧情梳理 =====
+  // 触发：陪读开启且当前单元还没总结过、也不在队列里时，入队等待总结。
+  useEffect(() => {
+    if (!companionEnabled) return
+    enqueueCompanionUnit(resolveCompanionUnit())
+  }, [companionEnabled, activeChapterIndex, progress.textFraction, progress.absolutePosition, chapters, storylineEntries, resolveCompanionUnit, enqueueCompanionUnit])
+
+  const runCompanionTask = async (task) => {
+    patchCompanionTask(task.id, { status: 'generating', error: null })
+    try {
+      const provider = await resolveDictProvider()
+      if (!provider) {
+        patchCompanionTask(task.id, { status: 'error', error: { message: '请先设置并选择 AI 供应商' } })
+        setAiSettingsOpen(true)
+        return
+      }
+      const text = await readerRef.current?.getChapterText?.(task.unit)
+      if (!text || !String(text).trim()) {
+        patchCompanionTask(task.id, { status: 'error', error: { message: '没有取到该章节的正文内容' } })
+        return
+      }
+      const entries = storylineEntriesRef.current
+      const coverageNote = buildCoverageNote(entries, task.order, task.label)
+      const previousSummaries = selectPreviousSummaries(entries, task.order)
+      const result = await window.readerAPI.companionSummary({
+        providerId: provider.id,
+        model: provider.model || provider.models?.[0],
+        maxTokens: Math.min(4000, provider.maxTokens || 2000),
+        bookTitle: book.title,
+        author: book.author || '',
+        chapterLabel: task.label,
+        chapterText: text,
+        coverageNote,
+        previousSummaries,
+      })
+      // 任务可能已被"停止陪读"/换书清掉：结果直接丢弃。
+      if (!companionTasksRef.current.some((item) => item.id === task.id)) return
+      if (!result?.ok) {
+        patchCompanionTask(task.id, { status: 'error', error: { message: result?.error?.message || '总结失败', ...result?.error } })
+        return
+      }
+      const summary = result.summary || {}
+      onSaveStorylineEntry?.({
+        id: task.id,
+        unitKey: task.unitKey,
+        order: task.order,
+        label: task.label,
+        timePoint: summary.timePoint || '',
+        location: summary.location || '',
+        characters: summary.characters || [],
+        events: summary.events || [],
+        gains: summary.gains || '',
+        openThreads: summary.openThreads || [],
+        text: summary.text || '',
+        unit: task.unit, // 留存定位信息，剧情梳理窗口"重新生成"时直接复用
+        providerName: result.providerName,
+        model: result.model,
+        truncated: Boolean(result.truncated),
+        createdAt: Date.now(),
+      })
+      patchCompanionTask(task.id, { status: 'done' })
+    } catch (reason) {
+      patchCompanionTask(task.id, { status: 'error', error: { message: reason?.message || '总结失败' } })
+    }
+  }
+
+  // 任务队列：同一时刻只跑一个总结，其余排队等待（仿设定集任务队列）。
+  useEffect(() => {
+    companionTasksRef.current = companionTasks
+    if (companionTasks.some((task) => task.status === 'generating')) return
+    const nextTask = companionTasks.find((task) => task.status === 'pending')
+    if (nextTask) runCompanionTask(nextTask)
+  }, [companionTasks])
+
+  // 换书清空陪读任务；关闭陪读时清掉未完成任务（进行中的结果由 ref 检查丢弃）。
+  useEffect(() => { setCompanionTasks([]) }, [book.id])
+  useEffect(() => {
+    if (!companionEnabled) setCompanionTasks((current) => current.filter((task) => ['done', 'error'].includes(task.status)))
+  }, [companionEnabled])
+
+  const stopCompanion = () => {
+    onToggleCompanion?.()
+    setCompanionTasks((current) => current.filter((task) => ['done', 'error'].includes(task.status)))
+  }
+
+  const companionGenerating = companionTasks.find((task) => task.status === 'generating') || null
 
 
   const commitSeek = (event) => {
@@ -619,25 +974,53 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     }
   }
 
+  // 工具栏按钮配置：pinned 的窄屏时仍平铺，其余收进溢出菜单。
+  // 后续新增按钮（如“AI陪读”）在这里加一项并决定是否 pinned 即可。
+  const toolbarActions = [
+    { id: 'toc', icon: List, iconSize: 18, label: '目录', pinned: true, active: panel === 'toc', onClick: () => setPanel(panel === 'toc' ? null : 'toc') },
+    { id: 'add-bookmark', icon: BookmarkPlus, iconSize: 17, label: '添加书签', onClick: addBookmark },
+    { id: 'bookmarks', icon: BookMarked, iconSize: 17, label: '书签', active: panel === 'bookmarks', onClick: () => setPanel(panel === 'bookmarks' ? null : 'bookmarks') },
+    { id: 'notes', icon: NotebookPen, iconSize: 17, label: '摘录与笔记', active: panel === 'notes', onClick: () => setPanel(panel === 'notes' ? null : 'notes') },
+    { id: 'profiles', icon: BookOpenCheck, iconSize: 17, label: '本书设定集', title: '本书设定集（打开/关闭独立窗口）', onClick: () => window.readerAPI.toggleProfilesWindow?.() },
+    { id: 'dictionary', icon: BookOpenText, iconSize: 17, label: '字典百科', title: '字典百科（本书全部解释记录）', onClick: () => window.readerAPI.openDictionaryWindow?.('') },
+    { id: 'companion', icon: Sparkles, iconSize: 17, label: 'AI陪读', title: 'AI陪读（自动逐章总结剧情）', active: companionEnabled, pinned: false, onClick: onToggleCompanion },
+    { id: 'search', icon: Search, iconSize: 17, label: '全书搜索', pinned: true, active: panel === 'search', onClick: () => setPanel(panel === 'search' ? null : 'search') },
+    { id: 'settings', icon: Settings2, iconSize: 18, label: '阅读设置', active: panel === 'settings', onClick: () => setPanel(panel === 'settings' ? null : 'settings') },
+    { id: 'immersive', icon: Maximize, iconSize: 17, label: '沉浸阅读', title: '沉浸阅读 (F11)', pinned: true, onClick: onToggleImmersive },
+  ]
+  const visibleActions = toolbarCompact ? toolbarActions.filter((action) => action.pinned) : toolbarActions
+  const overflowActions = toolbarCompact ? toolbarActions.filter((action) => !action.pinned) : []
+
   return (
     <main className={`reader-view theme-${settings.theme} ${immersive ? 'is-immersive' : ''} ${!settings.showProgress ? 'without-progress' : ''}`} onMouseMove={handleChromeMouseMove} onMouseLeave={scheduleChromeHide}>
       {!immersive ? (
-        <header className="reader-toolbar">
+        <header className="reader-toolbar" ref={toolbarRef}>
           <button className="toolbar-button back" onClick={onBack} title="返回书架"><ArrowLeft size={18} /></button>
           <div className="book-heading">
             <strong>{book.title}</strong>
             <span title={activeChapter?.label || book.format}>{activeChapter ? activeChapter.label : book.format}</span>
           </div>
           <div className="reader-actions">
-            <button className={`toolbar-button ${panel === 'toc' ? 'active' : ''}`} onClick={() => setPanel(panel === 'toc' ? null : 'toc')} title="目录"><List size={18} /></button>
-            <button className="toolbar-button" onClick={addBookmark} title="添加书签"><BookmarkPlus size={17} /></button>
-            <button className={`toolbar-button ${panel === 'bookmarks' ? 'active' : ''}`} onClick={() => setPanel(panel === 'bookmarks' ? null : 'bookmarks')} title="书签"><BookMarked size={17} /></button>
-            <button className={`toolbar-button ${panel === 'notes' ? 'active' : ''}`} onClick={() => setPanel(panel === 'notes' ? null : 'notes')} title="摘录与笔记"><NotebookPen size={17} /></button>
-            <button className="toolbar-button" onClick={() => window.readerAPI.toggleProfilesWindow?.()} title="本书设定集（打开/关闭独立窗口）"><BookOpenCheck size={17} /></button>
-            <button className="toolbar-button" onClick={() => window.readerAPI.openDictionaryWindow?.('')} title="字典百科（本书全部解释记录）"><BookOpenText size={17} /></button>
-            <button className={`toolbar-button ${panel === 'search' ? 'active' : ''}`} onClick={() => setPanel(panel === 'search' ? null : 'search')} title="全书搜索"><Search size={17} /></button>
-            <button className={`toolbar-button ${panel === 'settings' ? 'active' : ''}`} onClick={() => setPanel(panel === 'settings' ? null : 'settings')} title="阅读设置"><Settings2 size={18} /></button>
-            <button className="toolbar-button" onClick={onToggleImmersive} title="沉浸阅读 (F11)"><Maximize size={17} /></button>
+            {visibleActions.map((action) => (
+              <button key={action.id} className={`toolbar-button ${action.active ? 'active' : ''}`} onClick={action.onClick} title={action.title || action.label}>
+                <action.icon size={action.iconSize} />
+              </button>
+            ))}
+            {overflowActions.length ? (
+              <div className="toolbar-overflow" ref={overflowRef}>
+                <button className={`toolbar-button ${overflowOpen ? 'active' : ''}`} onClick={() => setOverflowOpen(!overflowOpen)} title="更多操作"><MoreHorizontal size={17} /></button>
+                {overflowOpen ? (
+                  <div className="toolbar-overflow-menu">
+                    {overflowActions.map((action) => (
+                      <button key={action.id} className={action.active ? 'active' : ''} onClick={() => { setOverflowOpen(false); action.onClick() }}>
+                        <action.icon size={15} />
+                        <span>{action.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </header>
       ) : null}
@@ -687,6 +1070,17 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
             <span>%</span>
           </label>
         </footer>
+      ) : null}
+
+      {companionEnabled ? (
+        <div className="companion-bar">
+          <span className="companion-status"><Sparkles size={13} /> {companionGenerating ? `AI 正在陪读 · 正在总结《${companionGenerating.label}》…` : 'AI 正在陪读'}{companionGenerating ? <span className="ai-thinking"><i /><i /><i /></span> : null}</span>
+          <div className="companion-actions">
+            <button onClick={() => window.readerAPI.openProfilesStoryline?.()}><span className="companion-action-full">查看剧情梳理</span><span className="companion-action-short">梳理</span></button>
+            <button onClick={() => window.readerAPI.openCompanionWindow?.()}><span className="companion-action-full">剧情提问</span><span className="companion-action-short">提问</span></button>
+            <button onClick={stopCompanion}>停止</button>
+          </div>
+        </div>
       ) : null}
 
       {immersive ? (

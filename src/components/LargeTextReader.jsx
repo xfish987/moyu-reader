@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import TextReader from './TextReader'
+import TextReader, { truncateCompanionText } from './TextReader'
 
 const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry }, ref) {
   const readerRefs = useRef(new Map())
@@ -11,6 +11,8 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
   const resumeAppliedRef = useRef(false)
   const pendingParagraphRef = useRef(null)
   const pendingAnchorRef = useRef(null)
+  // 目录副本：onChapters 上报给 ReaderView 之外，本地留一份供 getChapterText 计算章节边界。
+  const tocRef = useRef([])
   // Until the saved position is restored, progress events from the initial
   // chunk (which starts at the book's beginning) must not overwrite it.
   const readyRef = useRef(!(savedProgress?.offset && savedProgress.offset !== source.start))
@@ -43,7 +45,13 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
   }, [book.path, savedProgress?.offset, savedProgress?.page, setCurrentChunk, source.start])
 
   useEffect(() => {
-    window.readerAPI.getTextToc(book.path).then(onChapters).catch(() => onChapters([]))
+    window.readerAPI.getTextToc(book.path).then((toc) => {
+      tocRef.current = toc || []
+      onChapters(toc)
+    }).catch(() => {
+      tocRef.current = []
+      onChapters([])
+    })
   }, [book.path, onChapters])
 
   useEffect(() => {
@@ -184,6 +192,34 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
     getDictContext: (anchor) => {
       const target = anchor?.chunkOffset ?? currentChunkRef.current.start
       return readerRefs.current.get(target)?.getDictContext?.(anchor) || null
+    },
+    // AI 陪读素材：章节 offset 与 progress.absolutePosition 都是原始文件的字节
+    // 偏移（readTextChunk 返回的 start/end/total 同一坐标系），无法换算成字符
+    // 下标精确切片。采用近似方案：从起点所在分块开始逐块累积，覆盖到下一章
+    // 偏移（或区间终点）为止，首尾可能各带入少量相邻段落，最后按总长截断。
+    getChapterText: async (unit) => {
+      const toc = tocRef.current || []
+      let from
+      let to = Infinity
+      if (unit?.chapter && Number.isFinite(unit.chapter.offset)) {
+        from = unit.chapter.offset
+        const position = toc.findIndex((item) => item.offset === unit.chapter.offset)
+        if (position >= 0 && position + 1 < toc.length) to = toc[position + 1].offset
+      } else if (Array.isArray(unit?.range)) {
+        from = Math.max(0, Number(unit.range[0]) || 0)
+        to = Number.isFinite(Number(unit.range[1])) ? Number(unit.range[1]) : Infinity
+      } else return ''
+      const parts = []
+      let cursor = from
+      // 封顶 8 个分块（约 25 万字节）：章节边界异常时不至于把整本书读出来。
+      for (let step = 0; step < 8 && cursor < to; step += 1) {
+        const piece = await window.readerAPI.readTextChunk(book.path, cursor, 'forward')
+        if (!piece || piece.end <= cursor || piece.start >= to) break
+        parts.push(piece.content || '')
+        cursor = piece.end
+        if (piece.end >= piece.total) break
+      }
+      return truncateCompanionText(parts.join(''))
     },
     goToBookmark: async (bookmark) => {
       if (bookmark.chunkOffset === currentChunkRef.current.start) return readerRefs.current.get(currentChunkRef.current.start)?.goToBookmark(bookmark)
