@@ -46,6 +46,8 @@ export default function App() {
   const [companionChatsMap, setCompanionChatsMap] = useStoredState('reader:companion-chats', {})
   const [storylineMap, setStorylineMap] = useStoredState('reader:storyline', {})
   const [storedAppearance, setAppearance] = useStoredState('reader:appearance-v2', DEFAULT_APPEARANCE)
+  // 主页第一排「常读」位：书脊可拖上去固定，顺序即排列顺序。
+  const [shelfFavorites, setShelfFavorites] = useStoredState('reader:shelf-favorites', [])
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [homeView, setHomeView] = useState('virtual')
   const [libraryView, setLibraryView] = useState('shelf')
@@ -458,6 +460,9 @@ export default function App() {
           onSearch={() => { setLibraryView('shelf'); setHomeView('library'); setTimeout(() => document.querySelector('.shelf-search input')?.focus(), 80) }}
           onOpenAppearance={() => setAppearanceOpen(true)}
           scrollMemory={homeScrollRef.current}
+          favorites={shelfFavorites}
+          onPinBook={(id) => setShelfFavorites((current) => current.includes(id) ? current : [...current, id])}
+          onUnpinBook={(id) => setShelfFavorites((current) => current.filter((item) => item !== id))}
         />
       ) : (
         <Bookshelf
