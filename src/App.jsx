@@ -284,6 +284,24 @@ export default function App() {
 
   const toggleImmersive = useCallback(() => setImmersive((current) => !current), [])
 
+  // 一键清空阅读数据：进度、状态、笔记、书签、自定义封面与 AI 衍生数据。
+  // 书架本身（书籍、目录、分类、标签归属）保留，方便重新测试或重新开始。
+  const clearReadingData = () => {
+    if (!window.confirm('将清空全部阅读进度、笔记、书签、自定义封面与 AI 衍生数据（书籍和分类保留）。确定清理吗？')) return
+    setProgressMap({})
+    setStatusMap({})
+    setNotesMap({})
+    setBookmarksMap({})
+    setCoversMap({})
+    setEntityProfilesMap({})
+    setDictionaryMap({})
+    setCompanionMap({})
+    setCompanionChatsMap({})
+    setStorylineMap({})
+    setLastBookId('')
+    showSuccess('阅读数据已清空')
+  }
+
   const shortcut = useCallback((event) => {
     const pressed = normalizeKey(event)
     if (!pressed) return
@@ -383,7 +401,7 @@ export default function App() {
   }, [activeBook, setDictionaryMap])
 
   return (
-    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} style={{ '--b-reader-paper-opacity': appearance.reader.paperOpacity }} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
       {!immersive ? <WindowBar pinned={pinned} onTogglePin={() => setPinned((current) => !current)} onOpenAppearance={() => setAppearanceOpen(true)} /> : null}
@@ -483,6 +501,7 @@ export default function App() {
           onViewChange={setLibraryView}
           onOpenVirtualHome={() => setHomeView('virtual')}
           scrollMemory={homeScrollRef.current}
+          onClearReadingData={clearReadingData}
         />
       )}
       {appearanceOpen ? <AppearancePanel appearance={appearance} onChange={setAppearance} onClose={() => setAppearanceOpen(false)} /> : null}

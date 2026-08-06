@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { BookOpenText, Check, DatabaseBackup, FileInput, FolderOpen, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, NotebookPen, Plus, RefreshCw, Rows3, Search, ServerCog, Tags, Trash2, X } from 'lucide-react'
+import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, NotebookPen, Plus, RefreshCw, Rows3, Search, ServerCog, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
 import CoverEditor from './CoverEditor'
 import NotesLibrary from './NotesLibrary'
@@ -125,7 +125,7 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
   )
 }
 
-export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onUpdateNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, scrollMemory }) {
+export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onUpdateNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, scrollMemory, onClearReadingData }) {
   const [view, setView] = useState(initialView)
   const rootRef = useRef(null)
 
@@ -232,6 +232,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
           {directory ? <button className="icon-command" onClick={onRefresh} disabled={loading} title="刷新书架"><RefreshCw size={17} className={loading ? 'spinning' : ''} /></button> : null}
           <button className="secondary-command shelf-book-command" onClick={onChooseDirectory} title={directory ? '更换目录' : '选择目录'} aria-label={directory ? '更换目录' : '选择目录'}><FolderOpen size={17} /><span className="command-label">{directory ? '更换目录' : '选择目录'}</span></button>
           <button className="primary-command shelf-book-command" onClick={onAddBooks} title="导入书籍" aria-label="导入书籍"><Plus size={17} /><span className="command-label">导入书籍</span></button>
+          <button className="secondary-command shelf-book-command shelf-danger-command" onClick={onClearReadingData} title="清空阅读进度、笔记与书签（书籍保留）" aria-label="清理阅读数据"><Eraser size={16} /><span className="command-label">清理数据</span></button>
         </div>
       </div>
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />

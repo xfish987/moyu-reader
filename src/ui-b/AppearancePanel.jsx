@@ -73,7 +73,6 @@ export default function AppearancePanel({ appearance, onChange, onClose }) {
               <SliderRow label="饱和度" value={preference.saturation} min="0.4" max="1.1" step="0.01" unit="%" onChange={(saturation) => patch({ saturation })} />
               <SliderRow label="亮度" value={preference.brightness} min="0.7" max="1.2" step="0.01" unit="%" onChange={(brightness) => patch({ brightness })} />
               <SliderRow label="对比度" value={preference.contrast ?? 1} min="0.7" max="1.15" step="0.01" unit="%" onChange={(contrast) => patch({ contrast })} />
-              {scope === 'reader' ? <SliderRow label="纸页透明度" value={preference.paperOpacity} min="0.82" max="1" step="0.01" unit="%" onChange={(paperOpacity) => patch({ paperOpacity })} /> : null}
             </div>
             <div className="b-iris-note"><span className="b-iris-swatch">{IRIS_ASSETS.map((iris) => <img key={iris.id} src={iris.url} alt="" />)}</span><span>鸢尾花素材已作为书房氛围素材保留，可在后续空状态与品牌插画中使用。</span></div>
           </section>

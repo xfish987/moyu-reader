@@ -231,9 +231,10 @@
    旧写法 left: 50% 会被同块内后置的 inset-inline: auto 冲掉，再叠 translateX(-50%) 把文字区甩到左屏外。 */
 .ui-b .text-viewport { width: min(820px, calc(100% - 56px)); inset-inline: 0; margin-inline: auto; transform: none; }
 /* 纸页不要边框和圆角：窗口本身已有外框，卡片再描边会变成双层框。 */
-.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); background: color-mix(in srgb, var(--b-surface-solid) calc(var(--b-reader-paper-opacity, .94) * 100%), transparent); color: color-mix(in srgb, var(--b-ink) 91%, transparent); text-align: left; }
+/* 扁平化阅读区：纯矩形容器，无纸页纹理、无翻页阴影、无圆角描边。 */
+.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); border: 0; border-radius: 0; box-shadow: none; background: var(--b-surface-solid); color: var(--b-ink); text-align: left; }
 .ui-b .text-columns h2 { color: var(--b-accent); }
-.ui-b .epub-host { width: min(820px, calc(100% - 56px)); height: calc(100% - 48px); margin: 24px auto; background: color-mix(in srgb, var(--b-surface-solid) calc(var(--b-reader-paper-opacity, .94) * 100%), transparent); }
+.ui-b .epub-host { width: min(820px, calc(100% - 56px)); height: calc(100% - 48px); margin: 24px auto; border: 0; border-radius: 0; box-shadow: none; background: var(--b-surface-solid); }
 .ui-b .is-immersive .epub-host { height: calc(100% - 48px); }
 /* 沉浸顶栏在 UI B 里 --reader-bg 是透明值，color-mix 后成全透明；改用磨砂壳层变量。 */
 .ui-b .immersive-topbar { background: var(--b-shell); color: var(--b-ink-2); border-bottom-color: var(--b-line); }
@@ -331,6 +332,10 @@
 
 /* 桌面端新建分类入口在侧栏标题上，内联按钮只在窄窗筛选行显示。 */
 .ui-b .category-add-inline { display: none; }
+
+/* 清理阅读数据按钮：危险色描边，与主操作区分。 */
+.ui-b .shelf-danger-command { border-color: color-mix(in srgb, var(--b-danger) 45%, transparent); color: var(--b-danger); }
+.ui-b .shelf-danger-command:hover { border-color: var(--b-danger); background: color-mix(in srgb, var(--b-danger) 10%, transparent); color: var(--b-danger); }
 
 @media (max-width: 900px) {
   .ui-b .shelf-workspace { padding-inline: 24px; }
