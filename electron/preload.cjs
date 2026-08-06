@@ -68,6 +68,25 @@ contextBridge.exposeInMainWorld('readerAPI', {
     return () => ipcRenderer.removeListener('companion:action', listener)
   },
   openProfilesStoryline: () => ipcRenderer.send('profiles:open-storyline'),
+  // AI 陪读状态栏（阅读窗底部外侧的独立小窗口）
+  setCompanionBarVisible: (visible) => ipcRenderer.send('companion-bar:toggle', Boolean(visible)),
+  sendCompanionBarSync: (snapshot) => ipcRenderer.send('companion-bar:sync', snapshot),
+  onCompanionBarSync: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot)
+    ipcRenderer.on('companion-bar:sync', listener)
+    return () => ipcRenderer.removeListener('companion-bar:sync', listener)
+  },
+  onCompanionBarSyncRequest: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('companion-bar:request-sync', listener)
+    return () => ipcRenderer.removeListener('companion-bar:request-sync', listener)
+  },
+  sendCompanionBarAction: (action) => ipcRenderer.send('companion-bar:action', action),
+  onCompanionBarAction: (callback) => {
+    const listener = (_event, action) => callback(action)
+    ipcRenderer.on('companion-bar:action', listener)
+    return () => ipcRenderer.removeListener('companion-bar:action', listener)
+  },
   repairProfileJson: (payload) => ipcRenderer.invoke('ai:repair-profile-json', payload),
   openProfilesWindow: (focusName) => ipcRenderer.invoke('profiles:open', focusName || ''),
   toggleProfilesWindow: () => ipcRenderer.invoke('profiles:toggle'),
@@ -109,6 +128,9 @@ contextBridge.exposeInMainWorld('readerAPI', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  startWindowDrag: (payload) => ipcRenderer.send('window:drag-start', payload),
+  dragWindowMove: (payload) => ipcRenderer.send('window:drag-move', payload),
+  endWindowDrag: () => ipcRenderer.send('window:drag-end'),
   setPinned: (enabled) => ipcRenderer.send('window:pin', enabled),
   updateBossKey: (key) => ipcRenderer.send('shortcuts:boss-key', key),
   onExternalBooks: (callback) => {

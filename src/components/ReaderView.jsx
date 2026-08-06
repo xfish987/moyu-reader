@@ -72,6 +72,23 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     }
   }, [overflowOpen])
 
+  // 侧栏面板（目录/书签/笔记/搜索/设置）：Esc 或点击面板与工具栏以外的区域关闭。
+  // EPUB 正文在 iframe 内，点击不冒泡到这里，由 EpubReader 的 onDismissPanel 兜底。
+  useEffect(() => {
+    if (!panel) return undefined
+    const onKeyDown = (event) => { if (event.key === 'Escape') setPanel(null) }
+    const onPointerDown = (event) => {
+      if (event.target.closest('.toc-panel, .notes-panel, .search-panel, .settings-panel, .reader-toolbar')) return
+      setPanel(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [panel])
+
   const updateProgress = useCallback((next) => {
     setProgress(next)
     onProgress(next)
@@ -160,6 +177,23 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   }, [scheduleChromeHide])
 
   useEffect(() => () => clearTimeout(chromeTimerRef.current), [])
+
+  // 沉浸顶栏手动拖拽：frameless 窗口最大化时 app-region 拖动无效，改走 IPC 逐帧 setPosition。
+  const startChromeDrag = useCallback((event) => {
+    if (event.button !== 0 || event.target.closest('button')) return
+    const api = window.readerAPI
+    if (!api?.startWindowDrag) return
+    event.preventDefault()
+    api.startWindowDrag({ offsetX: event.clientX, offsetY: event.clientY, screenX: event.screenX, screenY: event.screenY })
+    const onMove = (moveEvent) => api.dragWindowMove({ screenX: moveEvent.screenX, screenY: moveEvent.screenY })
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      api.endWindowDrag()
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
 
   const jumpToChapter = (chapter) => {
     if (source.kind === 'epub') readerRef.current?.goToChapter(chapter.href)
@@ -898,6 +932,32 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
   const companionGenerating = companionTasks.find((task) => task.status === 'generating') || null
 
+  // AI 陪读状态栏：独立小窗吸附阅读窗底边外侧（无 Electron API 的环境回退到窗内悬浮条）。
+  const companionBarSupported = Boolean(window.readerAPI?.setCompanionBarVisible)
+  const stopCompanionRef = useRef(stopCompanion)
+  stopCompanionRef.current = stopCompanion
+
+  useEffect(() => {
+    if (!companionBarSupported) return undefined
+    window.readerAPI.setCompanionBarVisible(companionEnabled)
+    return () => window.readerAPI.setCompanionBarVisible(false)
+  }, [companionEnabled, companionBarSupported])
+
+  useEffect(() => {
+    if (!companionBarSupported || !companionEnabled) return undefined
+    const pushBarSync = () => window.readerAPI.sendCompanionBarSync({ generating: Boolean(companionGenerating), label: companionGenerating?.label || '' })
+    pushBarSync()
+    return window.readerAPI.onCompanionBarSyncRequest?.(pushBarSync)
+  }, [companionEnabled, companionGenerating, companionBarSupported])
+
+  useEffect(() => {
+    if (!companionBarSupported) return undefined
+    return window.readerAPI.onCompanionBarAction?.((action) => {
+      if (action?.type === 'open-storyline') window.readerAPI.openProfilesStoryline?.()
+      else if (action?.type === 'open-companion') window.readerAPI.openCompanionWindow?.()
+      else if (action?.type === 'stop') stopCompanionRef.current()
+    })
+  }, [companionBarSupported])
 
   const commitSeek = (event) => {
     const value = Number(event.currentTarget.value)
@@ -1031,7 +1091,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         ) : source.kind === 'text-large' ? (
           <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} />
         ) : (
-          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} />
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} onDismissPanel={() => setPanel(null)} />
         )}
 
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
@@ -1072,7 +1132,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         </footer>
       ) : null}
 
-      {companionEnabled ? (
+      {companionEnabled && !companionBarSupported ? (
         <div className="companion-bar">
           <span className="companion-status"><Sparkles size={13} /> {companionGenerating ? `AI 正在陪读 · 正在总结《${companionGenerating.label}》…` : 'AI 正在陪读'}{companionGenerating ? <span className="ai-thinking"><i /><i /><i /></span> : null}</span>
           <div className="companion-actions">
@@ -1084,7 +1144,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       ) : null}
 
       {immersive ? (
-        <div className={`immersive-topbar ${chromeZone === 'top' ? 'is-visible' : ''}`}>
+        <div className={`immersive-topbar ${chromeZone === 'top' ? 'is-visible' : ''}`} onMouseDown={startChromeDrag}>
           <div className="immersive-heading">
             <strong>{book.title}</strong>
             <span title={activeChapter?.label || ''}>{activeChapter ? activeChapter.label : ' '}</span>
@@ -1095,7 +1155,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       {panel === 'settings' && !immersive ? <ReaderSettings settings={settings} onChange={setSettings} encoding={source.kind.startsWith('text') ? source.encoding : null} onEncodingChange={onEncodingChange} /> : null}
       {panel === 'toc' && !immersive ? (
         <aside className="toc-panel">
-          <div className="toc-title"><List size={16} /><strong>目录</strong><span>{percent}% · {chapters.length} 章</span></div>
+          <div className="toc-title"><List size={16} /><strong>目录</strong><span>{percent}% · {chapters.length} 章</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
           <div className="toc-list">
             {chapters.length ? chapters.map((chapter, index) => (
               <button
@@ -1112,7 +1172,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       ) : null}
       {panel === 'notes' && !immersive ? (
         <aside className="notes-panel">
-          <div className="toc-title"><Bookmark size={16} /><strong>收藏笔记</strong><span>{notes.length} 条</span></div>
+          <div className="toc-title"><Bookmark size={16} /><strong>收藏笔记</strong><span>{notes.length} 条</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
           <div className="notes-list">
             {notes.length ? notes.map((note) => (
               <div className="note-item" key={note.id}>
@@ -1129,7 +1189,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       ) : null}
       {panel === 'bookmarks' && !immersive ? (
         <aside className="notes-panel">
-          <div className="toc-title"><Bookmark size={16} /><strong>书签</strong><span>{bookmarks.length} 条</span></div>
+          <div className="toc-title"><Bookmark size={16} /><strong>书签</strong><span>{bookmarks.length} 条</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
           <div className="notes-list">
             {bookmarks.length ? [...bookmarks].sort((a, b) => b.createdAt - a.createdAt).map((bookmark) => (
               <div className="note-item" key={bookmark.id}><button onClick={() => { readerRef.current?.goToBookmark?.(bookmark); setPanel(null) }}><p>{bookmark.label}</p><span>{Math.round((bookmark.percent || 0) * 100)}% · {new Date(bookmark.createdAt).toLocaleDateString('zh-CN')}</span></button><button className="delete-note" onClick={() => onDeleteBookmark(bookmark.id)} title="删除书签"><Trash2 size={13} /></button></div>
@@ -1143,6 +1203,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
             <Search size={15} />
             <input autoFocus value={searchQuery} placeholder="搜索全书" onChange={(event) => setSearchQuery(event.target.value)} />
             <button type="submit">{searching ? `搜索 ${Math.round(searchProgress * 100)}%` : '搜索'}</button>
+            <button type="button" className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button>
           </form>
           <div className="search-results">
             {searchResults.length ? <div className="search-summary">找到 {searchResults.length} 处{searchTruncated ? '，结果过多，仅显示前 5000 处' : ''}</div> : null}

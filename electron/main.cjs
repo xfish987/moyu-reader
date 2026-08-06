@@ -692,6 +692,7 @@ async function createWindow() {
     if (profilesFabWindow && !profilesFabWindow.isDestroyed()) profilesFabWindow.destroy()
     if (dictionaryWindow && !dictionaryWindow.isDestroyed()) dictionaryWindow.destroy()
     if (companionWindow && !companionWindow.isDestroyed()) companionWindow.destroy()
+    if (companionBarWindow && !companionBarWindow.isDestroyed()) companionBarWindow.destroy()
   })
 }
 
@@ -703,6 +704,7 @@ function scheduleCompanionFollow() {
     followProfilesToMain()
     followDictionaryToMain()
     snapFabToReader()
+    followCompanionBarToMain()
     if (companionFollowAgain) { companionFollowAgain = false; scheduleCompanionFollow() }
   }, 60)
 }
@@ -1087,6 +1089,90 @@ ipcMain.on('companion:action', (_event, action) => {
 // 复用 openProfilesWindow：窗口已存在则立即发聚焦；不存在则创建，
 // 其 did-finish-load 钩子会在加载完后把 focus 参数（这里是对象形态）发过去。
 ipcMain.on('profiles:open-storyline', () => { openProfilesWindow({ storyline: true }).catch(() => {}) })
+
+// ===== AI 陪读状态栏窗口：无边框小条，吸附阅读窗底边外侧，同宽跟随 =====
+// 替代窗内悬浮的 .companion-bar（遮挡正文/进度条）。owned 子窗口，
+// 阅读窗最小化/老板键隐藏时自动跟随隐藏；移动/缩放经 scheduleCompanionFollow 实时跟随。
+let companionBarWindow = null
+let lastCompanionBarSnapshot = null
+
+const COMPANION_BAR_HEIGHT = 40
+
+function companionBarDockBounds() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+  const bounds = mainWindow.getBounds()
+  const workArea = screen.getDisplayMatching(bounds).workArea
+  return {
+    x: bounds.x,
+    // 阅读窗贴屏幕底（如最大化）时没有外部空间，退而求其次贴到屏幕底缘内。
+    y: Math.min(bounds.y + bounds.height + 6, workArea.y + workArea.height - COMPANION_BAR_HEIGHT),
+    width: bounds.width,
+    height: COMPANION_BAR_HEIGHT,
+  }
+}
+
+function followCompanionBarToMain() {
+  if (!companionBarWindow || companionBarWindow.isDestroyed()) return
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return
+  const docked = companionBarDockBounds()
+  if (docked) companionBarWindow.setBounds(docked)
+}
+
+async function openCompanionBarWindow() {
+  if (companionBarWindow && !companionBarWindow.isDestroyed()) {
+    followCompanionBarToMain()
+    companionBarWindow.showInactive()
+    return
+  }
+  const docked = companionBarDockBounds() || { width: 480, height: COMPANION_BAR_HEIGHT }
+  companionBarWindow = new BrowserWindow({
+    ...docked,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    skipTaskbar: true,
+    parent: mainWindow || undefined,
+    autoHideMenuBar: true,
+    backgroundColor: '#f3f2ee',
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  if (app.isPackaged) companionBarWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { window: 'companion-bar' } })
+  else companionBarWindow.loadURL('http://127.0.0.1:5173?window=companion-bar')
+  logEvent('window:open-companion-bar')
+  watchWindow(companionBarWindow, 'companion-bar')
+  companionBarWindow.once('ready-to-show', () => companionBarWindow?.showInactive())
+  companionBarWindow.on('closed', () => { companionBarWindow = null })
+  companionBarWindow.webContents.once('did-finish-load', () => {
+    if (lastCompanionBarSnapshot) companionBarWindow?.webContents.send('companion-bar:sync', lastCompanionBarSnapshot)
+    mainWindow?.webContents.send('companion-bar:request-sync')
+  })
+}
+
+function closeCompanionBarWindow() {
+  if (companionBarWindow && !companionBarWindow.isDestroyed()) companionBarWindow.destroy()
+  companionBarWindow = null
+}
+
+// 阅读窗口 → 主进程：开关底栏。
+ipcMain.on('companion-bar:toggle', (_event, visible) => {
+  if (visible) openCompanionBarWindow().catch(() => {})
+  else closeCompanionBarWindow()
+})
+// 阅读窗口 → 底栏：状态快照（是否正在总结、章节名），主进程留档供新窗口立即可用。
+ipcMain.on('companion-bar:sync', (_event, snapshot) => {
+  lastCompanionBarSnapshot = snapshot || null
+  if (companionBarWindow && !companionBarWindow.isDestroyed()) companionBarWindow.webContents.send('companion-bar:sync', snapshot)
+})
+// 底栏 → 阅读窗口：按钮动作（open-storyline / open-companion / stop）。
+ipcMain.on('companion-bar:action', (_event, action) => {
+  mainWindow?.webContents.send('companion-bar:action', action)
+})
 
 function supportedBookPaths(values = []) {
   return [...new Set(values.filter((value) => typeof value === 'string' && ['.txt', '.epub'].includes(path.extname(value).toLowerCase())))]
@@ -1974,6 +2060,41 @@ ipcMain.on('window:maximize', () => {
   mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+
+// 手动窗口拖拽（沉浸顶栏等 app-region 失效场景）：渲染进程在 mousedown/mousemove/mouseup
+// 三个阶段分别发 drag-start/drag-move/drag-end。最大化时先以光标为锚还原窗口再跟随。
+let windowDrag = null
+ipcMain.on('window:drag-start', (event, payload = {}) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win.isDestroyed() || win.isFullScreen()) return
+  let offsetX = Number(payload.offsetX) || 0
+  let offsetY = Number(payload.offsetY) || 0
+  if (win.isMaximized()) {
+    const current = win.getBounds()
+    const normal = win.getNormalBounds()
+    const ratioX = current.width ? Math.min(1, Math.max(0, offsetX / current.width)) : 0.5
+    offsetX = Math.round(ratioX * normal.width)
+    offsetY = Math.round(Math.min(offsetY, normal.height / 2))
+    win.unmaximize()
+    win.setBounds({
+      x: Math.round((Number(payload.screenX) || 0) - offsetX),
+      y: Math.round((Number(payload.screenY) || 0) - offsetY),
+      width: normal.width,
+      height: normal.height,
+    })
+  }
+  windowDrag = { win, offsetX, offsetY }
+})
+ipcMain.on('window:drag-move', (event, payload = {}) => {
+  const drag = windowDrag
+  if (!drag || drag.win.isDestroyed() || BrowserWindow.fromWebContents(event.sender) !== drag.win) return
+  const screenX = Number(payload.screenX)
+  const screenY = Number(payload.screenY)
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return
+  drag.win.setPosition(Math.round(screenX - drag.offsetX), Math.round(screenY - drag.offsetY))
+})
+ipcMain.on('window:drag-end', () => { windowDrag = null })
+
 ipcMain.on('window:pin', (_event, enabled) => {
   if (!mainWindow) return
   windowPinned = Boolean(enabled)

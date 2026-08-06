@@ -650,7 +650,7 @@ button:focus-visible, input:focus-visible {
 }
 .book-heading { min-width: 0; text-align: center; }
 .book-heading strong { display: block; overflow: hidden; color: rgb(var(--reader-ink)); font: 600 var(--text-md)/1.4 serif; text-overflow: ellipsis; white-space: nowrap; }
-.book-heading span { display: block; margin-top: 1px; font-size: var(--text-xs); opacity: .62; }
+.book-heading span { display: block; overflow: hidden; margin-top: 1px; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; opacity: .62; }
 .reader-actions { display: flex; justify-content: flex-end; gap: 4px; }
 .toolbar-button {
   position: relative;
@@ -831,10 +831,10 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
   transform: translateY(-100%);
   pointer-events: none;
   transition: opacity var(--t-fast) ease, transform var(--t-fast) ease;
-  -webkit-app-region: drag;
+  /* 拖拽走 startChromeDrag 手动 IPC：最大化时 app-region 无效，且 drag 区域收不到鼠标事件。 */
+  user-select: none;
 }
 .immersive-topbar.is-visible { opacity: 1; transform: none; pointer-events: auto; }
-.immersive-topbar button { -webkit-app-region: no-drag; }
 
 /* 沉浸阅读：阅读区空白处（页边距、文本列之外）均可拖拽移动窗口。
    文本、按钮、进度条等交互元素显式 no-drag，划句收藏与翻页不受影响。 */
@@ -909,7 +909,8 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .percent-entry input::-webkit-inner-spin-button { display: none; }
 .percent-entry input:focus { border-bottom-color: var(--accent-tint); outline: 0; }
 
-/* AI 陪读状态条：悬浮在底部进度条之上，沉浸模式下也常驻。 */
+/* AI 陪读状态条：窗内悬浮版（仅无 Electron API 的环境回退使用）。
+   正式形态是阅读窗底部外侧的独立小窗口，见下方 .companion-bar-window。 */
 .companion-bar {
   position: absolute;
   z-index: 10;
@@ -941,6 +942,22 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
   .companion-action-full { display: none; }
   .companion-action-short { display: inline; }
 }
+
+/* AI 陪读状态栏独立窗口：吸附阅读窗底部外侧，同宽。窗口本体 40px 高。 */
+.companion-bar-window {
+  box-sizing: border-box;
+  height: 100vh;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  background: var(--reader-bg);
+  user-select: none;
+}
+.companion-bar-window .companion-status { flex: 1 1 auto; justify-content: center; min-width: 0; }
 
 .setting-toggle { position: relative; width: 34px; height: 20px; padding: 0; border: 0; border-radius: 10px; background: rgba(var(--reader-ink), .18); cursor: pointer; transition: background var(--t-fast) ease; }
 .setting-toggle span { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--reader-bg); box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform var(--t-fast) ease; }
@@ -991,6 +1008,10 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .toc-panel, .notes-panel, .search-panel { padding: 0; }
 .toc-title { position: sticky; top: 0; z-index: 1; height: 50px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--reader-bg); }
 .toc-title span { margin-left: auto; color: var(--chrome); font-size: var(--text-xs); }
+.panel-close { flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--chrome); cursor: pointer; }
+.panel-close:hover { background: rgba(var(--reader-ink), .08); color: rgb(var(--reader-ink)); }
+.book-search .panel-close { width: 26px; height: 30px; background: transparent; color: var(--chrome); }
+.book-search .panel-close:hover { background: rgba(var(--reader-ink), .08); color: rgb(var(--reader-ink)); }
 .toc-list { padding: 7px 0; }
 .toc-list button { width: 100%; min-height: 38px; padding: 8px 16px; border: 0; display: block; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; color: var(--chrome); font-size: var(--text-sm); cursor: pointer; }
 .toc-list button { content-visibility: auto; contain-intrinsic-size: 38px; }
@@ -1009,7 +1030,7 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 .note-item:hover .delete-note, .delete-note:focus-visible { opacity: 1; }
 .delete-note:hover { background: rgba(159, 72, 60, .12); color: var(--danger); }
 .notes-empty { margin: 0; padding: 36px 16px; color: var(--chrome); font-size: var(--text-xs); text-align: center; }
-.book-search { position: sticky; top: 0; z-index: 2; height: 52px; padding: 8px 10px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 24px minmax(0, 1fr) 48px; align-items: center; background: var(--reader-bg); }
+.book-search { position: sticky; top: 0; z-index: 2; height: 52px; padding: 8px 10px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 24px minmax(0, 1fr) 48px 28px; gap: 2px; align-items: center; background: var(--reader-bg); }
 .book-search > svg { color: var(--chrome); }
 .book-search input { min-width: 0; height: 34px; padding: 0 7px; border: 0; background: transparent; color: rgb(var(--reader-ink)); font-size: var(--text-sm); }
 .book-search input:focus { outline: 0; }

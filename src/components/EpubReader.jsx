@@ -110,7 +110,7 @@ function getPageDirection(document) {
   }
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, onDismissPanel }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -138,6 +138,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   const initialCfiRef = useRef(initialCfi)
   const shortcutRef = useRef(onShortcut)
   const wheelCallbackRef = useRef(onWheel)
+  const dismissPanelRef = useRef(onDismissPanel)
   if (initialDataRef.current !== data) {
     initialDataRef.current = data
     initialCfiRef.current = initialCfi
@@ -146,6 +147,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   chaptersCallbackRef.current = onChapters
   shortcutRef.current = onShortcut
   wheelCallbackRef.current = onWheel
+  dismissPanelRef.current = onDismissPanel
 
   useEffect(() => {
     if (!hostRef.current) return undefined
@@ -317,6 +319,8 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         boundViewDocuments.add(view.document)
         view.document.addEventListener('keydown', (event) => shortcutRef.current(event))
         view.document.addEventListener('wheel', (event) => wheelCallbackRef.current?.(event), { passive: false })
+        // iframe 内点击不冒泡到外层，面板“点击外部关闭”需要这里兜底。
+        view.document.addEventListener('click', () => dismissPanelRef.current?.())
         view.document.addEventListener('contextmenu', async (event) => {
           const selectedText = view.document.defaultView?.getSelection()?.toString().trim()
           const payload = selectionPayloadRef.current
