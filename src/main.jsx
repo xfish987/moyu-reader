@@ -7,6 +7,7 @@ import DictionaryWindow from './DictionaryWindow'
 import CompanionWindow from './CompanionWindow'
 import CompanionBarWindow from './CompanionBarWindow'
 import './styles.css'
+import './ui-b/ui-b.css'
 
 const windowKind = new URLSearchParams(window.location.search).get('window')
 

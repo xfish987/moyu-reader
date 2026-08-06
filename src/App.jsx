@@ -6,6 +6,10 @@ import { useStoredState } from './hooks'
 import { DEFAULT_SHORTCUTS, normalizeKey } from './shortcuts'
 import { mergeEntityProfiles as mergeProfiles, removeEntityProfile, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
 import { removeStorylineEntry, upsertStorylineEntry } from './storyline'
+import AppearancePanel from './ui-b/AppearancePanel'
+import BackgroundLayer from './ui-b/BackgroundLayer'
+import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
+import VirtualBookshelfHome from './ui-b/VirtualBookshelfHome'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -41,6 +45,10 @@ export default function App() {
   const [companionMap, setCompanionMap] = useStoredState('reader:companion-enabled', {})
   const [companionChatsMap, setCompanionChatsMap] = useStoredState('reader:companion-chats', {})
   const [storylineMap, setStorylineMap] = useStoredState('reader:storyline', {})
+  const [storedAppearance, setAppearance] = useStoredState('reader:appearance-v2', DEFAULT_APPEARANCE)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [homeView, setHomeView] = useState('virtual')
+  const [libraryView, setLibraryView] = useState('shelf')
   const [directoryBooks, setDirectoryBooks] = useState([])
   const [activeBook, setActiveBook] = useState(null)
   const [source, setSource] = useState(null)
@@ -50,6 +58,9 @@ export default function App() {
   const [notice, setNotice] = useState(null)
   const readerActionRef = useRef(null)
   const manualUpgradeRef = useRef(new Set())
+  // 主页两种视图（书脊 / 管理）共用一个滚动记忆，来回切换时恢复各自位置。
+  const homeScrollRef = useRef({ virtual: 0, library: 0 })
+  const appearance = useMemo(() => normalizeAppearance(storedAppearance), [storedAppearance])
 
   const mergeManualBooks = useCallback((selected) => {
     setHiddenBooks((current) => current.filter((value) => !selected.some((book) => book.path === value || book.id === value)))
@@ -313,6 +324,7 @@ export default function App() {
     setActiveBook(null)
     setSource(null)
     setPendingNote(null)
+    setHomeView('virtual')
   }
 
   const saveProgress = useCallback((nextProgress) => {
@@ -371,9 +383,10 @@ export default function App() {
   }, [activeBook, setDictionaryMap])
 
   return (
-    <div className={`app-shell ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} style={{ '--b-reader-paper-opacity': appearance.reader.paperOpacity }} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+      <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
-      {!immersive ? <WindowBar pinned={pinned} onTogglePin={() => setPinned((current) => !current)} /> : null}
+      {!immersive ? <WindowBar pinned={pinned} onTogglePin={() => setPinned((current) => !current)} onOpenAppearance={() => setAppearanceOpen(true)} /> : null}
       {activeBook && source ? (
         <ReaderView
           book={activeBook}
@@ -412,6 +425,22 @@ export default function App() {
           onSaveStorylineEntry={(entry) => setStorylineMap((current) => ({ ...current, [activeBook.id]: upsertStorylineEntry(current[activeBook.id] || [], entry) }))}
           onDeleteStorylineEntry={(entryId) => setStorylineMap((current) => ({ ...current, [activeBook.id]: removeStorylineEntry(current[activeBook.id] || [], entryId) }))}
         />
+      ) : homeView === 'virtual' ? (
+        <VirtualBookshelfHome
+          books={books}
+          progressMap={progressMap}
+          statusMap={statusMap}
+          coversMap={coversMap}
+          defaultCover={appearance.theme === 'night' ? DEFAULT_COVERS.dark : DEFAULT_COVERS.light}
+          dark={appearance.theme === 'night'}
+          onOpen={openBook}
+          onAddBooks={addBooks}
+          onOpenLibrary={(target) => setHomeView(target === 'home' ? 'virtual' : 'library')}
+          onOpenNotes={() => { setLibraryView('notes'); setHomeView('library') }}
+          onSearch={() => { setLibraryView('shelf'); setHomeView('library'); setTimeout(() => document.querySelector('.shelf-search input')?.focus(), 80) }}
+          onOpenAppearance={() => setAppearanceOpen(true)}
+          scrollMemory={homeScrollRef.current}
+        />
       ) : (
         <Bookshelf
           books={books}
@@ -449,8 +478,14 @@ export default function App() {
           bookMetadata={bookMetadata}
           shortcuts={shortcuts}
           setShortcuts={setShortcuts}
+          defaultCover={appearance.theme === 'night' ? DEFAULT_COVERS.dark : DEFAULT_COVERS.light}
+          initialView={libraryView}
+          onViewChange={setLibraryView}
+          onOpenVirtualHome={() => setHomeView('virtual')}
+          scrollMemory={homeScrollRef.current}
         />
       )}
+      {appearanceOpen ? <AppearancePanel appearance={appearance} onChange={setAppearance} onClose={() => setAppearanceOpen(false)} /> : null}
     </div>
   )
 }

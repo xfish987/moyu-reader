@@ -88,6 +88,7 @@ const STORE_KEYS = new Set([
   'reader:companion-enabled',
   'reader:storyline',
   'reader:companion-chats',
+  'reader:appearance-v2',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -100,6 +101,14 @@ const storeFile = () => path.join(storeDirectory(), STORE_FILE_NAME)
 const aiConfigFile = () => path.join(storeDirectory(), AI_CONFIG_FILE_NAME)
 const backupDirectory = () => path.join(storeDirectory(), 'backups')
 const epubCacheDirectory = () => path.join(app.getPath('userData'), 'cache', 'epub')
+const backgroundDirectory = (scope) => path.join(app.getPath('userData'), 'ui-assets', 'backgrounds', scope)
+
+function assertBackgroundPath(filePath) {
+  const root = path.resolve(path.join(app.getPath('userData'), 'ui-assets', 'backgrounds'))
+  const resolved = path.resolve(String(filePath || ''))
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) throw new Error('背景资源路径无效')
+  return resolved
+}
 
 function defaultAiConfig() {
   return {
@@ -1483,6 +1492,42 @@ ipcMain.handle('storage:import', async () => {
   storeCache = imported
   await queueStoreWrite()
   return { importedAt: storeCache.updatedAt, keyCount: Object.keys(storeCache.data).length }
+})
+
+ipcMain.handle('ui:choose-background', async (_event, scope) => {
+  if (!['home', 'reader'].includes(scope)) throw new Error('背景类型无效')
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: scope === 'home' ? '选择主页背景' : '选择阅读背景',
+    properties: ['openFile'],
+    filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  const sourcePath = result.filePaths[0]
+  const stat = await fs.stat(sourcePath)
+  if (stat.size > 20 * 1024 * 1024) throw new Error('背景图片不能超过 20 MB')
+  const extension = path.extname(sourcePath).toLowerCase()
+  const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg'
+  const contents = await fs.readFile(sourcePath)
+  const sha256 = createHash('sha256').update(contents).digest('hex')
+  const directory = backgroundDirectory(scope)
+  await fs.mkdir(directory, { recursive: true })
+  const assetPath = path.join(directory, `${sha256}${extension === '.jpeg' ? '.jpg' : extension}`)
+  await fs.writeFile(assetPath, contents)
+  return { id: sha256, scope, assetPath, fileName: path.basename(sourcePath), mime, sizeBytes: stat.size, createdAt: new Date().toISOString() }
+})
+
+ipcMain.handle('ui:read-background', async (_event, assetPath) => {
+  const safePath = assertBackgroundPath(assetPath)
+  const extension = path.extname(safePath).toLowerCase()
+  const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg'
+  const contents = await fs.readFile(safePath)
+  return `data:${mime};base64,${contents.toString('base64')}`
+})
+
+ipcMain.handle('ui:delete-background', async (_event, assetPath) => {
+  const safePath = assertBackgroundPath(assetPath)
+  await fs.unlink(safePath).catch((error) => { if (error.code !== 'ENOENT') throw error })
+  return true
 })
 
 ipcMain.handle('books:delete-source', async (_event, filePath) => {

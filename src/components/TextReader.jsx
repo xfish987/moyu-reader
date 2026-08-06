@@ -129,8 +129,10 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   useEffect(() => chaptersCallbackRef.current(chapters), [chapters])
 
   useEffect(() => {
-    const shell = shellRef.current
-    if (!shell) return undefined
+    // 测量可视文字区（.text-viewport）而不是外壳：UI B 把文字区限制在
+    // min(820px, 100%-56px) 并居中，列宽必须与可视宽度一致，翻页步长才对。
+    const viewport = viewportRef.current
+    if (!viewport) return undefined
     const markResizing = () => {
       resizingRef.current = true
       setPaintReady(false)
@@ -154,7 +156,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       const nextWidth = Math.round(entry.contentRect.width)
       setViewportWidth((current) => current === nextWidth ? current : nextWidth)
     })
-    observer.observe(shell)
+    observer.observe(viewport)
     window.addEventListener('resize', handleWindowResize)
     return () => {
       observer.disconnect()
