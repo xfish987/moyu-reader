@@ -1,6 +1,6 @@
 {
-  "name": "moyu-reader",
-  "version": "1.3.1",
+  "name": "moyu-reader-ui-b",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "A quiet local TXT and EPUB reader for Windows",
@@ -39,8 +39,8 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.local.moyureader",
-    "productName": "墨读阅读器",
+    "appId": "com.local.moyureader.uib",
+    "productName": "墨读书房 B",
     "asar": true,
     "files": [
       "dist/**/*",
@@ -52,7 +52,7 @@
       "target": [
         "portable"
       ],
-      "artifactName": "MoyuReader-${version}.exe",
+      "artifactName": "MoyuStudy-B-${version}.exe",
       "icon": "assets/icon.ico"
     },
     "fileAssociations": [
@@ -67,7 +67,7 @@
       }
     ],
     "portable": {
-      "artifactName": "MoyuReader-${version}.exe"
+      "artifactName": "MoyuStudy-B-${version}.exe"
     },
     "directories": {
       "output": "release"

@@ -1,0 +1,18 @@
+{
+  "investigatedAt": "2026-08-06T00:00:00+08:00",
+  "workspace": "D:\\tools\\book",
+  "candidates": [
+    {
+      "path": "D:\\tools\\book\\read",
+      "confidence": 1,
+      "selected": true,
+      "evidence": [
+        "package name moyu-reader",
+        "Electron main entry electron/main.cjs",
+        "React and Vite renderer",
+        "README identifies 墨读阅读器"
+      ]
+    }
+  ],
+  "target": "D:\\tools\\book\\moyu"
+}

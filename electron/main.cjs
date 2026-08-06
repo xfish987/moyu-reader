@@ -14,6 +14,10 @@ const { buildDictionaryMessages, buildFollowupMessages } = require('./dictionary
 const { buildChapterSummaryMessages, buildCompanionChatMessages } = require('./companionPrompt.cjs')
 const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
+// UI B owns a separate writable profile so it can run beside the original app.
+app.setName('墨读书房 B')
+app.setPath('userData', path.join(app.getPath('appData'), 'MoyuReaderUIB'))
+
 let mainWindow
 let profilesWindow = null
 let profilesFabWindow = null
