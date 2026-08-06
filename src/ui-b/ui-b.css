@@ -62,6 +62,26 @@
   outline: 2px solid var(--b-focus);
   outline-offset: 2px;
 }
+/* 旧组件（AI 设置、快捷键、整理书籍等弹窗）使用 styles.css 的老 Token。
+   这里把老 Token 映射到 b- 主题变量，弹窗即可跟随雾蓝/寒夜/青瓷三套主题。
+   选择器带主题类（0,3,0）是为了盖过阅读态 .app-shell.theme-* 的老 Token 定义（0,2,0）；
+   阅读区自身在 .reader-view.theme-* 上另有定义，离正文更近，不受此映射影响。 */
+.ui-b.ui-b-theme-mist, .ui-b.ui-b-theme-night, .ui-b.ui-b-theme-porcelain {
+  --paper: var(--b-app);
+  --paper-2: var(--b-surface-muted);
+  --surface: var(--b-surface-solid);
+  --ink: var(--b-ink);
+  --ink-2: var(--b-ink-2);
+  --ink-3: var(--b-ink-3);
+  --line: var(--b-line);
+  --line-strong: var(--b-line-strong);
+  --accent: var(--b-accent);
+  --accent-deep: var(--b-accent-hover);
+  --accent-tint: var(--b-accent);
+  --accent-bg: var(--b-accent-soft);
+  --danger: var(--b-danger);
+  --danger-bg: color-mix(in srgb, var(--b-danger) 12%, transparent);
+}
 .ui-b .app-shell { background: transparent; }
 .ui-b .window-bar { position: relative; z-index: 20; height: 44px; padding: 0 0 0 18px; display: grid; grid-template-columns: minmax(118px, 1fr) auto 132px; color: var(--b-ink-2); background: var(--b-shell); border-bottom: 1px solid var(--b-line); backdrop-filter: blur(22px) saturate(1.12); -webkit-backdrop-filter: blur(22px) saturate(1.12); }
 .ui-b .brand-lockup { gap: 9px; color: var(--b-ink); font-size: 13px; letter-spacing: .01em; }
@@ -316,7 +336,18 @@
   .ui-b .shelf-workspace { padding-inline: 24px; }
   .ui-b .shelf-heading { align-items: flex-start; flex-direction: column; gap: 16px; }
   .ui-b .shelf-actions { width: 100%; flex-wrap: wrap; }
-  .ui-b .shelf-layout { grid-template-columns: 140px minmax(0, 1fr); gap: 18px; }
+  /* ≤900px 分类侧栏改为整行横排 chips：旧基线在这个带宽会把横向 chips 挤进 140px 窄列，
+     标题和筛选行叠在一起完全没法用。 */
+  .ui-b .shelf-layout { grid-template-columns: 1fr; }
+  .ui-b .category-sidebar { position: static; padding-bottom: 8px; overflow-x: auto; }
+  .ui-b .category-sidebar-title { display: none; }
+  .ui-b .category-sidebar nav { display: flex; gap: 5px; align-items: center; }
+  .ui-b .category-sidebar nav > button, .ui-b .category-row { flex: 0 0 auto; }
+  .ui-b .category-sidebar nav > button, .ui-b .category-row > button:first-child { width: auto; padding-inline: 10px; }
+  .ui-b .category-row .delete-category { display: none !important; }
+  .ui-b .category-add-inline { width: 30px; height: 30px; flex: 0 0 30px; padding: 0; border: 1px dashed var(--b-line-strong); border-radius: var(--b-radius); display: grid; place-items: center; background: transparent; color: var(--b-ink-2); cursor: pointer; }
+  .ui-b .category-add-inline:hover { border-color: var(--b-accent); color: var(--b-accent); }
+  .ui-b .category-create { width: min(220px, 70vw); margin-top: 6px; }
 }
 @media (max-width: 680px) {
   .ui-b .shelf-view { display: block; overflow: auto; }
@@ -337,15 +368,6 @@
   .ui-b .shelf-actions .shelf-book-command { flex: 1 1 40%; width: auto; min-width: 0; padding: 0 10px; gap: 6px; }
   .ui-b .shelf-actions .shelf-book-command .command-label { display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ui-b .shelf-layout { grid-template-columns: 1fr; }
-  .ui-b .category-sidebar { position: static; padding-bottom: 8px; overflow-x: auto; }
-  .ui-b .category-sidebar-title { display: none; }
-  .ui-b .category-sidebar nav { display: flex; gap: 5px; align-items: center; }
-  .ui-b .category-sidebar nav > button, .ui-b .category-row { flex: 0 0 auto; }
-  .ui-b .category-add-inline { width: 30px; height: 30px; flex: 0 0 30px; padding: 0; border: 1px dashed var(--b-line-strong); border-radius: var(--b-radius); display: grid; place-items: center; background: transparent; color: var(--b-ink-2); cursor: pointer; }
-  .ui-b .category-add-inline:hover { border-color: var(--b-accent); color: var(--b-accent); }
-  .ui-b .category-create { width: min(220px, 70vw); margin-top: 6px; }
-  .ui-b .category-sidebar nav > button, .ui-b .category-row > button:first-child { width: auto; padding-inline: 10px; }
-  .ui-b .category-row .delete-category { display: none !important; }
   .ui-b .shelf-search { min-width: 0; flex-basis: 100%; }
   .ui-b .layout-segment { margin-left: 0; }
   .ui-b .book-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 14px; }
