@@ -69,12 +69,24 @@ export const DEFAULT_APPEARANCE = {
   theme: 'mist',
   // 图案靠清晰度和焦点呈现，不靠模糊遮羞；可读性由遮罩兜底。
   // 雾蓝预设（清夜湖光）主体在画面右侧，默认聚焦 (76, 45)。
-  home: { ...DEFAULT_BACKGROUND, opacity: 0.55, blurPx: 1, overlayOpacity: 0.12, saturation: 0.8, contrast: 1.02, positionX: 76, positionY: 45, asset: themeHomeBackground('mist'), enabled: true },
+  home: { ...DEFAULT_BACKGROUND, opacity: 0.72, blurPx: 0, overlayOpacity: 0.08, saturation: 0.86, contrast: 1.04, positionX: 76, positionY: 45, asset: themeHomeBackground('mist'), enabled: true },
   reader: { ...DEFAULT_BACKGROUND, opacity: 0.08, blurPx: 12, overlayOpacity: 0.48, paperOpacity: 0.94, asset: preset('reader-moon-blue'), enabled: true },
 }
 
+/* 外观参数版本：默认推荐值调整后递增，旧存档自动迁移（保留主题与用户上传的背景图）。 */
+export const APPEARANCE_VERSION = 2
+
 export function normalizeAppearance(value) {
   const current = value && typeof value === 'object' ? value : {}
+  if (current.v !== APPEARANCE_VERSION) {
+    const migrate = (scope) => ({
+      ...DEFAULT_APPEARANCE[scope],
+      asset: current[scope]?.asset ?? DEFAULT_APPEARANCE[scope].asset,
+      enabled: current[scope]?.enabled ?? DEFAULT_APPEARANCE[scope].enabled,
+      autoAdaptTheme: current[scope]?.autoAdaptTheme ?? DEFAULT_APPEARANCE[scope].autoAdaptTheme,
+    })
+    return { ...DEFAULT_APPEARANCE, theme: current.theme || DEFAULT_APPEARANCE.theme, home: migrate('home'), reader: migrate('reader'), v: APPEARANCE_VERSION }
+  }
   return {
     ...DEFAULT_APPEARANCE,
     ...current,

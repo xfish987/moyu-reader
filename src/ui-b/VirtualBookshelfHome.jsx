@@ -54,9 +54,7 @@ function SpineBook({ book, metrics, progress, active, onActivate, onOpen, onKeyD
       <span className="v-spine-face">
         <span className={`v-spine-stripe stripe-${metrics.stripe}`} />
         <span className="v-spine-title">{book.title}</span>
-        {book.author ? <span className="v-spine-author">{book.author}</span> : null}
-        <span className="v-spine-cover-hint" aria-hidden="true" />
-        <span className="v-spine-progress" style={{ '--progress': `${percent}%` }} />
+        {percent ? <span className="v-spine-progress" style={{ '--progress': `${percent}%` }} /> : null}
       </span>
     </button>
   )

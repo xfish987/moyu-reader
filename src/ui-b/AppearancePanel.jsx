@@ -64,7 +64,7 @@ export default function AppearancePanel({ appearance, onChange, onClose }) {
             {scope === 'home' ? <label className="b-toggle-row"><span><strong>背景跟随主题</strong><small>切换配色时自动使用匹配的内置背景</small></span><input type="checkbox" checked={Boolean(preference.autoAdaptTheme)} onChange={(event) => patch({ autoAdaptTheme: event.target.checked, enabled: true })} /></label> : null}
             <label className="b-toggle-row"><span><strong>启用{label}</strong><small>关闭后保留参数与主题设置</small></span><input type="checkbox" checked={preference.enabled} disabled={!preference.asset} onChange={(event) => patch({ enabled: event.target.checked })} /></label>
             <div className="b-tuner-grid">
-              <SliderRow label="不透明度" value={preference.opacity} min="0" max="0.7" step="0.01" unit="%" onChange={(opacity) => patch({ opacity })} />
+              <SliderRow label="不透明度" value={preference.opacity} min="0" max="0.9" step="0.01" unit="%" onChange={(opacity) => patch({ opacity })} />
               <SliderRow label="模糊" value={preference.blurPx} min="0" max="30" step="1" unit="px" onChange={(blurPx) => patch({ blurPx })} />
               <SliderRow label="遮罩强度" value={preference.overlayOpacity} min="0" max="0.8" step="0.01" unit="%" onChange={(overlayOpacity) => patch({ overlayOpacity })} />
               <SliderRow label="水平位置" value={preference.positionX ?? 50} min="0" max="100" step="1" unit="" onChange={(positionX) => patch({ positionX })} />

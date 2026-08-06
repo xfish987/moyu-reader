@@ -404,9 +404,7 @@
 .ui-b .v-spine-stripe { width: 62%; height: 2px; margin-bottom: 7px; flex: 0 0 auto; background: rgba(245,249,247,.62); }
 .ui-b .v-spine-stripe.stripe-1 { width: 42%; margin-top: 3px; }
 .ui-b .v-spine-stripe.stripe-2 { width: 74%; margin-top: 8px; }
-.ui-b .v-spine-title { max-height: 72px; overflow: hidden; color: rgba(247,250,248,.94); font: 600 11px/1.2 var(--font-serif); text-align: center; writing-mode: vertical-rl; text-orientation: mixed; overflow-wrap: anywhere; }
-.ui-b .v-spine-author { max-width: 100%; margin-top: auto; overflow: hidden; color: rgba(242,247,244,.62); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.ui-b .v-spine-cover-hint { position: absolute; top: 4px; right: 4px; width: 4px; height: 4px; border-radius: 50%; background: rgba(244,248,245,.64); }
+.ui-b .v-spine-title { max-height: 72px; overflow: hidden; color: rgba(247,250,248,.94); font: 600 11px/1.35 var(--font-serif); letter-spacing: .16em; text-align: center; writing-mode: vertical-rl; text-orientation: mixed; overflow-wrap: anywhere; text-shadow: 0 1px 2px rgba(15, 28, 32, .3); }
 .ui-b .v-spine-progress { position: absolute; right: 3px; bottom: 3px; left: 3px; height: 2px; overflow: hidden; background: rgba(245,249,247,.16); }
 .ui-b .v-spine-progress::after { content: ''; display: block; width: var(--progress); height: 100%; background: rgba(246,250,247,.86); }
 /* 空书架不画装饰层板：架子只随真实书籍出现。 */
@@ -467,7 +465,7 @@
 .ui-b .v-shelf-stack[data-shelf-count="2"] { justify-content: space-evenly; }
 .ui-b .v-shelf-stack[data-shelf-count="3"] { justify-content: space-around; }
 .ui-b .v-shelf-row { width: 100%; min-height: 230px; padding: 0; display: flex; align-items: center; position: relative; }
-.ui-b .v-shelf-books { width: 100%; height: 190px; padding: 4px clamp(16px, 4vw, 54px) 0; display: flex; align-items: flex-end; justify-content: safe center; gap: 3px; overflow-x: auto; overflow-y: hidden; perspective: 900px; perspective-origin: 50% 45%; scrollbar-width: none; }
+.ui-b .v-shelf-books { width: 100%; height: 190px; padding: 4px clamp(16px, 4vw, 54px) 0; display: flex; align-items: flex-end; justify-content: safe center; gap: 5px; overflow-x: auto; overflow-y: hidden; perspective: 900px; perspective-origin: 50% 45%; scrollbar-width: none; }
 .ui-b .v-shelf-books::-webkit-scrollbar { width: 0; height: 0; }
 .ui-b .v-shelf-board { right: 0; bottom: 17px; left: 0; height: 10px; }
 .ui-b .v-spine { position: relative; z-index: 1; width: var(--spine-width); min-width: var(--spine-width); height: var(--book-height); max-height: none; flex: 0 0 var(--spine-width); padding: 0; border: 0; overflow: visible; transform: none; background: transparent; transition: width 260ms ease, flex-basis 260ms ease; }
@@ -475,10 +473,9 @@
 .ui-b .v-book-volume { position: absolute; inset: 0 auto 0 0; width: var(--open-width); height: var(--book-height); border: 1px solid color-mix(in srgb, var(--b-line-strong) 72%, transparent); border-radius: 3px 5px 5px 3px; overflow: hidden; transform: rotateY(79deg); transform-origin: left center; transform-style: preserve-3d; backface-visibility: hidden; background: var(--spine-color); transition: transform 260ms ease, border-color 180ms ease; }
 .ui-b .v-book-volume img { width: 100%; height: 100%; display: block; object-fit: cover; backface-visibility: hidden; }
 .ui-b .v-spine.is-active .v-book-volume { transform: rotateY(0deg); border-color: var(--b-line-strong); }
-.ui-b .v-spine-face { position: absolute; z-index: 2; inset: 0 auto 0 0; width: var(--spine-width); height: var(--book-height); padding: 8px 4px 6px; border: 1px solid color-mix(in srgb, var(--spine-color) 60%, var(--b-line)); border-radius: 3px 2px 2px 3px; display: flex; align-items: center; flex-direction: column; background: var(--spine-color); opacity: 1; overflow: hidden; transition: opacity 100ms ease; pointer-events: none; }
+.ui-b .v-spine-face { position: absolute; z-index: 2; inset: 0 auto 0 0; width: var(--spine-width); height: var(--book-height); padding: 9px 4px 7px; border: 1px solid color-mix(in srgb, var(--spine-color) 60%, var(--b-line)); border-radius: 3px 2px 2px 3px; display: flex; align-items: center; flex-direction: column; background: linear-gradient(90deg, rgba(255,255,255,.17) 0%, rgba(255,255,255,.03) 16%, rgba(0,0,0,0) 46%, rgba(0,0,0,.13) 86%, rgba(0,0,0,.27) 100%), linear-gradient(180deg, rgba(255,255,255,.10), rgba(0,0,0,0) 22%, rgba(0,0,0,0) 82%, rgba(0,0,0,.16)), var(--spine-color); box-shadow: 2px 3px 7px rgba(21, 38, 43, .22), inset 0 -5px 7px rgba(0,0,0,.14); opacity: 1; overflow: hidden; transition: opacity 100ms ease; pointer-events: none; }
 .ui-b .v-spine.is-active .v-spine-face { opacity: 0; }
-.ui-b .v-spine-title { max-height: calc(var(--book-height) - 45px); font-size: 10px; line-height: 1.15; }
-.ui-b .v-spine-author { font-size: 7px; }
+.ui-b .v-spine-title { max-height: calc(var(--book-height) - 34px); margin-block: auto; font-size: 10px; }
 .ui-b .v-active-details { position: absolute; z-index: 18; top: 42px; right: clamp(18px, 5vw, 76px); width: min(240px, calc(100% - 36px)); min-height: 92px; padding: 13px 14px; border: 1px solid var(--b-line); border-radius: var(--b-radius); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; background: color-mix(in srgb, var(--b-surface) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); animation: b-fade-in 150ms ease-out; }
 .ui-b .v-active-details > span { grid-column: 1 / -1; color: var(--b-accent); font-size: 9px; font-weight: 650; }
 .ui-b .v-active-details > strong { min-width: 0; overflow: hidden; color: var(--b-ink); font: 600 13px/1.4 var(--font-serif); text-overflow: ellipsis; white-space: nowrap; }
