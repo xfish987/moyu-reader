@@ -161,7 +161,11 @@
 .ui-b .batch-bar span { color: var(--b-ink-2); }
 .ui-b .book-grid { grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 30px 20px; }
 .ui-b .book-cover { aspect-ratio: 2 / 3; max-width: none; padding: 24px 15px 16px; border: 1px solid rgba(255,255,255,.25); border-radius: 5px; box-shadow: none; background: var(--cover); transition: border-color var(--b-motion) ease, transform var(--b-motion) ease; }
+/* 有封面图（含默认封面）时不留内边距和描边——图片即封面，不再套一层彩色相框。 */
+.ui-b .book-cover.has-image, .ui-b .book-cover.is-default { padding: 0; border: 0; overflow: hidden; background: none; }
+.ui-b .book-cover.has-image img, .ui-b .book-cover.is-default img { border-radius: 4px; }
 .ui-b .book-item:hover .book-cover { transform: translateY(-2px); border-color: rgba(255,255,255,.62); box-shadow: none; }
+.ui-b .book-item:hover .book-cover.has-image, .ui-b .book-item:hover .book-cover.is-default { border-color: transparent; }
 .ui-b .book-cover strong { font-size: 16px; }
 .ui-b .book-cover.is-default { background: #d7dfe0; }
 .ui-b .book-cover.is-default img { width: 100%; height: 100%; display: block; object-fit: cover; filter: saturate(.82); }
@@ -206,11 +210,10 @@
 /* 居中用 inset-inline: 0 + margin-inline: auto。
    旧写法 left: 50% 会被同块内后置的 inset-inline: auto 冲掉，再叠 translateX(-50%) 把文字区甩到左屏外。 */
 .ui-b .text-viewport { width: min(820px, calc(100% - 56px)); inset-inline: 0; margin-inline: auto; transform: none; }
-/* 列内边距跟随 --page-padding：列宽 = 视口宽 − 2×页边距，列距 = 2×页边距，
-   因此「列宽 + 列距 = 翻页步长」在任何窗口尺寸恒成立，翻页不会落空。 */
-.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); border: 1px solid var(--b-line); border-radius: var(--b-panel-radius); background: color-mix(in srgb, var(--b-surface-solid) calc(var(--b-reader-paper-opacity, .94) * 100%), transparent); color: color-mix(in srgb, var(--b-ink) 91%, transparent); text-align: left; }
+/* 纸页不要边框和圆角：窗口本身已有外框，卡片再描边会变成双层框。 */
+.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); background: color-mix(in srgb, var(--b-surface-solid) calc(var(--b-reader-paper-opacity, .94) * 100%), transparent); color: color-mix(in srgb, var(--b-ink) 91%, transparent); text-align: left; }
 .ui-b .text-columns h2 { color: var(--b-accent); }
-.ui-b .epub-host { width: min(820px, calc(100% - 56px)); height: calc(100% - 48px); margin: 24px auto; border: 1px solid var(--b-line); border-radius: var(--b-panel-radius); background: color-mix(in srgb, var(--b-surface-solid) calc(var(--b-reader-paper-opacity, .94) * 100%), transparent); }
+.ui-b .epub-host { width: min(820px, calc(100% - 56px)); height: calc(100% - 48px); margin: 24px auto; background: color-mix(in srgb, var(--b-surface-solid) calc(var(--b-reader-paper-opacity, .94) * 100%), transparent); }
 .ui-b .is-immersive .epub-host { height: calc(100% - 48px); }
 /* 沉浸顶栏在 UI B 里 --reader-bg 是透明值，color-mix 后成全透明；改用磨砂壳层变量。 */
 .ui-b .immersive-topbar { background: var(--b-shell); color: var(--b-ink-2); border-bottom-color: var(--b-line); }
@@ -306,6 +309,9 @@
 @keyframes b-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes b-panel-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
+/* 桌面端新建分类入口在侧栏标题上，内联按钮只在窄窗筛选行显示。 */
+.ui-b .category-add-inline { display: none; }
+
 @media (max-width: 900px) {
   .ui-b .shelf-workspace { padding-inline: 24px; }
   .ui-b .shelf-heading { align-items: flex-start; flex-direction: column; gap: 16px; }
@@ -333,8 +339,11 @@
   .ui-b .shelf-layout { grid-template-columns: 1fr; }
   .ui-b .category-sidebar { position: static; padding-bottom: 8px; overflow-x: auto; }
   .ui-b .category-sidebar-title { display: none; }
-  .ui-b .category-sidebar nav { display: flex; gap: 5px; }
+  .ui-b .category-sidebar nav { display: flex; gap: 5px; align-items: center; }
   .ui-b .category-sidebar nav > button, .ui-b .category-row { flex: 0 0 auto; }
+  .ui-b .category-add-inline { width: 30px; height: 30px; flex: 0 0 30px; padding: 0; border: 1px dashed var(--b-line-strong); border-radius: var(--b-radius); display: grid; place-items: center; background: transparent; color: var(--b-ink-2); cursor: pointer; }
+  .ui-b .category-add-inline:hover { border-color: var(--b-accent); color: var(--b-accent); }
+  .ui-b .category-create { width: min(220px, 70vw); margin-top: 6px; }
   .ui-b .category-sidebar nav > button, .ui-b .category-row > button:first-child { width: auto; padding-inline: 10px; }
   .ui-b .category-row .delete-category { display: none !important; }
   .ui-b .shelf-search { min-width: 0; flex-basis: 100%; }

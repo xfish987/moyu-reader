@@ -112,6 +112,8 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
             <button className="delete-category" onClick={() => onDelete(category)} title={`删除分类 ${category}`}><X size={12} /></button>
           </div>
         ))}
+        {/* 窄窗下侧栏标题（含新建按钮）被隐藏，在筛选行末尾补一个内联新建入口 */}
+        <button className="category-add-inline" onClick={() => setCreating(true)} title="新建分类" aria-label="新建分类"><Plus size={14} /></button>
       </nav>
       {creating ? (
         <div className="category-create">
