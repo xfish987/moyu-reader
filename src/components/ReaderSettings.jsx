@@ -1,15 +1,9 @@
-import { AlignJustify, Circle, Eye, EyeOff, Minus, Plus, Type } from 'lucide-react'
+import { AlignJustify, Eye, EyeOff, Minus, Plus, Type } from 'lucide-react'
 
 const FONT_OPTIONS = [
   { label: '宋体', value: 'serif' },
   { label: '黑体', value: 'sans' },
   { label: '楷体', value: 'kai' },
-]
-
-const THEMES = [
-  { label: '纸白', value: 'paper', color: '#f7f5ef' },
-  { label: '护眼', value: 'sage', color: '#dfe7da' },
-  { label: '夜间', value: 'night', color: '#202322' },
 ]
 
 function Stepper({ value, min, max, step, onChange, suffix }) {
@@ -84,17 +78,6 @@ export default function ReaderSettings({ settings, onChange, encoding, onEncodin
       <section className="setting-row">
         <div>{settings.showProgress ? <Eye size={15} /> : <EyeOff size={15} />}<span>显示阅读进度</span></div>
         <button className={`setting-toggle ${settings.showProgress ? 'active' : ''}`} role="switch" aria-checked={settings.showProgress} onClick={() => set('showProgress', !settings.showProgress)}><span /></button>
-      </section>
-      <section>
-        <label>主题</label>
-        <div className="theme-options">
-          {THEMES.map((theme) => (
-            <button key={theme.value} className={settings.theme === theme.value ? 'active' : ''} onClick={() => set('theme', theme.value)} title={theme.label}>
-              <Circle size={24} fill={theme.color} color={theme.value === 'night' ? '#434846' : '#c5c4be'} />
-              <span>{theme.label}</span>
-            </button>
-          ))}
-        </div>
       </section>
     </aside>
   )

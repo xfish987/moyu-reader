@@ -7,7 +7,7 @@
 :root {
   /* 字体 */
   --font-ui: "Microsoft YaHei UI", "PingFang SC", sans-serif;
-  --font-serif: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", SimSun, serif;
+  --font-serif: "Moyu Source Han Serif", "Source Han Serif SC", "Songti SC", "Noto Serif CJK SC", SimSun, serif;
 
   /* 字号层级：信息文字不得低于 11px，层级靠字号差而非字重堆叠 */
   --text-xs: 11px;   /* 元信息、计数、辅助说明 */
@@ -26,25 +26,37 @@
   --s7: 48px;
   --s8: 64px;
 
-  /* 颜色：每个颜色只有一个角色 */
-  --paper: #f4f3ef;        /* 应用底（窗体、页面） */
-  --paper-2: #ecebe5;      /* 下沉面（侧栏底、页脚、输入禁用） */
-  --surface: #faf9f5;      /* 浮起面（卡片、弹层、输入框） */
-  --ink: #2a2e2b;          /* 主文字 */
-  --ink-2: #5f6660;        /* 次级文字 */
-  --ink-3: #8f958f;        /* 元信息、占位 */
-  --line: #e0dfd8;         /* 分隔线（唯一允许的装饰性描边） */
-  --line-strong: #c9c8c0;  /* 输入框描边 */
-  --accent: #31615a;       /* 主操作、选中 */
-  --accent-deep: #264e46;  /* 主操作 hover */
-  --accent-tint: var(--accent-tint);  /* 弱强调文字（栏目记号、链接） */
-  --accent-bg: #e2e9e5;    /* 选中底 */
-  --danger: #9a4a3e;
-  --danger-bg: #f6e9e5;
-  --danger-line: #d8b3ac;   /* 危险描边（弱化） */
-  --note: #8a6d2f;          /* 划句评论（琥珀） */
-  --note-bg: #f2ede1;
-  --note-line: var(--note-line);
+  /* 唯一色彩系统：来自设计师交付的蓝灰色卡。 */
+  --blue-950: #01162b;
+  --blue-900: #1c2b48;
+  --blue-700: #396081;
+  --blue-600: #5c7fa2;
+  --blue-500: #6a90b4;
+  --blue-400: #8eb1d1;
+  --blue-350: #94a2bf;
+  --blue-300: #a6c7e6;
+  --blue-250: #bec9dd;
+  --blue-200: #c5d8e6;
+  --blue-150: #d2dbec;
+  --blue-100: #e8ecef;
+  --paper: var(--blue-100);
+  --paper-2: var(--blue-150);
+  --surface: color-mix(in srgb, var(--blue-100) 88%, var(--blue-200));
+  --ink: var(--blue-950);
+  --ink-2: var(--blue-900);
+  --ink-3: var(--blue-500);
+  --line: color-mix(in srgb, var(--blue-900) 18%, transparent);
+  --line-strong: color-mix(in srgb, var(--blue-900) 34%, transparent);
+  --accent: var(--blue-700);
+  --accent-deep: var(--blue-900);
+  --accent-tint: var(--blue-900);
+  --accent-bg: color-mix(in srgb, var(--blue-200) 72%, transparent);
+  --danger: var(--blue-900);
+  --danger-bg: color-mix(in srgb, var(--blue-350) 24%, transparent);
+  --danger-line: var(--blue-350);
+  --note: var(--blue-700);
+  --note-bg: color-mix(in srgb, var(--blue-300) 28%, transparent);
+  --note-line: var(--blue-500);
 
   /* 圆角：三档，控件 / 卡片与面板 / 模态 */
   --r-sm: 4px;
@@ -52,9 +64,9 @@
   --r-lg: 14px;
 
   /* 阴影：仅浮层使用，静态内容不用阴影分层 */
-  --shadow-1: 0 4px 14px rgba(28, 34, 31, .12);
-  --shadow-2: 0 14px 40px rgba(28, 34, 31, .18);
-  --shadow-3: 0 24px 64px rgba(28, 34, 31, .26);
+  --shadow-1: 0 4px 14px rgba(1, 22, 43, .12);
+  --shadow-2: 0 14px 40px rgba(1, 22, 43, .18);
+  --shadow-3: 0 24px 64px rgba(1, 22, 43, .26);
 
   /* 控件高度 */
   --h-sm: 28px;
@@ -62,8 +74,8 @@
   --h-lg: 40px;
 
   /* 动效 */
-  --t-fast: var(--t-fast);
-  --t-med: var(--t-med);
+  --t-fast: 160ms;
+  --t-med: 240ms;
   --ease: ease;
 
   font-family: var(--font-ui);
@@ -72,6 +84,31 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   letter-spacing: 0;
+}
+
+:root[data-moyu-theme="night"] {
+  color-scheme: dark;
+  --paper: var(--blue-950);
+  --paper-2: var(--blue-900);
+  --surface: #16304a;
+  --ink: var(--blue-100);
+  --ink-2: var(--blue-150);
+  --ink-3: var(--blue-350);
+  --line: color-mix(in srgb, var(--blue-200) 20%, transparent);
+  --line-strong: color-mix(in srgb, var(--blue-200) 42%, transparent);
+  --accent: var(--blue-400);
+  --accent-deep: var(--blue-300);
+  --accent-tint: var(--blue-200);
+  --accent-bg: color-mix(in srgb, var(--blue-500) 28%, transparent);
+  --danger: var(--blue-300);
+  --danger-bg: color-mix(in srgb, var(--blue-350) 22%, transparent);
+  --danger-line: var(--blue-500);
+  --note: var(--blue-300);
+  --note-bg: color-mix(in srgb, var(--blue-500) 18%, transparent);
+  --note-line: var(--blue-400);
+  --shadow-1: 0 4px 14px rgba(1, 22, 43, .34);
+  --shadow-2: 0 14px 40px rgba(1, 22, 43, .46);
+  --shadow-3: 0 24px 64px rgba(1, 22, 43, .58);
 }
 
 * { box-sizing: border-box; }
@@ -464,43 +501,42 @@ button:focus-visible, input:focus-visible {
   background: rgba(25, 31, 28, .3);
   animation: panel-in var(--t-fast) ease-out;
 }
-.share-backdrop { overflow: auto; padding: 24px; }
-.share-modal { width: min(940px, calc(100vw - 48px)); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--surface); box-shadow: var(--shadow-3); }
-.share-modal > header { height: 54px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.share-backdrop { overflow: auto; padding: 24px; background: rgba(1, 22, 43, .58); }
+.share-modal { width: min(860px, calc(100vw - 48px)); border: 1px solid var(--b-line-strong, var(--line)); border-radius: 6px; overflow: hidden; background: var(--b-app, var(--surface)); color: var(--b-ink, var(--ink)); box-shadow: 0 24px 64px rgba(1, 22, 43, .42); }
+.share-modal > header { height: 54px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--b-line, var(--line)); display: flex; align-items: center; justify-content: space-between; background: var(--b-surface-muted, var(--paper-2)); }
 .share-modal > header > div { display: flex; align-items: center; gap: 9px; }
-.share-modal > header strong { font: 600 var(--text-md)/1.3 serif; }
-.share-modal > header button { width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--ink-2); cursor: pointer; }
-.share-body { padding: 24px; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; align-items: start; }
-.share-preview { width: 300px; max-height: 520px; aspect-ratio: 3 / 4; overflow: auto; border: 1px solid var(--line); display: grid; place-items: center; background: var(--paper-2); color: var(--ink-3); box-shadow: var(--shadow-1); font-size: var(--text-xs); }
+.share-modal > header > div svg { color: var(--b-accent, var(--accent)); }
+.share-modal > header strong { font: 700 14px/1.3 "Moyu Source Han Serif", serif; letter-spacing: .1em; }
+.share-modal > header button { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 4px; display: grid; place-items: center; background: transparent; color: var(--b-ink-2, var(--ink-2)); cursor: pointer; }
+.share-modal > header button:hover { background: var(--b-accent-soft, var(--paper-2)); color: var(--b-ink, var(--ink)); }
+.share-body { padding: 24px; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 32px; align-items: start; }
+.share-preview { width: 300px; max-height: 520px; aspect-ratio: 3 / 4; overflow: auto; border: 1px solid var(--b-line-strong, var(--line)); display: grid; place-items: center; background: var(--b-surface-muted, var(--paper-2)); color: var(--b-ink-3, var(--ink-3)); box-shadow: 0 10px 28px rgba(1, 22, 43, .18); font-size: 11px; }
 .share-preview img { width: 100%; height: auto; display: block; align-self: start; }
-.share-fields { display: grid; gap: 15px; }
-.theme-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
-.theme-picker button { min-width: 0; padding: 4px 4px 7px; border: 1px solid var(--line); border-radius: var(--r-sm); display: grid; gap: 6px; background: transparent; color: var(--ink-2); cursor: pointer; }
-.theme-picker button:hover { border-color: var(--line-strong); background: var(--paper-2); }
-.theme-picker button.active { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-tint); }
-.theme-swatch { position: relative; width: 100%; aspect-ratio: 3 / 4; overflow: hidden; display: block; background: var(--paper); }
+.share-fields { display: grid; gap: 16px; }
+.theme-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.theme-picker button { min-width: 0; height: 96px; padding: 8px; border: 1px solid var(--b-line-strong, var(--line)); border-radius: 5px; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 10px; background: transparent; color: var(--b-ink-2, var(--ink-2)); cursor: pointer; }
+.theme-picker button:hover { background: var(--b-surface-muted, var(--paper-2)); }
+.theme-picker button.active { border-color: var(--b-accent, var(--accent)); background: var(--b-accent-soft, var(--accent-bg)); color: var(--b-ink, var(--ink)); }
+.theme-picker button:focus-visible { outline: 2px solid var(--b-focus, var(--accent)); outline-offset: 2px; }
+.theme-swatch { position: relative; width: 52px; height: 70px; overflow: hidden; display: block; box-shadow: 0 2px 8px rgba(1, 22, 43, .2); }
 .theme-swatch::before, .theme-swatch::after, .theme-swatch i { content: ''; position: absolute; display: block; }
-.swatch-minimal::before { top: 8%; bottom: 8%; left: 12%; width: 1px; background: #b8bcb7; }
-.swatch-minimal::after { right: 8%; bottom: 8%; left: 12%; height: 1px; background: #b8bcb7; }
-.swatch-spine { background: #f4f4ef; }
-.swatch-spine::before { inset: 0 auto 0 0; width: 8%; background: #174f3f; }
-.swatch-spine::after { top: 14%; left: 18%; width: 25%; height: 3px; background: #a45343; }
-.swatch-night { background: #17345c; }
-.swatch-night::before { top: 10%; right: 14%; width: 16%; aspect-ratio: 1; border-radius: 50%; background: #f3f2e9; box-shadow: -4px -4px #17345c; }
-.swatch-night::after { right: -5%; bottom: -4%; left: -5%; height: 28%; background: #203d65; clip-path: polygon(0 55%, 18% 20%, 35% 62%, 55% 15%, 76% 55%, 100% 22%, 100% 100%, 0 100%); }
-.swatch-terracotta { background: #f1ece5; }
-.swatch-terracotta::before { top: 0; right: 0; width: 30%; height: 14%; background: #a55342; }
-.swatch-terracotta::after { top: 22%; bottom: 10%; left: 11%; width: 1px; background: #b9a69b; }
-.swatch-mono { background: #e6e5e1; }
-.swatch-mono::before { top: 8%; left: 9%; width: 20%; aspect-ratio: 1; background: #202220; }
-.swatch-mono::after { top: 8%; bottom: 8%; left: 38%; width: 1px; background: rgba(32,34,32,.16); box-shadow: 18px 0 rgba(32,34,32,.16), 36px 0 rgba(32,34,32,.16); }
-.theme-picker span { overflow: hidden; font-size: var(--text-xs); text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-.share-fields label { display: grid; gap: 7px; color: var(--ink-2); font-size: var(--text-xs); }
-.share-fields input { width: 100%; height: 37px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font-size: var(--text-sm); }
-.share-fields input[readonly] { background: var(--paper-2); color: var(--ink-2); }
-.save-share { height: 38px; margin-top: 6px; border: 1px solid var(--accent); border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--accent); color: white; font-size: var(--text-sm); cursor: pointer; }
-.save-share:hover { background: var(--accent-deep); }
-.share-fields p { margin: 0; overflow: hidden; color: var(--accent-tint); font-size: var(--text-xs); line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
+.swatch-light { background: #e8ecef; }
+.swatch-light::before { inset: 0 auto 0 0; width: 4px; background: #d2dbec; box-shadow: 2px 0 #396081; }
+.swatch-light::after { top: 13px; right: 7px; left: 10px; height: 2px; background: linear-gradient(90deg, #396081, #bec9dd); }
+.swatch-light i { right: 7px; bottom: 8px; left: 10px; height: 1px; background: #396081; }
+.swatch-dark { background: #01162b; }
+.swatch-dark::before { inset: 0 auto 0 0; width: 4px; background: #1c2b48; box-shadow: 2px 0 #8eb1d1; }
+.swatch-dark::after { top: 13px; right: 7px; left: 10px; height: 2px; background: linear-gradient(90deg, #8eb1d1, #5c7fa2); }
+.swatch-dark i { right: 7px; bottom: 8px; left: 10px; height: 1px; background: #8eb1d1; }
+.theme-picker button > span:last-child { overflow: hidden; font: 600 11px/1.3 "Moyu Source Han Serif", serif; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.share-fields label { display: grid; gap: 7px; color: var(--b-ink-2, var(--ink-2)); font-size: 11px; }
+.share-fields input { width: 100%; height: 38px; padding: 0 11px; border: 1px solid var(--b-line-strong, var(--line)); border-radius: 4px; outline: 0; background: var(--b-surface-solid, var(--surface)); color: var(--b-ink, var(--ink)); font: 500 12px/1 "Moyu Source Han Serif", serif; }
+.share-fields input:focus { border-color: var(--b-accent, var(--accent)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--b-accent, var(--accent)) 18%, transparent); }
+.share-fields input[readonly] { background: var(--b-surface-muted, var(--paper-2)); color: var(--b-ink-2, var(--ink-2)); }
+.save-share { height: 40px; margin-top: 4px; border: 1px solid var(--b-accent, var(--accent)); border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--b-accent, var(--accent)); color: var(--b-app, #e8ecef); font: 600 12px/1 "Moyu Source Han Serif", serif; cursor: pointer; }
+.save-share:hover { background: var(--b-accent-hover, var(--accent-deep)); }
+.save-share:disabled { opacity: .55; cursor: wait; }
+.share-fields p { margin: 0; overflow: hidden; color: var(--b-accent, var(--accent)); font-size: 10px; line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
 .book-manager {
   width: min(440px, calc(100% - 40px));
   border: 1px solid var(--line);
@@ -608,34 +644,30 @@ button:focus-visible, input:focus-visible {
 }
 /* 每个阅读主题都是一套完整的明暗层级：弹层、面板、输入框跟随主题，
    而不是只反转正文颜色。夜间主题不用纯黑，层级越高表面越亮。 */
-.reader-view.theme-paper, .app-shell.theme-paper {
-  --reader-bg: #f7f5ef; --reader-ink: 37, 40, 38; --chrome: #6b706d;
-  --paper: #f7f5ef; --paper-2: #eeece4; --surface: #fcfaf4;
-  --ink: #252826; --ink-2: #5c625c; --ink-3: #8f948d;
-  --line: #dfded5; --line-strong: #c7c6bd;
-  background: #f7f5ef;
-}
+.reader-view.theme-light, .app-shell.theme-light,
+.reader-view.theme-paper, .app-shell.theme-paper,
 .reader-view.theme-sage, .app-shell.theme-sage {
-  --reader-bg: #dfe7da; --reader-ink: 38, 46, 39; --chrome: #5c685e;
-  --paper: #dfe7da; --paper-2: #d4ddcf; --surface: #eaf0e5;
-  --ink: #262e27; --ink-2: #556258; --ink-3: #828e84;
-  --line: #c7d1c2; --line-strong: #b3c0ae;
-  --accent-bg: #ccd9c7;
-  background: #dfe7da;
+  --reader-bg: #e8ecef; --reader-ink: 1, 22, 43; --chrome: #5c7fa2;
+  --paper: #e8ecef; --paper-2: #d2dbec; --surface: #e8ecef;
+  --ink: #01162b; --ink-2: #1c2b48; --ink-3: #6a90b4;
+  --line: rgba(28, 43, 72, .18); --line-strong: rgba(28, 43, 72, .34);
+  --accent: #396081; --accent-deep: #1c2b48; --accent-tint: #1c2b48;
+  --accent-bg: rgba(197, 216, 230, .72);
+  background: #e8ecef;
 }
 .reader-view.theme-night, .app-shell.theme-night {
-  --reader-bg: #202322; --reader-ink: 224, 226, 220; --chrome: #9aa19c;
-  --paper: #202322; --paper-2: #1a1d1c; --surface: #2b2f2d;
-  --ink: #e0e2dc; --ink-2: #a4aaa4; --ink-3: #767d77;
-  --line: #333836; --line-strong: #474e4a;
-  --accent: #7fa89a; --accent-deep: #93b7aa; --accent-tint: #8faea2;
-  --accent-bg: rgba(127, 168, 154, .18);
-  --danger: #c08275; --danger-bg: rgba(154, 74, 62, .22); --danger-line: #6b4a44;
-  --note: #c9a86a; --note-bg: rgba(201, 168, 106, .14); --note-line: #8a7a55;
-  --shadow-1: 0 4px 14px rgba(0, 0, 0, .35);
-  --shadow-2: 0 14px 40px rgba(0, 0, 0, .45);
-  --shadow-3: 0 24px 64px rgba(0, 0, 0, .55);
-  background: #202322;
+  --reader-bg: #01162b; --reader-ink: 232, 236, 239; --chrome: #94a2bf;
+  --paper: #01162b; --paper-2: #1c2b48; --surface: #16304a;
+  --ink: #e8ecef; --ink-2: #d2dbec; --ink-3: #94a2bf;
+  --line: rgba(197, 216, 230, .2); --line-strong: rgba(197, 216, 230, .42);
+  --accent: #8eb1d1; --accent-deep: #a6c7e6; --accent-tint: #c5d8e6;
+  --accent-bg: rgba(106, 144, 180, .28);
+  --danger: #a6c7e6; --danger-bg: rgba(148, 162, 191, .22); --danger-line: #6a90b4;
+  --note: #a6c7e6; --note-bg: rgba(106, 144, 180, .18); --note-line: #8eb1d1;
+  --shadow-1: 0 4px 14px rgba(1, 22, 43, .35);
+  --shadow-2: 0 14px 40px rgba(1, 22, 43, .48);
+  --shadow-3: 0 24px 64px rgba(1, 22, 43, .6);
+  background: #01162b;
 }
 .reader-view.is-immersive, .reader-view.is-immersive.without-progress { width: 100%; height: 100%; grid-template-rows: minmax(0, 1fr); }
 
@@ -674,7 +706,7 @@ button:focus-visible, input:focus-visible {
 .toolbar-button svg, .toolbar-button .toolbar-badge { position: relative; }
 .toolbar-button svg { transition: transform 160ms ease; }
 .toolbar-button:hover svg { transform: translateY(-1px); }
-.toolbar-button.active { background: var(--accent-bg, rgba(49, 97, 90, .12)); color: var(--accent, #31615a); }
+.toolbar-button.active { background: var(--accent-bg, rgba(197, 216, 230, .72)); color: var(--accent, #396081); }
 
 .toolbar-overflow { position: relative; }
 .toolbar-overflow-menu {
@@ -727,7 +759,7 @@ button:focus-visible, input:focus-visible {
   margin: 0;
 }
 .text-columns p { margin: 0 0 var(--paragraph-gap); white-space: pre-wrap; text-indent: 2em; break-inside: auto; }
-.text-columns h2 { margin: 0 0 1.5em; padding-top: .25em; color: inherit; font-size: 1.35em; font-weight: 600; line-height: 1.5; break-before: column; break-after: avoid; column-break-before: always; }
+.text-columns h2 { margin: 0 0 1.5em; padding-top: .25em; color: inherit; font-size: 1.35em; font-weight: 700; line-height: 1.5; break-before: column; break-after: avoid; column-break-before: always; }
 .text-columns.is-reflowing { visibility: hidden; }
 .text-columns.is-ready { visibility: visible; }
 .text-viewport.is-reflowing::after { content: ''; position: absolute; z-index: 7; inset: 0; background: var(--reader-bg); pointer-events: none; }
@@ -767,9 +799,9 @@ button:focus-visible, input:focus-visible {
 .selection-popup-actions { margin-top: 9px; display: flex; justify-content: flex-end; gap: 8px; }
 .highlight-colors { margin-top: 8px; display: flex; gap: 7px; }
 .highlight-colors button { width: 18px; height: 18px; padding: 0; border: 2px solid transparent; border-radius: 50%; cursor: pointer; }
-.highlight-colors button.amber { background: #dcb45e; }
-.highlight-colors button.sage { background: #78a184; }
-.highlight-colors button.rose { background: #c48188; }
+.highlight-colors button.amber { background: #a6c7e6; }
+.highlight-colors button.sage { background: #8eb1d1; }
+.highlight-colors button.rose { background: #94a2bf; }
 .highlight-colors button.selected { border-color: white; box-shadow: 0 0 0 1px var(--accent-tint); }
 .popup-cancel { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
 .popup-cancel:hover { background: var(--paper-2); }
@@ -792,16 +824,16 @@ button:focus-visible, input:focus-visible {
   align-items: center;
   gap: 2px;
   vertical-align: baseline;
-  background: rgba(233, 181, 79, .28);
+  background: rgba(166, 199, 230, .3);
   color: var(--note);
   cursor: pointer;
 }
-.text-note-marker:hover { background: rgba(233, 181, 79, .5); }
+.text-note-marker:hover { background: rgba(166, 199, 230, .5); }
 .text-note-marker em { font: 600 var(--text-xs)/1 sans-serif; font-style: normal; }
 .text-highlight { padding: .03em 0; border-radius: 2px; color: inherit; }
-.text-highlight.is-amber { background: rgba(224, 177, 74, .32); }
-.text-highlight.is-sage { background: rgba(96, 145, 111, .28); }
-.text-highlight.is-rose { background: rgba(185, 103, 111, .26); }
+.text-highlight.is-amber { background: rgba(166, 199, 230, .34); }
+.text-highlight.is-sage { background: rgba(142, 177, 209, .3); }
+.text-highlight.is-rose { background: rgba(148, 162, 191, .3); }
 
 .epub-host { position: relative; height: 100%; margin-inline: clamp(22px, 8vw, var(--page-margin)); overflow: hidden; }
 /* epubjs mark 评论标记：正文中带评论位置的 💬 小图标，点击弹出评论 */
@@ -1218,7 +1250,7 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
   .quote-grid { grid-template-columns: 1fr; }
   .share-body { grid-template-columns: 190px minmax(0, 1fr); gap: 18px; }
   .share-preview { width: 190px; max-height: 420px; }
-  .theme-picker { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .theme-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reader-toolbar { grid-template-columns: 40px minmax(0, 1fr) 270px; padding-inline: 8px; }
   .reader-actions .toolbar-button { width: 30px; }
   .settings-panel, .toc-panel, .notes-panel, .search-panel { right: 10px; width: min(310px, calc(100% - 20px)); }
@@ -1234,8 +1266,12 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
 @media (max-width: 540px) {
   .shelf-actions .shelf-book-command { width: 38px; min-width: 38px; padding: 0; flex: 0 0 38px; }
   .shelf-book-command .command-label { display: none; }
-  .share-body { grid-template-columns: 1fr; }
+  .share-backdrop { place-items: start center; padding: 12px; }
+  .share-modal { width: 100%; }
+  .share-body { padding: 20px 12px 24px; grid-template-columns: 1fr; gap: 18px; }
   .share-preview { width: min(240px, 100%); margin: 0 auto; }
+  .theme-picker button { height: 84px; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; }
+  .theme-swatch { width: 44px; height: 60px; }
   .modal-backdrop { padding: 0; }
   .ai-settings-modal { width: 100%; height: 100vh; max-height: none; border: 0; border-radius: 0; }
   .entity-profile-modal { width: 100%; height: 100vh; max-height: none; border: 0; border-radius: 0; }
@@ -1604,3 +1640,19 @@ mark.dict-highlight:hover { background: var(--accent-bg, rgba(127, 160, 137, .14
 .companion-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--chrome); text-align: center; }
 .companion-empty strong { display: block; color: rgb(var(--reader-ink)); font-size: var(--text-sm); }
 .companion-empty span { display: block; max-width: 320px; font-size: var(--text-xs); line-height: 1.7; }
+
+/* Independent AI/profile windows follow the same app-wide light/dark theme. */
+.profiles-window, .profiles-fab-window, .dictionary-window, .companion-window, .companion-bar-window {
+  --reader-bg: var(--paper);
+  --reader-ink: 1, 22, 43;
+  --chrome: var(--ink-3);
+}
+:root[data-moyu-theme="night"] .profiles-window,
+:root[data-moyu-theme="night"] .profiles-fab-window,
+:root[data-moyu-theme="night"] .dictionary-window,
+:root[data-moyu-theme="night"] .companion-window,
+:root[data-moyu-theme="night"] .companion-bar-window {
+  --reader-bg: #01162b;
+  --reader-ink: 232, 236, 239;
+  --chrome: #94a2bf;
+}

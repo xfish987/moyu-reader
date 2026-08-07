@@ -436,10 +436,10 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
     if (!rendition) return
     const fontFamily = settings.fontFamily === 'sans'
       ? 'Microsoft YaHei UI, PingFang SC, sans-serif'
-      : settings.fontFamily === 'kai' ? 'KaiTi, STKaiti, serif' : 'Songti SC, SimSun, serif'
+      : settings.fontFamily === 'kai' ? 'KaiTi, STKaiti, serif' : '"Moyu Source Han Serif", "Source Han Serif SC", "Songti SC", SimSun, serif'
     const textColor = settings.theme === 'night'
-      ? `rgba(224, 226, 220, ${settings.opacity})`
-      : `rgba(36, 39, 37, ${settings.opacity})`
+      ? `rgba(232, 236, 239, ${settings.opacity})`
+      : `rgba(1, 22, 43, ${settings.opacity})`
     rendition.themes.register('reader-settings', {
       // html 也要透明：不少 EPUB 把白底写在 html 上，只透明 body 会
       // 让书页白纸叠在宿主纸页上，底部露出第二层纸。
@@ -455,11 +455,17 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         'background-color': 'transparent !important',
       },
       p: {
+        'font-weight': '400 !important',
         'margin-top': '0 !important',
         'margin-bottom': `${settings.paragraphGap}px !important`,
         'text-align': 'justify !important',
       },
-      'h1, h2, h3': { 'line-height': '1.45 !important' },
+      'h1, h2, h3, h4, h5, h6': {
+        'font-family': `${fontFamily} !important`,
+        'font-weight': '700 !important',
+        'line-height': '1.45 !important',
+      },
+      'strong, b': { 'font-weight': '700 !important' },
     })
     rendition.themes.select('reader-settings')
   }, [settings])
@@ -489,7 +495,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         })
         annotationsRef.current.push({ cfi: note.cfi, type: 'mark' })
         if (note.color) {
-          const colors = { amber: 'rgba(224, 177, 74, .32)', sage: 'rgba(96, 145, 111, .28)', rose: 'rgba(185, 103, 111, .26)' }
+          const colors = { amber: 'rgba(166, 199, 230, .34)', sage: 'rgba(142, 177, 209, .3)', rose: 'rgba(148, 162, 191, .3)' }
           rendition.annotations.highlight(note.cfi, { noteId: note.id }, null, `reader-highlight-${note.color}`, { fill: colors[note.color] || colors.amber, 'fill-opacity': '1', 'mix-blend-mode': 'multiply' })
           annotationsRef.current.push({ cfi: note.cfi, type: 'highlight' })
         }
@@ -499,7 +505,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
     for (const entry of dictEntries || []) {
       if (!entry.anchor?.cfi) continue
       try {
-        rendition.annotations.highlight(entry.anchor.cfi, { dictId: entry.id }, () => onOpenDictEntry?.(entry), 'reader-dict-highlight', { fill: '#4f8f6a', 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' })
+        rendition.annotations.highlight(entry.anchor.cfi, { dictId: entry.id }, () => onOpenDictEntry?.(entry), 'reader-dict-highlight', { fill: '#6a90b4', 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' })
         annotationsRef.current.push({ cfi: entry.anchor.cfi, type: 'highlight' })
       } catch {}
     }

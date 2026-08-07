@@ -1,20 +1,44 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Download, Image, X } from 'lucide-react'
 
-const THEMES = [
-  { id: 'minimal', name: '极简留白', color: '#282c29', muted: '#666d68', x: 142, centerY: 660, width: 900, baseSize: 66, metaY: 1405, normalLines: 6 },
-  { id: 'spine', name: '墨绿书脊', color: '#202421', muted: '#626a65', x: 118, centerY: 720, width: 920, baseSize: 68, metaY: 1405, normalLines: 6 },
-  { id: 'night', name: '夜读蓝', color: '#f2f1e9', muted: '#cbd4df', x: 118, centerY: 690, width: 880, baseSize: 62, metaY: 1405, normalLines: 6 },
-  { id: 'terracotta', name: '赤陶刊物', color: '#312d2a', muted: '#746b65', x: 130, centerY: 760, width: 860, baseSize: 64, metaY: 1410, normalLines: 6 },
-  { id: 'mono', name: '灰阶杂志', color: '#202220', muted: '#666a67', x: 150, centerY: 720, width: 850, baseSize: 60, metaY: 1410, normalLines: 6 },
+const CARD_THEMES = [
+  {
+    id: 'light',
+    name: '浅色书房',
+    background: '#e8ecef',
+    surface: '#d2dbec',
+    ink: '#1c2b48',
+    muted: '#6a90b4',
+    accent: '#396081',
+    accentEnd: '#bec9dd',
+    grain: 'rgba(28, 43, 72, .035)',
+  },
+  {
+    id: 'dark',
+    name: '深色书房',
+    background: '#01162b',
+    surface: '#1c2b48',
+    ink: '#e8ecef',
+    muted: '#94a2bf',
+    accent: '#8eb1d1',
+    accentEnd: '#5c7fa2',
+    grain: 'rgba(197, 216, 230, .045)',
+  },
 ]
+
+const CARD_WIDTH = 1200
+const BASE_CARD_HEIGHT = 1600
+const CONTENT_X = 150
+const CONTENT_WIDTH = 900
+const SERIF = '"Moyu Source Han Serif", "Songti SC", SimSun, serif'
+const DISPLAY = '"Moyu New York", Georgia, serif'
 
 function wrapText(context, text, maxWidth) {
   const lines = []
   let line = ''
   for (const character of text) {
     if (character === '\n') {
-      if (line) lines.push(line)
+      lines.push(line)
       line = ''
       continue
     }
@@ -24,139 +48,169 @@ function wrapText(context, text, maxWidth) {
       line = character
     } else line = candidate
   }
-  if (line) lines.push(line)
+  if (line || !lines.length) lines.push(line)
   return lines
 }
 
-function drawGrain(context, height, dark = 'rgba(55, 52, 46, .018)', accent = 'rgba(36, 70, 57, .024)') {
-  let seed = 23
-  for (let index = 0; index < Math.round(height * 1.7); index += 1) {
+function drawGrain(context, height, color) {
+  let seed = 47
+  for (let index = 0; index < Math.round(height * 1.25); index += 1) {
     seed = (seed * 9301 + 49297) % 233280
-    const x = (seed / 233280) * 1200
+    const x = (seed / 233280) * CARD_WIDTH
     seed = (seed * 9301 + 49297) % 233280
     const y = (seed / 233280) * height
-    context.fillStyle = index % 3 ? dark : accent
-    context.fillRect(x, y, 1, 1)
+    context.fillStyle = color
+    context.fillRect(x, y, index % 9 === 0 ? 2 : 1, 1)
   }
 }
 
-function drawMountains(context, height) {
-  const layers = [
-    { color: '#2b4b73', y: height - 300, points: [0, 70, 120, 5, 260, 92, 390, 25, 540, 110, 680, 35, 840, 95, 990, 20, 1200, 90] },
-    { color: '#203d65', y: height - 220, points: [0, 50, 150, 0, 310, 76, 480, 18, 660, 82, 820, 15, 1000, 68, 1200, 8] },
-    { color: '#152e50', y: height - 135, points: [0, 25, 180, 0, 360, 45, 570, 8, 760, 56, 970, 5, 1200, 36] },
-  ]
-  layers.forEach((layer) => {
-    context.fillStyle = layer.color
-    context.beginPath()
-    context.moveTo(0, height)
-    for (let index = 0; index < layer.points.length; index += 2) context.lineTo(layer.points[index], layer.y + layer.points[index + 1])
-    context.lineTo(1200, height)
-    context.closePath()
-    context.fill()
+function drawBookMark(context, theme) {
+  const widths = [18, 13, 22]
+  const heights = [68, 51, 82]
+  let x = 951
+  widths.forEach((width, index) => {
+    context.fillStyle = index === 1 ? theme.muted : theme.accent
+    context.fillRect(x, 103 + 82 - heights[index], width, heights[index])
+    x += width + 9
   })
+  context.fillStyle = theme.ink
+  context.globalAlpha = .5
+  context.fillRect(941, 192, 109, 2)
+  context.globalAlpha = 1
 }
 
-function drawThemeBackground(context, theme, height) {
-  if (theme.id === 'night') {
-    context.fillStyle = '#17345c'
-    context.fillRect(0, 0, 1200, height)
-    let seed = 31
-    for (let index = 0; index < Math.round(height * .42); index += 1) {
-      seed = (seed * 9301 + 49297) % 233280
-      const x = (seed / 233280) * 1200
-      seed = (seed * 9301 + 49297) % 233280
-      const y = (seed / 233280) * Math.max(400, height - 260)
-      const radius = index % 11 === 0 ? 1.7 : .75
-      context.fillStyle = index % 7 === 0 ? 'rgba(255,255,244,.82)' : 'rgba(220,229,242,.42)'
-      context.beginPath(); context.arc(x, y, radius, 0, Math.PI * 2); context.fill()
-    }
-    context.fillStyle = '#f5f4eb'
-    context.beginPath(); context.arc(1030, 150, 38, 0, Math.PI * 2); context.fill()
-    context.fillStyle = '#17345c'
-    context.beginPath(); context.arc(1014, 134, 38, 0, Math.PI * 2); context.fill()
-    drawMountains(context, height)
-    return
-  }
+function drawCardBackground(context, theme, height) {
+  context.fillStyle = theme.background
+  context.fillRect(0, 0, CARD_WIDTH, height)
 
-  const backgrounds = { minimal: '#f7f6f2', spine: '#f5f5f1', terracotta: '#f1ece5', mono: '#e6e5e1' }
-  context.fillStyle = backgrounds[theme.id]
-  context.fillRect(0, 0, 1200, height)
-  drawGrain(context, height, theme.id === 'terracotta' ? 'rgba(91, 61, 47, .022)' : undefined)
+  context.fillStyle = theme.surface
+  context.fillRect(0, 0, 28, height)
+  context.fillRect(28, 0, 5, height)
 
-  if (theme.id === 'minimal') {
-    context.strokeStyle = '#aeb4ad'; context.lineWidth = 1.2; context.beginPath()
-    context.moveTo(82, 78); context.lineTo(82, height - 128)
-    context.moveTo(82, height - 82); context.lineTo(1118, height - 82); context.stroke()
-  } else if (theme.id === 'spine') {
-    context.fillStyle = '#174f3f'; context.fillRect(0, 0, 38, height)
-    context.fillStyle = '#174f3f'; context.font = '600 40px "Songti SC", SimSun, serif'; context.fillText('墨读摘录', 105, 128)
-    context.fillStyle = '#a45343'; context.fillRect(105, 154, 58, 5)
-  } else if (theme.id === 'terracotta') {
-    context.fillStyle = '#a55342'; context.fillRect(930, 0, 270, 155)
-    context.fillStyle = 'rgba(165, 83, 66, .12)'; context.font = '500 250px Georgia, serif'; context.fillText('“', 72, 270)
-    context.strokeStyle = '#b6a49a'; context.lineWidth = 1.2; context.beginPath(); context.moveTo(110, 320); context.lineTo(110, height - 130); context.stroke()
-  } else if (theme.id === 'mono') {
-    context.fillStyle = '#202220'; context.fillRect(82, 78, 92, 92)
-    context.fillStyle = '#f2f2ee'; context.font = '600 28px Arial, sans-serif'; context.fillText('01', 110, 137)
-    context.strokeStyle = 'rgba(32,34,32,.18)'; context.lineWidth = 1
-    for (let x = 82; x <= 1118; x += 172) { context.beginPath(); context.moveTo(x, 220); context.lineTo(x, height - 90); context.stroke() }
-    context.fillStyle = '#202220'; context.fillRect(82, height - 98, 1036, 4)
+  const topRule = context.createLinearGradient(CONTENT_X, 0, CARD_WIDTH - CONTENT_X, 0)
+  topRule.addColorStop(0, theme.accent)
+  topRule.addColorStop(1, theme.accentEnd)
+  context.fillStyle = topRule
+  context.fillRect(CONTENT_X, 238, CONTENT_WIDTH, 8)
+
+  context.fillStyle = theme.accent
+  context.fillRect(CONTENT_X, height - 122, CONTENT_WIDTH, 5)
+  context.fillStyle = theme.surface
+  context.fillRect(CONTENT_X, height - 117, CONTENT_WIDTH, 2)
+
+  drawGrain(context, height, theme.grain)
+  drawBookMark(context, theme)
+}
+
+function getQuoteLayout(context, quote) {
+  const length = [...quote].length
+  let size = Math.max(42, 70 - Math.max(0, Math.min(120, length - 38)) * .22)
+  let lines = []
+  for (; size >= 42; size -= 2) {
+    context.font = `500 ${size}px ${SERIF}`
+    lines = wrapText(context, quote, CONTENT_WIDTH - 54)
+    if (lines.length <= 7) break
   }
+  return { size, lines, lineHeight: Math.round(size * 1.68) }
+}
+
+function formatDate(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString('zh-CN').replaceAll('/', '.')
 }
 
 function createShareImage(note, book, author, theme) {
   const canvas = document.createElement('canvas')
-  canvas.width = 1200
-  canvas.height = 1600
-  const quoteLength = [...note.text].length
-  const size = Math.max(42, theme.baseSize - Math.max(0, Math.min(80, quoteLength - 44)) * .25)
+  canvas.width = CARD_WIDTH
+  canvas.height = BASE_CARD_HEIGHT
   let context = canvas.getContext('2d')
-  context.font = `500 ${size}px "Songti SC", SimSun, serif`
-  const lines = wrapText(context, note.text, theme.width)
-  const lineHeight = Math.round(size * 1.72)
-  const overflowLines = Math.max(0, lines.length - theme.normalLines)
-  const canvasHeight = overflowLines ? 1720 + overflowLines * lineHeight : 1600
+  const quote = note.text?.trim() || ' '
+  const initialLayout = getQuoteLayout(context, quote)
+  const overflowLines = Math.max(0, initialLayout.lines.length - 7)
+  const canvasHeight = BASE_CARD_HEIGHT + overflowLines * initialLayout.lineHeight
   if (canvasHeight !== canvas.height) {
     canvas.height = canvasHeight
     context = canvas.getContext('2d')
   }
-  drawThemeBackground(context, theme, canvasHeight)
+  const layout = getQuoteLayout(context, quote)
 
-  context.fillStyle = theme.color
-  context.font = `500 ${size}px "Songti SC", SimSun, serif`
+  drawCardBackground(context, theme, canvasHeight)
+
+  context.fillStyle = theme.ink
+  context.font = `700 36px ${SERIF}`
   context.textAlign = 'left'
+  context.fillText('墨读', CONTENT_X, 135)
+  context.fillStyle = theme.muted
+  context.font = `500 22px ${DISPLAY}`
+  context.fillText('READING NOTE', CONTENT_X, 184)
+
+  const quoteTop = overflowLines ? 370 : Math.max(405, 700 - (layout.lines.length * layout.lineHeight) / 2)
+  context.fillStyle = theme.accent
+  context.globalAlpha = theme.id === 'dark' ? .52 : .38
+  context.font = `700 178px ${SERIF}`
+  context.fillText('“', 86, quoteTop + 40)
+  context.globalAlpha = 1
+
+  context.fillStyle = theme.ink
+  context.font = `500 ${layout.size}px ${SERIF}`
   context.textBaseline = 'alphabetic'
-  const blockHeight = lines.length * lineHeight
-  const firstBaseline = overflowLines ? 330 : Math.max(280, theme.centerY - blockHeight / 2 + lineHeight)
-  lines.forEach((line, index) => context.fillText(line, theme.x, firstBaseline + index * lineHeight))
+  layout.lines.forEach((line, index) => context.fillText(line, CONTENT_X, quoteTop + 110 + index * layout.lineHeight))
 
-  if (theme.id === 'minimal') {
-    context.font = '500 20px "Microsoft YaHei UI", sans-serif'; context.fillStyle = theme.muted; context.fillText('/ DAILY QUOTES', theme.x, 116)
-  } else if (theme.id === 'mono') {
-    context.font = '500 18px Arial, sans-serif'; context.fillStyle = theme.muted; context.fillText('READING NOTE / MO DU', theme.x, 112)
-  }
+  const metaY = canvasHeight - 296
+  context.fillStyle = theme.muted
+  context.font = `500 20px ${DISPLAY}`
+  context.fillText('FROM', CONTENT_X, metaY - 35)
 
-  const metaY = canvasHeight - (1600 - theme.metaY)
-  const sourceTitle = `《${book.title.length > 24 ? `${book.title.slice(0, 24)}…` : book.title}》`
-  context.fillStyle = theme.color
-  context.font = '600 32px "Songti SC", SimSun, serif'
-  context.textAlign = 'left'; context.fillText(sourceTitle, theme.x, metaY)
-  context.fillStyle = theme.muted; context.font = '400 22px "Microsoft YaHei UI", sans-serif'; context.fillText(author || '佚名', theme.x, metaY + 46)
-  context.textAlign = 'right'; context.fillText(new Date(note.createdAt).toLocaleDateString('zh-CN').replaceAll('/', '.'), 1090, metaY + 46)
+  const sourceTitle = `《${book.title.length > 26 ? `${book.title.slice(0, 26)}…` : book.title}》`
+  context.fillStyle = theme.ink
+  context.font = `700 36px ${SERIF}`
+  context.fillText(sourceTitle, CONTENT_X, metaY + 25)
+
+  context.fillStyle = theme.muted
+  context.font = `400 24px ${SERIF}`
+  context.fillText(author || '佚名', CONTENT_X, metaY + 78)
+  context.textAlign = 'right'
+  context.font = `500 21px ${DISPLAY}`
+  context.fillText(formatDate(note.createdAt), CARD_WIDTH - CONTENT_X, metaY + 78)
+
+  context.textAlign = 'left'
+  context.fillStyle = theme.muted
+  context.font = `500 17px ${DISPLAY}`
+  context.fillText('MOYU READER', CONTENT_X, canvasHeight - 70)
+  context.textAlign = 'right'
+  context.fillText('摘录 · 阅读 · 留存', CARD_WIDTH - CONTENT_X, canvasHeight - 70)
   return canvas.toDataURL('image/png')
 }
 
-export default function ShareNoteModal({ note, book, onClose }) {
+export default function ShareNoteModal({ note, book, appearanceTheme = 'mist', onClose }) {
+  const preferredTheme = appearanceTheme === 'night' ? 'dark' : 'light'
   const [author, setAuthor] = useState(book.author || '佚名')
-  const [themeId, setThemeId] = useState('minimal')
+  const [themeId, setThemeId] = useState(preferredTheme)
   const [imageUrl, setImageUrl] = useState('')
   const [savedPath, setSavedPath] = useState('')
-  const theme = THEMES.find((item) => item.id === themeId) || THEMES[0]
+  const theme = useMemo(() => CARD_THEMES.find((item) => item.id === themeId) || CARD_THEMES[0], [themeId])
 
   useEffect(() => {
-    setImageUrl(createShareImage(note, book, author.trim() || '佚名', theme))
+    let cancelled = false
+    const render = async () => {
+      if (document.fonts?.load) {
+        await Promise.all([
+          document.fonts.load(`500 64px ${SERIF}`),
+          document.fonts.load(`500 22px ${DISPLAY}`),
+        ])
+      }
+      if (!cancelled) setImageUrl(createShareImage(note, book, author.trim() || '佚名', theme))
+    }
+    render()
+    return () => { cancelled = true }
   }, [author, book, note, theme])
+
+  useEffect(() => {
+    const handleKeyDown = (event) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
 
   const save = async () => {
     if (!imageUrl) return
@@ -173,13 +227,13 @@ export default function ShareNoteModal({ note, book, onClose }) {
   return (
     <div className="manager-backdrop share-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="share-modal" role="dialog" aria-modal="true" aria-label="分享摘录">
-        <header><div><Image size={17} /><strong>生成分享图</strong></div><button onClick={onClose} aria-label="关闭分享窗口"><X size={17} /></button></header>
+        <header><div><Image size={17} /><strong>分享阅读笔记</strong></div><button onClick={onClose} aria-label="关闭分享窗口"><X size={17} /></button></header>
         <div className="share-body">
-          <div className="share-preview"><img src={imageUrl} alt={`${theme.name}摘录分享图预览`} /></div>
+          <div className="share-preview">{imageUrl ? <img src={imageUrl} alt={`${theme.name}阅读笔记分享卡片预览`} /> : <span>正在生成预览...</span>}</div>
           <div className="share-fields">
-            <div className="theme-picker" aria-label="分享图主题">
-              {THEMES.map((item) => (
-                <button key={item.id} className={themeId === item.id ? 'active' : ''} onClick={() => selectTheme(item.id)} title={item.name}>
+            <div className="theme-picker" role="group" aria-label="分享卡片主题">
+              {CARD_THEMES.map((item) => (
+                <button key={item.id} className={themeId === item.id ? 'active' : ''} onClick={() => selectTheme(item.id)} aria-pressed={themeId === item.id}>
                   <span className={`theme-swatch swatch-${item.id}`} aria-hidden="true"><i /></span>
                   <span>{item.name}</span>
                 </button>
@@ -187,7 +241,7 @@ export default function ShareNoteModal({ note, book, onClose }) {
             </div>
             <label>书名<input value={book.title} readOnly /></label>
             <label>作者<input value={author} maxLength={30} onChange={(event) => { setSavedPath(''); setAuthor(event.target.value) }} /></label>
-            <button className="save-share" onClick={save}><Download size={16} /> 保存 PNG</button>
+            <button className="save-share" disabled={!imageUrl} onClick={save}><Download size={16} /> {imageUrl ? '保存 PNG' : '正在生成'}</button>
             {savedPath ? <p title={savedPath}>已保存到 {savedPath}</p> : null}
           </div>
         </div>

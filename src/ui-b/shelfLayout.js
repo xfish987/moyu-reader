@@ -25,7 +25,7 @@ export function shortSpineTitle(title) {
 }
 
 export function coverWidthForShelf(width) {
-  return Math.round(Math.min(94, Math.max(68, 68 + (Math.max(320, width) - 320) * 26 / 720)))
+  return Math.round(Math.min(78, Math.max(72, 72 + (Math.max(320, width) - 320) * 6 / 720)))
 }
 
 export function coverCountForShelf(width, bookCount) {

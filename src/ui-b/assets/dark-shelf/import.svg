@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="_图层_2" data-name="图层 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 13.45 12.49">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <g id="_图层_1-2" data-name="图层 1">
+    <g>
+      <rect class="cls-1" y="5.5" width="13.45" height="1.5"/>
+      <rect class="cls-1" x=".48" y="5.5" width="12.49" height="1.5" transform="translate(12.97 -.48) rotate(90)"/>
+    </g>
+  </g>
+</svg>

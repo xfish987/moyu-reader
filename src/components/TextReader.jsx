@@ -440,7 +440,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     ? '"Microsoft YaHei UI", "PingFang SC", sans-serif'
     : settings.fontFamily === 'kai'
       ? 'KaiTi, STKaiti, serif'
-      : '"Source Han Serif SC", "Songti SC", SimSun, serif'
+      : '"Moyu Source Han Serif", "Source Han Serif SC", "Songti SC", SimSun, serif'
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>

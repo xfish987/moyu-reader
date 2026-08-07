@@ -1,11 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, NotebookPen, Plus, RefreshCw, Rows3, Search, ServerCog, Tags, Trash2, X } from 'lucide-react'
+import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Plus, RefreshCw, Rows3, ServerCog, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
 import { moveBeforeOrAfter, orderBooksByIds } from '../ui-b/shelfLayout'
 import CoverEditor from './CoverEditor'
 import NotesLibrary from './NotesLibrary'
 import AISettingsModal from './AISettingsModal'
 import ShortcutsModal from './ShortcutsModal'
+import libraryDockIcon from '../ui-b/assets/dark-shelf/library.svg'
+import importDockIcon from '../ui-b/assets/dark-shelf/import.svg'
+import notesDockIcon from '../ui-b/assets/dark-shelf/notes.svg'
+import appearanceDockIcon from '../ui-b/assets/dark-shelf/appearance.svg'
+import suppliedCover from '../ui-b/assets/dark-shelf/default-cover.png'
+import managerDirectoryIcon from '../ui-b/assets/dark-shelf/manager-directory.svg'
+import managerAiIcon from '../ui-b/assets/dark-shelf/manager-ai.svg'
+import managerTrashIcon from '../ui-b/assets/dark-shelf/manager-trash.svg'
+import managerChevronsIcon from '../ui-b/assets/dark-shelf/manager-chevrons.svg'
+import searchIcon from '../ui-b/assets/dark-shelf/search.svg'
 
 const COVER_COLORS = ['#315c57', '#935746', '#354d6b', '#786844', '#624c63', '#41616d']
 const RECENT_CATEGORY = '__recent__'
@@ -26,6 +36,7 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
 
   const displayCover = customCover || cover
   const coverSource = displayCover || defaultCover
+  const sizeLabel = Number.isFinite(book.size) && book.size > 0 ? formatBytes(book.size) : book.format
 
   return (
     <div className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''}`} onContextMenu={(event) => { event.preventDefault(); onManage(book) }} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
@@ -33,11 +44,13 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
       {selecting ? <button className={`book-select ${selected ? 'selected' : ''}`} onClick={() => onToggle(book.id)} aria-label={selected ? `取消选择 ${book.title}` : `选择 ${book.title}`}><Check size={13} /></button> : null}
       <button className="book-open" onClick={() => onOpen(book)}>
         <span className={`book-cover ${coverSource ? 'has-image' : ''} ${!displayCover && defaultCover ? 'is-default' : ''}`} style={{ '--cover': COVER_COLORS[index % COVER_COLORS.length] }}>
-          {coverSource ? <><img src={coverSource} alt="" />{!displayCover && defaultCover ? <span className="default-cover-copy"><strong>{book.title}</strong><small>{book.format}</small></span> : null}</> : <><span className="cover-rule" /><strong>{book.title}</strong><small>{book.format}</small></>}
+          {coverSource ? <img src={coverSource} alt="" /> : <><span className="cover-rule" /><strong>{book.title}</strong><small>{book.format}</small></>}
         </span>
         <span className="book-info">
           <strong title={book.title}>{book.title}</strong>
-          <span>{progress ? `已读 ${Math.round(progress * 100)}%` : formatBytes(book.size)}</span>
+          <small>{book.author || '作者未知'}</small>
+          <span>{sizeLabel}</span>
+          {progress ? <i className="manager-book-progress" style={{ '--progress': `${Math.round(progress * 100)}%` }}><b>阅读进度</b><em>{Math.round(progress * 100)}%</em></i> : null}
         </span>
       </button>
       <button className="cover-edit" onClick={() => onEditCover(book)} title="设置封面"><ImagePlus size={14} /></button>
@@ -164,7 +177,24 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
   )
 }
 
-export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onUpdateNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
+function LibraryBottomDock({ onOpenVirtualHome, onAddBooks, onToggleTheme, onNotes, onOpenAppearance }) {
+  const action = ({ id, label, icon, onClick }) => <button key={id} onClick={onClick} title={label} aria-label={label}><img src={icon} alt="" /></button>
+  return (
+    <nav className="v-bottom-dock library-bottom-dock" aria-label="管理视图功能">
+      <div className="v-dock-side is-left">{[
+        { id: 'spines', label: '书脊视图', icon: libraryDockIcon, onClick: onOpenVirtualHome },
+        { id: 'import', label: '导入书籍', icon: importDockIcon, onClick: onAddBooks },
+      ].map(action)}</div>
+      <button className="is-theme-toggle" onClick={onToggleTheme} title="切换深浅主题" aria-label="切换深浅主题"><span className="v-theme-moon-mark"><MoonStar /></span></button>
+      <div className="v-dock-side is-right">{[
+        { id: 'notes', label: '阅读笔记', icon: notesDockIcon, onClick: onNotes },
+        { id: 'appearance', label: '主题与背景', icon: appearanceDockIcon, onClick: onOpenAppearance },
+      ].map(action)}</div>
+    </nav>
+  )
+}
+
+export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onUpdateNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, onOpenAppearance, onToggleTheme, appearanceTheme, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
   const [view, setView] = useState(initialView)
   const rootRef = useRef(null)
 
@@ -212,12 +242,23 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     if (navigationTarget.kind === 'recent') {
       setActiveCategory(RECENT_CATEGORY)
       setSortBy('recent')
+      setStatusFilter('all')
+    } else if (navigationTarget.kind === 'reading') {
+      setActiveCategory('正在阅读')
+      setSortBy('recent')
+      setStatusFilter('all')
+    } else if (navigationTarget.kind === 'finished') {
+      setActiveCategory('已读完')
+      setSortBy('recent')
+      setStatusFilter('all')
     } else if (navigationTarget.kind === 'category' && categories.includes(navigationTarget.category)) {
       setActiveCategory(navigationTarget.category)
       setSortBy('custom')
+      setStatusFilter('all')
     } else {
       setActiveCategory('全部书籍')
       setSortBy('recent')
+      setStatusFilter('all')
     }
   }, [navigationTarget])
 
@@ -328,76 +369,47 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   }
 
   return (
-    <main className="shelf-view" ref={rootRef}>
-      <div className="shelf-nav-edge" aria-hidden="true" />
-      <aside className="app-navigation" aria-label="主导航">
-        <div className="app-navigation-label">工作区</div>
-        <button className={view === 'shelf' ? 'active' : ''} onClick={() => changeView('shelf')}><Library size={18} /><span>书架</span><small>{books.length}</small></button>
-        <button className={view === 'notes' ? 'active' : ''} onClick={() => changeView('notes')}><NotebookPen size={18} /><span>笔记</span><small>{Object.values(notesMap).flat().length}</small></button>
-        <div className="app-navigation-separator" />
-        <button onClick={() => setAiSettingsOpen(true)}><ServerCog size={18} /><span>AI 服务</span></button>
-        <button onClick={() => setShortcutsOpen(true)}><Keyboard size={18} /><span>快捷键</span></button>
-        <div className="app-navigation-foot"><span>本地阅读</span><small>数据仅保存在此电脑</small></div>
-      </aside>
+    <main className={`shelf-view library-design-view is-${view}`} ref={rootRef}>
       <section className="shelf-workspace">
-      <div className="shelf-heading">
-        <div>
-          <div className="section-mark"><Library size={15} /> {view === 'notes' ? '阅读资料' : `${books.length} 本书 · ${counts.reading} 本正在阅读`}</div>
-          <h1>{view === 'notes' ? '阅读笔记' : '本地书架'}</h1>
-          <p>{directory || '选择一个包含 TXT 或 EPUB 的文件夹，也可以单独添加书籍'}</p>
+      <header className="library-design-header">
+        <h1>{view === 'notes' ? '阅读笔记' : '管理视图'}</h1>
+        <div className="library-head-actions">
+          {view === 'shelf' ? <button className={`is-trash ${selecting ? 'active' : ''}`} onClick={() => { setSelecting((current) => !current); setSelectedIds([]) }} title="批量管理书籍" aria-label="批量管理书籍"><img src={managerTrashIcon} alt="" /></button> : null}
+          <button className="is-ai" onClick={() => setAiSettingsOpen(true)} title="AI 设置" aria-label="AI 设置"><img src={managerAiIcon} alt="" /></button>
+          <button className="is-directory" onClick={onChooseDirectory} title={directory ? '更换书籍目录' : '导入书籍目录'} aria-label={directory ? '更换书籍目录' : '导入书籍目录'}><img src={managerDirectoryIcon} alt="" /></button>
+          <label className="library-design-search"><img src={searchIcon} alt="" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={view === 'notes' ? '搜索相关书籍' : '搜索书名、作者或路径'} /></label>
         </div>
-        <div className="shelf-actions">
-          <button className="secondary-command shelf-book-command" onClick={onOpenVirtualHome} title="书脊视图" aria-label="切换到书脊视图"><Rows3 size={16} /><span className="command-label">书脊视图</span></button>
-          <button className="icon-command" onClick={() => setAiSettingsOpen(true)} title="AI 设置" aria-label="AI 设置"><ServerCog size={16} /></button>
-          <button className="icon-command" onClick={() => setShortcutsOpen(true)} title="快捷键" aria-label="快捷键"><Keyboard size={16} /></button>
-          <button className="icon-command" onClick={onImportData} title="导入阅读数据" aria-label="导入阅读数据"><FileInput size={16} /></button>
-          <button className="icon-command" onClick={onExportData} title="导出阅读数据" aria-label="导出阅读数据"><DatabaseBackup size={16} /></button>
-          {directory ? <button className="icon-command" onClick={onRefresh} disabled={loading} title="刷新书架"><RefreshCw size={17} className={loading ? 'spinning' : ''} /></button> : null}
-          <button className="secondary-command shelf-book-command" onClick={onChooseDirectory} title={directory ? '更换目录' : '选择目录'} aria-label={directory ? '更换目录' : '选择目录'}><FolderOpen size={17} /><span className="command-label">{directory ? '更换目录' : '选择目录'}</span></button>
-          <button className="primary-command shelf-book-command" onClick={onAddBooks} title="导入书籍" aria-label="导入书籍"><Plus size={17} /><span className="command-label">导入书籍</span></button>
-          <button className="secondary-command shelf-book-command shelf-danger-command" onClick={onClearReadingData} title="清空阅读进度、笔记与书签（书籍保留）" aria-label="清理阅读数据"><Eraser size={16} /><span className="command-label">清理数据</span></button>
-        </div>
-      </div>
+      </header>
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
       {shortcutsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutsOpen(false)} /> : null}
 
       {view === 'shelf' && lastBook ? (
         <button className="continue-reading" onClick={() => onOpen(lastBook)}>
-          <span>继续阅读</span>
-          <strong>{lastBook.title}</strong>
+          <strong>继续阅读　《{lastBook.title}》</strong>
           <span className="continue-bar" aria-hidden="true"><i style={{ width: `${Math.round((progressMap[lastBook.id]?.percent || 0) * 100)}%` }} /></span>
           <em>{Math.round((progressMap[lastBook.id]?.percent || 0) * 100)}%</em>
         </button>
       ) : null}
 
-      {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} onOpenNote={onOpenNote} onUpdateNote={onUpdateNote} onExportNotes={onExportNotes} /> : books.length ? (
-        <div className="shelf-layout">
+      {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onUpdateNote={onUpdateNote} onExportNotes={onExportNotes} /> : books.length ? (
+        <div className="library-catalog">
           <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} />
           <section className="category-books">
-            <div className="category-heading"><strong>{activeCategory === RECENT_CATEGORY ? '最近阅读' : activeCategory}</strong><span>{visibleBooks.length} 本</span></div>
-            <div className="shelf-tools">
-              <label className="shelf-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索书名、作者或路径" /></label>
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="阅读状态"><option value="all">全部状态</option><option value="unread">未读</option><option value="reading">阅读中</option><option value="finished">已读完</option></select>
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="排序方式"><option value="custom" disabled={!isCustomCategory}>自定义排序</option><option value="recent">最近阅读</option><option value="title">书名</option><option value="progress">阅读进度</option><option value="modified">文件时间</option></select>
-              <div className="layout-segment" aria-label="书籍布局"><button className={layout === 'grid' ? 'active' : ''} onClick={() => setLayout('grid')} title="网格视图" aria-label="网格视图"><Grid2X2 size={14} /></button><button className={layout === 'list' ? 'active' : ''} onClick={() => setLayout('list')} title="列表视图" aria-label="列表视图"><List size={15} /></button></div>
-              <button className={selecting ? 'active' : ''} onClick={() => { setSelecting((current) => !current); setSelectedIds([]) }}><ListChecks size={15} /> 批量</button>
-            </div>
+            <div className="category-heading"><img src={managerChevronsIcon} alt="" /><strong>{visibleBooks.length}</strong><span>本</span></div>
             {selecting ? <div className="batch-bar"><span>已选 {selectedIds.length} 本</span><button onClick={() => setSelectedIds(visibleBooks.map((book) => book.id))}>全选当前结果</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('unread')}>设为未读</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('reading')}>设为阅读中</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('finished')}>设为已读完</button><button className="danger" disabled={!selectedIds.length} onClick={removeSelected}>移出书架</button></div> : null}
             {visibleBooks.length ? (
-              <div className={`book-grid is-${layout}`}>
-                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={!selecting && sortBy === 'custom' && isCustomCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
+              <div className="book-grid is-grid">
+                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={suppliedCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={!selecting && sortBy === 'custom' && isCustomCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
               </div>
             ) : <div className="empty-filter">这个分类里还没有书</div>}
           </section>
         </div>
       ) : (
-        <button className="empty-shelf" onClick={onAddBooks}>
-          <span className="empty-icon"><BookOpenText size={31} strokeWidth={1.4} /></span>
-          <strong>{loading ? '正在整理书架...' : '添加你的第一本书'}</strong>
-          <span>支持 TXT 与 EPUB，也可以直接选择整个文件夹</span>
-        </button>
+        <div className="empty-shelf"><strong>{loading ? '正在整理书架...' : '书架还是空的'}</strong><button onClick={onAddBooks}>导入书籍</button></div>
       )}
       </section>
+
+      <LibraryBottomDock onOpenVirtualHome={onOpenVirtualHome} onAddBooks={onAddBooks} onToggleTheme={onToggleTheme} onNotes={() => changeView('notes')} onOpenAppearance={onOpenAppearance} />
 
       {managedBook ? <BookManager book={managedBook} categories={categories} selectedCategory={tagsMap[managedBook.id]?.[0] || ''} onAssign={assignCategory} onRemove={() => onRemove(managedBook)} onDeleteSource={() => onDeleteSource(managedBook)} onRelocate={async () => { if (await onRelocate(managedBook)) setManagedBook(null) }} onClose={() => setManagedBook(null)} /> : null}
       {coverBook ? (

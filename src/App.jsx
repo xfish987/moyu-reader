@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Bookshelf from './components/Bookshelf'
 import ReaderView from './components/ReaderView'
 import WindowBar from './components/WindowBar'
+import ShortcutsModal from './components/ShortcutsModal'
 import { useStoredState } from './hooks'
 import { DEFAULT_SHORTCUTS, normalizeKey } from './shortcuts'
 import { mergeEntityProfiles as mergeProfiles, removeEntityProfile, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
@@ -20,7 +21,7 @@ const DEFAULT_SETTINGS = {
   letterSpacing: 0.5,
   pageMargin: 68,
   opacity: 0.92,
-  theme: 'paper',
+  theme: 'light',
   showProgress: true,
   scriptConversion: 'none',
 }
@@ -50,6 +51,7 @@ export default function App() {
   const [recentBookIds, setRecentBookIds, recentBooksReady] = useStoredState('reader:recent-books', [])
   const [categoryBookOrder, setCategoryBookOrder] = useStoredState('reader:shelf-book-order', {})
   const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false)
   const [homeView, setHomeView] = useState('virtual')
   const [libraryView, setLibraryView] = useState('shelf')
   const [libraryTarget, setLibraryTarget] = useState(null)
@@ -66,6 +68,14 @@ export default function App() {
   // 主页两种视图（书脊 / 管理）共用一个滚动记忆，来回切换时恢复各自位置。
   const homeScrollRef = useRef({ virtual: 0, library: 0 })
   const appearance = useMemo(() => normalizeAppearance(storedAppearance), [storedAppearance])
+  const colorTheme = appearance.theme === 'night' ? 'night' : 'light'
+  const readerSettings = useMemo(() => ({ ...settings, theme: colorTheme }), [colorTheme, settings])
+  const hasCustomHomeBackground = Boolean(appearance.home?.enabled && appearance.home?.asset?.assetPath)
+
+  useEffect(() => {
+    document.documentElement.dataset.moyuTheme = colorTheme
+    try { localStorage.setItem('reader:appearance-v2', JSON.stringify(appearance)) } catch {}
+  }, [appearance, colorTheme])
 
   const mergeManualBooks = useCallback((selected) => {
     setHiddenBooks((current) => current.filter((value) => !selected.some((book) => book.path === value || book.id === value)))
@@ -445,23 +455,23 @@ export default function App() {
   const openLibraryTarget = useCallback((row) => {
     setLibraryView('shelf')
     setLibraryTarget({
-      kind: row?.key === 'recent' ? 'recent' : row && !row.fixed ? 'category' : 'all',
-      category: row && !row.fixed ? row.key : '',
+      kind: row?.managementKey || (row?.key === 'recent' ? 'recent' : row?.reorderable ? 'category' : 'all'),
+      category: row?.managementKey === 'category' || row?.reorderable ? row.key : '',
       nonce: Date.now(),
     })
     setHomeView('library')
   }, [])
 
   return (
-    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${hasCustomHomeBackground ? 'has-custom-home-background' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
-      {!immersive ? <WindowBar pinned={pinned} onTogglePin={() => setPinned((current) => !current)} onOpenAppearance={() => setAppearanceOpen(true)} /> : null}
+      {!immersive ? <WindowBar bookshelf={!activeBook} pinned={pinned} onTogglePin={() => setPinned((current) => !current)} onOpenAppearance={() => setAppearanceOpen(true)} onOpenShortcuts={() => setShortcutSettingsOpen(true)} /> : null}
       {activeBook && source ? (
         <ReaderView
           book={activeBook}
           source={source}
-          settings={settings}
+          settings={readerSettings}
           setSettings={setSettings}
           savedProgress={progressMap[activeBook.id]}
           immersive={immersive}
@@ -512,6 +522,10 @@ export default function App() {
           onOpenNotes={() => { setLibraryView('notes'); setHomeView('library') }}
           onSearch={() => { setLibraryView('shelf'); setHomeView('library'); setTimeout(() => document.querySelector('.shelf-search input')?.focus(), 80) }}
           onOpenAppearance={() => setAppearanceOpen(true)}
+          onToggleTheme={() => setAppearance((current) => {
+            const normalized = normalizeAppearance(current)
+            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night' }
+          })}
           onReorderCategories={reorderCategories}
           scrollMemory={homeScrollRef.current}
         />
@@ -556,6 +570,12 @@ export default function App() {
           initialView={libraryView}
           onViewChange={setLibraryView}
           onOpenVirtualHome={() => setHomeView('virtual')}
+          onOpenAppearance={() => setAppearanceOpen(true)}
+          onToggleTheme={() => setAppearance((current) => {
+            const normalized = normalizeAppearance(current)
+            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night' }
+          })}
+          appearanceTheme={appearance.theme}
           scrollMemory={homeScrollRef.current}
           onClearReadingData={clearReadingData}
           recentBookIds={recentBookIds}
@@ -566,6 +586,7 @@ export default function App() {
         />
       )}
       {appearanceOpen ? <AppearancePanel appearance={appearance} onChange={setAppearance} onClose={() => setAppearanceOpen(false)} /> : null}
+      {shortcutSettingsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutSettingsOpen(false)} /> : null}
     </div>
   )
 }

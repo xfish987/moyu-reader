@@ -29,7 +29,7 @@
 .storyline-timeline { flex: 1; min-height: 0; padding: 14px 16px 28px; overflow-y: auto; }
 .storyline-item { position: relative; margin-left: 6px; padding: 0 0 16px 18px; border-left: 2px solid var(--line); }
 .storyline-item:last-child { padding-bottom: 4px; }
-.storyline-item::before { content: ''; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; border: 2px solid var(--paper); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(49, 97, 90, .12); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #31615a) 14%, transparent); }
+.storyline-item::before { content: ''; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; border: 2px solid var(--paper); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #396081) 14%, transparent); }
 
 /* 缺口提示条：该条与前一条 order 不连续时挂在卡片上方 */
 .storyline-gap { margin: 0 0 8px; padding: 6px 10px; border: 1px dashed var(--danger); border-radius: var(--r-sm); display: flex; align-items: center; gap: 6px; color: var(--danger); background: rgba(var(--reader-ink), .03); font-size: var(--text-xs); }
@@ -49,7 +49,7 @@
 .storyline-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .storyline-chip { padding: 2px 8px; border: 1px solid var(--line); border-radius: 99px; background: transparent; color: var(--ink-2); font-size: var(--text-xs); }
 button.storyline-chip.is-link { border-color: var(--accent); color: var(--accent); cursor: pointer; }
-button.storyline-chip.is-link:hover { background: rgba(98, 136, 126, .14); }
+button.storyline-chip.is-link:hover { background: rgba(106, 144, 180, .18); }
 .storyline-events { display: flex; gap: 8px; font-size: var(--text-xs); }
 .storyline-events ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 .storyline-text { margin: 0; font: 13px/1.9 var(--font-serif); }

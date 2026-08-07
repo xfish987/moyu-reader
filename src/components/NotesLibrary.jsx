@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { ArrowUpRight, Bookmark, Download, Pencil, Share2, X } from 'lucide-react'
 import ShareNoteModal from './ShareNoteModal'
 
-export default function NotesLibrary({ books, bookMetadata, notesMap, onOpenNote, onUpdateNote, onExportNotes }) {
+export default function NotesLibrary({ books, bookMetadata, notesMap, appearanceTheme, onOpenNote, onUpdateNote, onExportNotes }) {
   const [selectedBook, setSelectedBook] = useState('all')
   const [shareTarget, setShareTarget] = useState(null)
   const [editTarget, setEditTarget] = useState(null)
@@ -44,10 +44,10 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, onOpenNote
           </section>
         ))}
       </div>
-      {shareTarget ? <ShareNoteModal note={shareTarget.note} book={shareTarget.book} onClose={() => setShareTarget(null)} /> : null}
+      {shareTarget ? <ShareNoteModal note={shareTarget.note} book={shareTarget.book} appearanceTheme={appearanceTheme} onClose={() => setShareTarget(null)} /> : null}
       {editTarget ? <div className="manager-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditTarget(null)}><section className="note-editor" role="dialog" aria-modal="true"><header><strong>编辑笔记评论</strong><button onClick={() => setEditTarget(null)} aria-label="关闭"><X size={16} /></button></header><blockquote>{editTarget.note.text}</blockquote><textarea autoFocus rows={6} maxLength={1000} value={editTarget.comment} onChange={(event) => setEditTarget({ ...editTarget, comment: event.target.value })} /><footer><button onClick={() => setEditTarget(null)}>取消</button><button className="primary-command" onClick={() => { onUpdateNote(editTarget.book.id, editTarget.note.id, editTarget.comment.trim()); setEditTarget(null) }}>保存修改</button></footer></section></div> : null}
     </div>
   )
 }
 
-const COVER_COLORS = ['#315c57', '#935746', '#354d6b', '#786844', '#624c63', '#41616d']
+const COVER_COLORS = ['#1c2b48', '#396081', '#6a90b4', '#94a2bf', '#16304a', '#5c7fa2']
