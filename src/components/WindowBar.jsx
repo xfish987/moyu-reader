@@ -8,7 +8,7 @@ export default function WindowBar({ pinned, onTogglePin, onOpenAppearance }) {
     <header className="window-bar" onDoubleClick={(event) => { if (!event.target.closest('button')) window.readerAPI.maximize() }}>
       <div className="brand-lockup">
         <BookOpen size={16} strokeWidth={1.8} />
-        <span>墨读书房</span>
+        <span>墨读阅读器</span>
       </div>
       <div className="window-center-actions">
         <button title="外观设置" aria-label="外观设置" onClick={onOpenAppearance}><Palette size={16} strokeWidth={1.75} /></button>

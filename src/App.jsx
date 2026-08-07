@@ -10,6 +10,7 @@ import AppearancePanel from './ui-b/AppearancePanel'
 import BackgroundLayer from './ui-b/BackgroundLayer'
 import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
 import VirtualBookshelfHome from './ui-b/VirtualBookshelfHome'
+import { moveBeforeOrAfter } from './ui-b/shelfLayout'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -46,11 +47,12 @@ export default function App() {
   const [companionChatsMap, setCompanionChatsMap] = useStoredState('reader:companion-chats', {})
   const [storylineMap, setStorylineMap] = useStoredState('reader:storyline', {})
   const [storedAppearance, setAppearance] = useStoredState('reader:appearance-v2', DEFAULT_APPEARANCE)
-  // 主页第一排「常读」位：书脊可拖上去固定，顺序即排列顺序。
-  const [shelfFavorites, setShelfFavorites] = useStoredState('reader:shelf-favorites', [])
+  const [recentBookIds, setRecentBookIds, recentBooksReady] = useStoredState('reader:recent-books', [])
+  const [categoryBookOrder, setCategoryBookOrder] = useStoredState('reader:shelf-book-order', {})
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [homeView, setHomeView] = useState('virtual')
   const [libraryView, setLibraryView] = useState('shelf')
+  const [libraryTarget, setLibraryTarget] = useState(null)
   const [directoryBooks, setDirectoryBooks] = useState([])
   const [activeBook, setActiveBook] = useState(null)
   const [source, setSource] = useState(null)
@@ -60,6 +62,7 @@ export default function App() {
   const [notice, setNotice] = useState(null)
   const readerActionRef = useRef(null)
   const manualUpgradeRef = useRef(new Set())
+  const recentSeededRef = useRef(false)
   // 主页两种视图（书脊 / 管理）共用一个滚动记忆，来回切换时恢复各自位置。
   const homeScrollRef = useRef({ virtual: 0, library: 0 })
   const appearance = useMemo(() => normalizeAppearance(storedAppearance), [storedAppearance])
@@ -141,6 +144,7 @@ export default function App() {
   }, [directoryBooks, hiddenBooks, manualBooks])
 
   useEffect(() => {
+    if (!window.readerAPI?.describeBookPaths) return
     const legacy = manualBooks.filter((book) => !book.fingerprint && book.path && !manualUpgradeRef.current.has(book.path))
     if (!legacy.length) return
     legacy.forEach((book) => manualUpgradeRef.current.add(book.path))
@@ -169,6 +173,20 @@ export default function App() {
     ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap, setCompanionMap, setCompanionChatsMap, setStorylineMap].forEach(migrateMap)
     const currentBook = books.find((book) => (book.legacyId || book.path) === lastBookId)
     if (currentBook && currentBook.id !== lastBookId) setLastBookId(currentBook.id)
+    const migrateId = (id) => books.find((book) => book.id === id || (book.legacyId || book.path) === id)?.id || id
+    setRecentBookIds((current) => {
+      const next = [...new Set(current.map(migrateId))]
+      return next.some((id, index) => id !== current[index]) || next.length !== current.length ? next : current
+    })
+    setCategoryBookOrder((current) => {
+      let changed = false
+      const next = Object.fromEntries(Object.entries(current).map(([category, ids]) => {
+        const migrated = [...new Set((Array.isArray(ids) ? ids : []).map(migrateId))]
+        if (migrated.length !== (ids || []).length || migrated.some((id, index) => id !== ids[index])) changed = true
+        return [category, migrated]
+      }))
+      return changed ? next : current
+    })
     setBookMetadata((current) => {
       const next = { ...current }
       let changed = false
@@ -178,7 +196,20 @@ export default function App() {
       })
       return changed ? next : current
     })
-  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCompanionChatsMap, setCompanionMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setStatusMap, setStorylineMap, setTagsMap])
+  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCategoryBookOrder, setCompanionChatsMap, setCompanionMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setRecentBookIds, setStatusMap, setStorylineMap, setTagsMap])
+
+  useEffect(() => {
+    if (!recentBooksReady || loading || recentSeededRef.current) return
+    recentSeededRef.current = true
+    const bookIds = new Set(books.map((book) => book.id))
+    setRecentBookIds((current) => {
+      const valid = [...new Set(current)].filter((id) => bookIds.has(id))
+      if (valid.length) return valid
+      const legacy = books.filter((book) => progressMap[book.id]?.updatedAt).sort((a, b) => progressMap[b.id].updatedAt - progressMap[a.id].updatedAt).map((book) => book.id)
+      if (lastBookId && bookIds.has(lastBookId)) return [lastBookId, ...legacy.filter((id) => id !== lastBookId)]
+      return legacy
+    })
+  }, [books, lastBookId, loading, progressMap, recentBooksReady, setRecentBookIds])
 
   const removeBook = (book) => {
     setManualBooks((current) => current.filter((item) => item.id !== book.id && item.path !== book.path))
@@ -189,6 +220,8 @@ export default function App() {
     setCompanionMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
     setCompanionChatsMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
     setStorylineMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
+    setRecentBookIds((current) => current.filter((id) => id !== book.id))
+    setCategoryBookOrder((current) => Object.fromEntries(Object.entries(current).map(([category, ids]) => [category, ids.filter((id) => id !== book.id)])))
   }
 
   const relocateBook = async (book) => {
@@ -224,6 +257,7 @@ export default function App() {
       setActiveBook(book)
       setSource(nextSource)
       setLastBookId(book.id)
+      setRecentBookIds((current) => [book.id, ...current.filter((id) => id !== book.id)])
       return true
     } catch (error) {
       showError(`打开《${book.title}》`, error)
@@ -241,6 +275,7 @@ export default function App() {
 
   const handleDrop = async (event) => {
     event.preventDefault()
+    if (!event.dataTransfer.files?.length) return
     try {
       const paths = [...event.dataTransfer.files].map((file) => window.readerAPI.getPathForFile(file)).filter(Boolean)
       const incoming = await window.readerAPI.describeBookPaths(paths)
@@ -301,6 +336,7 @@ export default function App() {
     setCompanionChatsMap({})
     setStorylineMap({})
     setLastBookId('')
+    setRecentBookIds([])
     showSuccess('阅读数据已清空')
   }
 
@@ -402,6 +438,20 @@ export default function App() {
     })
   }, [activeBook, setDictionaryMap])
 
+  const reorderCategories = useCallback((source, target, position) => {
+    setCategories((current) => moveBeforeOrAfter(current, source, target, position))
+  }, [setCategories])
+
+  const openLibraryTarget = useCallback((row) => {
+    setLibraryView('shelf')
+    setLibraryTarget({
+      kind: row?.key === 'recent' ? 'recent' : row && !row.fixed ? 'category' : 'all',
+      category: row && !row.fixed ? row.key : '',
+      nonce: Date.now(),
+    })
+    setHomeView('library')
+  }, [])
+
   return (
     <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${settings.theme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
@@ -452,17 +502,18 @@ export default function App() {
           statusMap={statusMap}
           coversMap={coversMap}
           defaultCover={appearance.theme === 'night' ? DEFAULT_COVERS.dark : DEFAULT_COVERS.light}
-          dark={appearance.theme === 'night'}
+          categories={categories}
+          tagsMap={tagsMap}
+          categoryBookOrder={categoryBookOrder}
+          recentBookIds={recentBookIds}
           onOpen={openBook}
           onAddBooks={addBooks}
-          onOpenLibrary={(target) => setHomeView(target === 'home' ? 'virtual' : 'library')}
+          onOpenLibrary={openLibraryTarget}
           onOpenNotes={() => { setLibraryView('notes'); setHomeView('library') }}
           onSearch={() => { setLibraryView('shelf'); setHomeView('library'); setTimeout(() => document.querySelector('.shelf-search input')?.focus(), 80) }}
           onOpenAppearance={() => setAppearanceOpen(true)}
+          onReorderCategories={reorderCategories}
           scrollMemory={homeScrollRef.current}
-          favorites={shelfFavorites}
-          onPinBook={(id) => setShelfFavorites((current) => current.includes(id) ? current : [...current, id])}
-          onUnpinBook={(id) => setShelfFavorites((current) => current.filter((item) => item !== id))}
         />
       ) : (
         <Bookshelf
@@ -507,6 +558,11 @@ export default function App() {
           onOpenVirtualHome={() => setHomeView('virtual')}
           scrollMemory={homeScrollRef.current}
           onClearReadingData={clearReadingData}
+          recentBookIds={recentBookIds}
+          categoryBookOrder={categoryBookOrder}
+          setCategoryBookOrder={setCategoryBookOrder}
+          navigationTarget={libraryTarget}
+          onReorderCategories={reorderCategories}
         />
       )}
       {appearanceOpen ? <AppearancePanel appearance={appearance} onChange={setAppearance} onClose={() => setAppearanceOpen(false)} /> : null}

@@ -1,29 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Library, NotebookPen, Pin, PinOff, Plus, Search, Settings2 } from 'lucide-react'
-
-const LIGHT_SPINES = ['#587c83', '#6e7f91', '#7e8c80', '#8b7f88', '#6f8298', '#8a8774', '#5f7d78', '#807b8d']
-const DARK_SPINES = ['#263e53', '#31516a', '#3e5660', '#3d4d5c', '#4c4c62', '#2e504c', '#4c4d58', '#3c5660']
-
-const shelfCapacity = (width) => width < 520 ? 8 : width < 820 ? 11 : width < 1180 ? 14 : 18
-
-function hashSeed(value) {
-  let hash = 2166136261
-  for (const character of String(value || 'book')) {
-    hash ^= character.charCodeAt(0)
-    hash = Math.imul(hash, 16777619)
-  }
-  return Math.abs(hash >>> 0)
-}
-
-function spineMetrics(book, dark) {
-  const seed = hashSeed(book.id || book.path || book.title)
-  return {
-    width: 25 + (seed % 15),
-    height: 142 + ((seed >>> 5) % 35),
-    color: (dark ? DARK_SPINES : LIGHT_SPINES)[seed % (dark ? DARK_SPINES : LIGHT_SPINES).length],
-    stripe: (seed >>> 15) % 3,
-  }
-}
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronRight, GripVertical, Library, NotebookPen, Plus, Search, Settings2 } from 'lucide-react'
+import { layoutShelfBooks, orderBooksByIds, shortSpineTitle } from './shelfLayout'
 
 function getStatus(book, progressMap, statusMap) {
   const explicit = statusMap[book.id]
@@ -32,44 +9,147 @@ function getStatus(book, progressMap, statusMap) {
   return '未读'
 }
 
-function SpineBook({ book, metrics, progress, active, onActivate, onOpen, onKeyDown, buttonRef, cover, onDragStart, onDragEnd }) {
+function useBookCover(book, customCover, defaultCover) {
+  const ref = useRef(null)
+  const [visible, setVisible] = useState(false)
+  const [cover, setCover] = useState(customCover || '')
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setVisible(true)
+      return undefined
+    }
+    const observer = new IntersectionObserver(([entry]) => entry.isIntersecting && setVisible(true), { rootMargin: '220px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (customCover) {
+      setCover(customCover)
+      return undefined
+    }
+    if (!visible || book.format !== 'EPUB' || !book.hasCover || !window.readerAPI?.getEpubCover) {
+      setCover('')
+      return undefined
+    }
+    let cancelled = false
+    window.readerAPI.getEpubCover(book.path).then((value) => {
+      if (!cancelled) setCover(value || '')
+    }).catch(() => { if (!cancelled) setCover('') })
+    return () => { cancelled = true }
+  }, [book.format, book.hasCover, book.path, customCover, visible])
+
+  return { ref, cover: cover || defaultCover, isDefault: !cover }
+}
+
+function FaceBook({ book, customCover, defaultCover, progress, onOpen, onActivate }) {
+  const { ref, cover, isDefault } = useBookCover(book, customCover, defaultCover)
   const percent = Math.round((progress || 0) * 100)
-  const openWidth = Math.round(metrics.height * 2 / 3)
   return (
     <button
-      ref={buttonRef}
-      draggable
-      className={`v-spine ${active ? 'is-active' : ''}`}
-      style={{ '--spine-width': `${metrics.width}px`, '--book-height': `${metrics.height}px`, '--open-width': `${openWidth}px`, '--spine-color': metrics.color }}
-      aria-label={`${book.title}${book.author ? `，作者 ${book.author}` : ''}${percent ? `，阅读进度 ${percent}%` : ''}`}
-      title={`${book.title}${book.author ? ` · ${book.author}` : ''}`}
+      ref={ref}
+      className="v-face-book"
+      onClick={() => onOpen(book)}
       onMouseEnter={() => onActivate(book)}
       onMouseLeave={() => onActivate(null)}
       onFocus={() => onActivate(book)}
       onBlur={() => onActivate(null)}
-      onClick={() => active ? onOpen(book) : onActivate(book, true)}
-      onDoubleClick={() => onOpen(book)}
-      onKeyDown={onKeyDown}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
+      title={`${book.title}${book.author ? ` · ${book.author}` : ''}`}
+      aria-label={`${book.title}${percent ? `，阅读进度 ${percent}%` : ''}`}
     >
-      <span className="v-book-volume" aria-hidden="true"><img src={cover} alt="" /></span>
-      <span className="v-spine-face">
-        <span className={`v-spine-stripe stripe-${metrics.stripe}`} />
-        <span className="v-spine-title">{book.title}</span>
-        {percent ? <span className="v-spine-progress" style={{ '--progress': `${percent}%` }} /> : null}
+      <img src={cover} alt="" />
+      {isDefault ? <span className="v-face-default-title">{book.title}</span> : null}
+      {percent ? <span className="v-face-progress" style={{ '--progress': `${percent}%` }} aria-hidden="true" /> : null}
+    </button>
+  )
+}
+
+function SpineBook({ book, metrics, coverHeight, progress, onOpen, onActivate }) {
+  const percent = Math.round((progress || 0) * 100)
+  return (
+    <button
+      className={`v-spine ${metrics.darkText ? 'has-dark-text' : ''}`}
+      style={{ '--spine-width': `${metrics.width}px`, '--book-height': `${Math.round(coverHeight * metrics.heightRatio)}px`, '--spine-color': metrics.color }}
+      onClick={() => onOpen(book)}
+      onMouseEnter={() => onActivate(book)}
+      onMouseLeave={() => onActivate(null)}
+      onFocus={() => onActivate(book)}
+      onBlur={() => onActivate(null)}
+      title={`${book.title}${book.author ? ` · ${book.author}` : ''}`}
+      aria-label={`${book.title}${percent ? `，阅读进度 ${percent}%` : ''}`}
+    >
+      <span className="v-spine-face" aria-hidden="true">
+        <span className="v-spine-title">{shortSpineTitle(book.title)}</span>
       </span>
     </button>
   )
 }
 
-function ActiveBookDetails({ book, progress, status, pinned, onTogglePin, onOpen, onKeepOpen, onClose }) {
-  const percent = Math.round((progress || 0) * 100)
-  return <aside className="v-active-details" onMouseEnter={onKeepOpen} onMouseLeave={onClose} aria-live="polite"><span>{status}</span><strong title={book.title}>{book.title}</strong>{book.author ? <small>{book.author}</small> : null}<div className="v-active-detail-actions"><button className="v-primary-action" onClick={() => onOpen(book)}>{percent ? `继续阅读 ${percent}%` : '开始阅读'}</button><button className={`v-icon-action ${pinned ? 'is-pinned' : ''}`} title={pinned ? '从第一排移除' : '固定到第一排'} aria-label={pinned ? '从第一排移除' : '固定到第一排'} onClick={onTogglePin}>{pinned ? <PinOff size={15} /> : <Pin size={15} />}</button></div></aside>
+function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, onActivate, draggingCategory, dropState, onDragStart, onDragOver, onDrop, onDragEnd, onPointerMove, onPointerUp, onMoveByKeyboard, onOpenCategory }) {
+  const booksRef = useRef(null)
+  const [width, setWidth] = useState(320)
+
+  useLayoutEffect(() => {
+    const node = booksRef.current
+    if (!node) return undefined
+    const update = () => setWidth(Math.max(280, node.clientWidth - 24))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  const layout = useMemo(() => layoutShelfBooks(row.books, width), [row.books, width])
+  const coverHeight = Math.round(layout.coverWidth * 1.5)
+  const dropClass = dropState?.target === row.key ? `is-drop-${dropState.position}` : ''
+
+  return (
+    <section
+      className={`v-shelf-row ${row.fixed ? 'is-recent' : 'is-category'} ${draggingCategory === row.key ? 'is-dragging' : ''} ${dropClass}`}
+      onDragOverCapture={row.fixed ? undefined : (event) => onDragOver(event, row.key)}
+      onDropCapture={row.fixed ? undefined : (event) => onDrop(event, row.key)}
+      onPointerMove={row.fixed ? undefined : (event) => onPointerMove(event, row.key)}
+      onPointerUp={row.fixed ? undefined : (event) => onPointerUp(event, row.key)}
+    >
+      <header className="v-shelf-heading">
+        <div className="v-shelf-heading-title">
+          {!row.fixed ? (
+            <span
+              className="v-shelf-drag-handle"
+              tabIndex={0}
+              role="button"
+              aria-label={`拖动调整分类 ${row.label} 的顺序`}
+              title="拖动调整分类顺序"
+              onPointerDown={(event) => { event.preventDefault(); onDragStart(null, row.key) }}
+              onKeyDown={(event) => {
+                if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
+                event.preventDefault()
+                onMoveByKeyboard(row.key, event.key === 'ArrowUp' ? -1 : 1)
+              }}
+            ><GripVertical size={15} /></span>
+          ) : null}
+          <strong>{row.label}</strong>
+        </div>
+        <button onClick={() => onOpenCategory(row)}>{`全部 ${row.totalCount ?? row.books.length} 本`}<ChevronRight size={14} /></button>
+      </header>
+      <div ref={booksRef} className="v-shelf-books" style={{ '--cover-width': `${layout.coverWidth}px`, '--cover-height': `${coverHeight}px` }}>
+        <div className="v-face-group">
+          {layout.covers.map((book) => <FaceBook key={book.id} book={book} customCover={coversMap[book.id]} defaultCover={defaultCover} progress={progressMap[book.id]?.percent} onOpen={onOpen} onActivate={onActivate} />)}
+        </div>
+        {layout.spines.length ? <div className="v-spine-group">{layout.spines.map(({ book, metrics }) => <SpineBook key={book.id} book={book} metrics={metrics} coverHeight={coverHeight} progress={progressMap[book.id]?.percent} onOpen={onOpen} onActivate={onActivate} />)}</div> : null}
+      </div>
+      <div className="v-shelf-board" aria-hidden="true" />
+    </section>
+  )
 }
 
-/* Dock 只保留五个主入口：管理视图（与书脊视图互切，不是另一个页面）、
-   搜索、导入、笔记、外观。最近阅读/收藏等无独立功能的入口不再占位。 */
+function ActiveBookDetails({ book, progress, status, onOpen, onKeepOpen, onClose }) {
+  const percent = Math.round((progress || 0) * 100)
+  return <aside className="v-active-details" onMouseEnter={onKeepOpen} onMouseLeave={onClose} aria-live="polite"><span>{status}</span><strong title={book.title}>{book.title}</strong>{book.author ? <small>{book.author}</small> : null}<div className="v-active-detail-actions"><button className="v-primary-action" onClick={() => onOpen(book)}>{percent ? `继续阅读 ${percent}%` : '开始阅读'}</button></div></aside>
+}
+
 function BottomDock({ onLibrary, onSearch, onImport, onNotes, onSettings }) {
   const actions = [
     { id: 'library', label: '管理视图', icon: Library, onClick: onLibrary },
@@ -81,18 +161,47 @@ function BottomDock({ onLibrary, onSearch, onImport, onNotes, onSettings }) {
   return <nav className="v-bottom-dock" aria-label="书房功能"><div className="v-bottom-dock-inner">{actions.map(({ id, label, icon: Icon, onClick }) => <button key={id} onClick={onClick} title={label} aria-label={label}><Icon size={17} /><span>{label}</span></button>)}</div></nav>
 }
 
-export default function VirtualBookshelfHome({ books, progressMap, statusMap, coversMap, defaultCover, dark, onOpen, onAddBooks, onOpenLibrary, onOpenNotes, onSearch, onOpenAppearance, scrollMemory, favorites = [], onPinBook, onUnpinBook }) {
-  const [activeBook, setActiveBook] = useState(null)
-  const [coverMap, setCoverMap] = useState({})
-  const [capacity, setCapacity] = useState(() => shelfCapacity(window.innerWidth))
-  const [dragging, setDragging] = useState(false)
-  const timerRef = useRef(null)
-  const closeTimerRef = useRef(null)
-  const bookRefs = useRef(new Map())
-  const sceneRef = useRef(null)
+function LibraryTopBar({ bookCount, filter, onFilterChange, query, onQueryChange, onOpenLibrary }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const close = (event) => { if (!menuRef.current?.contains(event.target)) setMenuOpen(false) }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [menuOpen])
+  return (
+    <header className="v-library-toolbar">
+      <div className="v-library-toolbar-top">
+        <div className="v-library-switch" ref={menuRef}>
+          <button className="v-library-title" onClick={() => setMenuOpen((current) => !current)} aria-haspopup="menu" aria-expanded={menuOpen}>书架<ChevronDown size={13} /></button>
+          {menuOpen ? <div className="v-library-menu" role="menu"><button role="menuitem" onClick={() => { setMenuOpen(false); onOpenLibrary(null) }}><Library size={15} />管理视图</button></div> : null}
+        </div>
+        <nav className="v-library-filters" aria-label="阅读状态筛选">
+          {[['all', '全部'], ['reading', '在读'], ['finished', '读完']].map(([value, label]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => onFilterChange(value)}>{label}</button>)}
+        </nav>
+      </div>
+      <label className="v-library-search"><Search size={14} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={`搜索 ${bookCount} 本书`} /></label>
+    </header>
+  )
+}
 
-  // 切去管理视图再切回时，恢复书脊场景的纵向滚动位置。
-  // 用 useLayoutEffect：清理函数在节点被移除前执行，能读到真实 scrollTop。
+export default function VirtualBookshelfHome({ books, progressMap, statusMap, coversMap, defaultCover, categories, tagsMap, categoryBookOrder, recentBookIds, onOpen, onAddBooks, onOpenLibrary, onOpenNotes, onSearch, onOpenAppearance, onReorderCategories, scrollMemory }) {
+  const [activeBook, setActiveBook] = useState(null)
+  const [filter, setFilter] = useState('all')
+  const [query, setQuery] = useState('')
+  const [draggingCategory, setDraggingCategory] = useState('')
+  const [dropState, setDropState] = useState(null)
+  const closeTimerRef = useRef(null)
+  const sceneRef = useRef(null)
+  useEffect(() => {
+    if (!draggingCategory) return undefined
+    const clear = () => { setDraggingCategory(''); setDropState(null) }
+    window.addEventListener('pointerup', clear)
+    window.addEventListener('pointercancel', clear)
+    return () => { window.removeEventListener('pointerup', clear); window.removeEventListener('pointercancel', clear) }
+  }, [draggingCategory])
+
   useLayoutEffect(() => {
     const node = sceneRef.current
     if (!node || !scrollMemory) return undefined
@@ -103,87 +212,82 @@ export default function VirtualBookshelfHome({ books, progressMap, statusMap, co
     return () => { cancelAnimationFrame(frame); save(); node.removeEventListener('scroll', save) }
   }, [scrollMemory])
 
-  const visibleBooks = books
-  // 第一排是用户可编辑的「常读」位：从下面任意一排把书拖上来即固定，拖回下面即移除。
-  const favoriteSet = useMemo(() => new Set(favorites), [favorites])
-  const favoriteBooks = useMemo(() => favorites.map((id) => visibleBooks.find((book) => book.id === id)).filter(Boolean), [favorites, visibleBooks])
-  const shelfBooks = useMemo(() => visibleBooks.filter((book) => !favoriteSet.has(book.id)), [visibleBooks, favoriteSet])
-  const rows = useMemo(() => Array.from({ length: Math.ceil(shelfBooks.length / capacity) }, (_, index) => shelfBooks.slice(index * capacity, (index + 1) * capacity)), [capacity, shelfBooks])
+  const rows = useMemo(() => {
+    const byId = new Map(books.map((book) => [book.id, book]))
+    const needle = query.trim().toLocaleLowerCase('zh-CN')
+    const matches = (book) => {
+      const explicit = statusMap[book.id]
+      const status = explicit === 'finished' ? 'finished' : explicit === 'reading' || progressMap[book.id]?.percent > 0 ? 'reading' : 'unread'
+      const matchesFilter = filter === 'all' || status === filter
+      const matchesQuery = !needle || `${book.title} ${book.author || ''}`.toLocaleLowerCase('zh-CN').includes(needle)
+      return matchesFilter && matchesQuery
+    }
+    const allRecentBooks = recentBookIds.map((id) => byId.get(id)).filter(Boolean)
+    const recentBooks = allRecentBooks.filter(matches)
+    const result = recentBooks.length ? [{ key: 'recent', label: '最近阅读', fixed: true, books: recentBooks, totalCount: allRecentBooks.length }] : []
+    for (const category of categories) {
+      const members = books.filter((book) => tagsMap[book.id]?.[0] === category)
+      const visible = orderBooksByIds(members, categoryBookOrder[category]).filter(matches)
+      if (visible.length) result.push({ key: category, label: category, fixed: false, books: visible, totalCount: members.length })
+    }
+    return result
+  }, [books, categories, categoryBookOrder, filter, progressMap, query, recentBookIds, statusMap, tagsMap])
 
-  const renderSpine = (book) => {
-    const index = visibleBooks.indexOf(book)
-    const metrics = spineMetrics(book, dark)
-    return <SpineBook key={book.id} book={book} metrics={metrics} progress={progressMap[book.id]?.percent} active={activeBook?.book.id === book.id} cover={coverMap[book.id] || coversMap[book.id] || defaultCover} buttonRef={(node) => node && bookRefs.current.set(book.id, node)} onActivate={(value, pinned) => activate(value, pinned)} onOpen={onOpen} onKeyDown={(event) => handleKeyDown(event, index)} onDragStart={(event) => { event.dataTransfer.setData('text/book-id', book.id); event.dataTransfer.effectAllowed = 'move'; setDragging(true) }} onDragEnd={() => setDragging(false)} />
+  const visibleCategoryKeys = rows.filter((row) => !row.fixed).map((row) => row.key)
+  const isFiltering = filter !== 'all' || Boolean(query.trim())
+  const activate = (book) => {
+    clearTimeout(closeTimerRef.current)
+    if (book) setActiveBook(book)
+    else closeTimerRef.current = setTimeout(() => setActiveBook(null), 160)
   }
-
-  useEffect(() => {
-    const update = () => setCapacity(shelfCapacity(window.innerWidth))
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [])
-  useEffect(() => {
-    if (!activeBook || activeBook.kind === 'none') return undefined
-    let cancelled = false
-    if (coversMap[activeBook.book.id]) {
-      setCoverMap((current) => ({ ...current, [activeBook.book.id]: coversMap[activeBook.book.id] }))
-      return undefined
+  const handleDragStart = (event, category) => {
+    if (event?.dataTransfer) {
+      event.dataTransfer.setData('text/category-name', category)
+      event.dataTransfer.setData('text/plain', `category:${category}`)
+      event.dataTransfer.effectAllowed = 'move'
     }
-    if (activeBook.book.format !== 'EPUB' || !activeBook.book.hasCover) {
-      setCoverMap((current) => ({ ...current, [activeBook.book.id]: defaultCover }))
-      return undefined
-    }
-    window.readerAPI?.getEpubCover(activeBook.book.path).then((cover) => {
-      if (!cancelled) setCoverMap((current) => ({ ...current, [activeBook.book.id]: cover || defaultCover }))
-    }).catch(() => { if (!cancelled) setCoverMap((current) => ({ ...current, [activeBook.book.id]: defaultCover })) })
-    return () => { cancelled = true }
-  }, [activeBook, coversMap, defaultCover])
-
-  const activate = useCallback((book, pinned = false) => {
-    clearTimeout(closeTimerRef.current)
-    if (!book) {
-      closeTimerRef.current = setTimeout(() => setActiveBook((current) => current?.pinned ? current : null), 190)
-      return
-    }
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => {
-      setActiveBook((current) => current?.book.id === book.id && current.pinned ? current : { book, pinned })
-    }, pinned ? 0 : 120)
-  }, [])
-
-  const closePreview = useCallback(() => {
-    clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = setTimeout(() => setActiveBook((current) => current?.pinned ? current : null), 180)
-  }, [])
-
-  useEffect(() => {
-    const close = (event) => { if (event.key === 'Escape') setActiveBook(null) }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [])
-
-  const handleKeyDown = (event, index) => {
-    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
+    setDraggingCategory(category)
+  }
+  const handleDragOver = (event, target) => {
     event.preventDefault()
-    const delta = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' ? -capacity : capacity
-    const next = visibleBooks[(index + delta + visibleBooks.length) % visibleBooks.length]
-    bookRefs.current.get(next.id)?.focus()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setDropState({ target, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' })
+  }
+  const handleDrop = (event, target) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const source = event.dataTransfer.getData('text/category-name') || event.dataTransfer.getData('text/plain').replace(/^category:/, '') || draggingCategory
+    if (source && source !== target) onReorderCategories(source, target, dropState?.target === target ? dropState.position : 'before')
+    setDraggingCategory('')
+    setDropState(null)
+  }
+  const moveByKeyboard = (source, delta) => {
+    const index = visibleCategoryKeys.indexOf(source)
+    const target = visibleCategoryKeys[index + delta]
+    if (target) onReorderCategories(source, target, delta < 0 ? 'before' : 'after')
+  }
+  const pointerPosition = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  }
+  const handlePointerMove = (event, target) => {
+    if (draggingCategory) setDropState({ target, position: pointerPosition(event) })
+  }
+  const handlePointerUp = (event, target) => {
+    if (draggingCategory && draggingCategory !== target) onReorderCategories(draggingCategory, target, pointerPosition(event))
+    setDraggingCategory('')
+    setDropState(null)
   }
 
   return (
-    <main className="v-home" aria-label="虚拟书架首页">
-      <section className="v-bookshelf-scene" ref={sceneRef} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const id = event.dataTransfer.getData('text/book-id'); if (id && favoriteSet.has(id)) onUnpinBook?.(id); setDragging(false) }}>
-        {books.length ? <div className="v-shelf-stack" data-shelf-count={rows.length + (favoriteBooks.length || dragging ? 1 : 0)} style={{ '--shelf-count': rows.length + 1 }}>
-          {favoriteBooks.length || dragging ? (
-            <div className={`v-shelf-row is-favorites ${dragging ? 'is-drop-target' : ''}`} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move' }} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = event.dataTransfer.getData('text/book-id'); if (id && !favoriteSet.has(id)) onPinBook?.(id); setDragging(false) }}>
-              <div className="v-shelf-books">{favoriteBooks.length ? favoriteBooks.map(renderSpine) : <span className="v-favorites-hint">把常读的书拖到这里，打开主页就能继续</span>}</div>
-              <div className="v-shelf-board" aria-hidden="true" />
-            </div>
-          ) : null}
-          {rows.map((row, rowIndex) => <div className="v-shelf-row" key={`shelf-${rowIndex}`} data-book-count={row.length}><div className="v-shelf-books">{row.map(renderSpine)}</div><div className="v-shelf-board" aria-hidden="true" /></div>)}
-        </div> : <div className="v-empty-shelf"><strong>书架还是空的</strong><span>导入第一本书，开始建立你的私人书房。</span><button className="v-primary-action" onClick={onAddBooks}><Plus size={16} />导入第一本书</button><button className="v-text-action" onClick={onOpenLibrary}>更换书籍目录</button></div>}
-      </section>
-      {activeBook ? <ActiveBookDetails book={activeBook.book} progress={progressMap[activeBook.book.id]?.percent} status={getStatus(activeBook.book, progressMap, statusMap)} pinned={favoriteSet.has(activeBook.book.id)} onTogglePin={() => { const id = activeBook.book.id; favoriteSet.has(id) ? onUnpinBook?.(id) : onPinBook?.(id) }} onOpen={onOpen} onClose={closePreview} onKeepOpen={() => clearTimeout(closeTimerRef.current)} /> : null}
-      <BottomDock onLibrary={() => onOpenLibrary?.('library')} onSearch={() => onSearch?.()} onImport={() => onAddBooks()} onNotes={() => onOpenNotes?.()} onSettings={() => onOpenAppearance?.()} />
+    <main className="v-home" aria-label="书脊视图">
+      <LibraryTopBar bookCount={books.length} filter={filter} onFilterChange={setFilter} query={query} onQueryChange={setQuery} onOpenLibrary={onOpenLibrary} />
+      <div className="v-bookshelf-scene" ref={sceneRef}>
+        {rows.length ? <div className="v-shelf-stack" data-shelf-count={rows.length}>{rows.map((row) => <ShelfRow key={row.key} row={row} progressMap={progressMap} coversMap={coversMap} defaultCover={defaultCover} onOpen={onOpen} onActivate={activate} draggingCategory={draggingCategory} dropState={dropState} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} onDragEnd={() => { setDraggingCategory(''); setDropState(null) }} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onMoveByKeyboard={moveByKeyboard} onOpenCategory={onOpenLibrary} />)}</div> : isFiltering ? <div className="v-empty-shelf"><strong>没有匹配的书</strong></div> : books.length ? <div className="v-empty-shelf"><strong>还没有分类书架</strong><span>前往管理视图，把书籍放入分类。</span><button className="v-primary-action" onClick={() => onOpenLibrary({ key: 'all', label: '全部书籍', fixed: true, books })}><Library size={16} />管理书籍</button></div> : <div className="v-empty-shelf"><strong>书架还是空的</strong><span>导入第一本书，开始建立你的私人书房。</span><button className="v-primary-action" onClick={onAddBooks}><Plus size={16} />导入第一本书</button></div>}
+      </div>
+      {activeBook ? <ActiveBookDetails book={activeBook} progress={progressMap[activeBook.id]?.percent} status={getStatus(activeBook, progressMap, statusMap)} onOpen={onOpen} onClose={() => activate(null)} onKeepOpen={() => clearTimeout(closeTimerRef.current)} /> : null}
+      <BottomDock onLibrary={() => onOpenLibrary(null)} onSearch={onSearch} onImport={onAddBooks} onNotes={onOpenNotes} onSettings={onOpenAppearance} />
     </main>
   )
 }

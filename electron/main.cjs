@@ -14,8 +14,8 @@ const { buildDictionaryMessages, buildFollowupMessages } = require('./dictionary
 const { buildChapterSummaryMessages, buildCompanionChatMessages } = require('./companionPrompt.cjs')
 const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
-// UI B owns a separate writable profile so it can run beside the original app.
-app.setName('墨读书房 B')
+// Keep the legacy profile directory so existing UI B users retain all local data.
+app.setName('墨读阅读器')
 app.setPath('userData', path.join(app.getPath('appData'), 'MoyuReaderUIB'))
 
 let mainWindow
@@ -89,6 +89,8 @@ const STORE_KEYS = new Set([
   'reader:storyline',
   'reader:companion-chats',
   'reader:appearance-v2',
+  'reader:recent-books',
+  'reader:shelf-book-order',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
