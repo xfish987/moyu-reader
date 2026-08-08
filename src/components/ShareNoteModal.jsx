@@ -30,8 +30,8 @@ const CARD_WIDTH = 1200
 const BASE_CARD_HEIGHT = 1600
 const CONTENT_X = 150
 const CONTENT_WIDTH = 900
-const SERIF = '"Moyu Source Han Serif", "Songti SC", SimSun, serif'
-const DISPLAY = '"Moyu New York", Georgia, serif'
+const SERIF = '"Moyu UI Song", "DFSongGB", "Songti SC", SimSun, serif'
+const DISPLAY = SERIF
 
 function wrapText(context, text, maxWidth) {
   const lines = []
