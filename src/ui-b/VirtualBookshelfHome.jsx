@@ -11,7 +11,6 @@ import searchIcon from './assets/dark-shelf/search.svg'
 import managerDirectoryIcon from './assets/dark-shelf/manager-directory.svg'
 import managerAiIcon from './assets/dark-shelf/manager-ai.svg'
 import managerTrashIcon from './assets/dark-shelf/manager-trash.svg'
-import shelfMoon from './assets/dark-shelf/shelf-moon.png'
 import openBook from './assets/dark-shelf/open-book.svg'
 import spineNavy from './assets/dark-shelf/spine-navy-tall.svg'
 import spineBlueShort from './assets/dark-shelf/spine-blue-short.svg'
@@ -116,18 +115,13 @@ function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingC
     const update = () => {
       const styles = window.getComputedStyle(node)
       const padding = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight)
-      const decoration = node.querySelector('.v-shelf-moon')
-      const decorationStyles = decoration ? window.getComputedStyle(decoration) : null
-      const decorationWidth = decoration
-        ? decoration.getBoundingClientRect().width + parseFloat(decorationStyles.marginLeft) + parseFloat(decorationStyles.marginRight)
-        : 0
-      setWidth(Math.max(160, node.clientWidth - padding - decorationWidth))
+      setWidth(Math.max(160, node.clientWidth - padding))
     }
     update()
     const observer = new ResizeObserver(update)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [row.decorated])
+  }, [])
 
   const layout = useMemo(() => layoutShelfBooks(row.books, width), [row.books, width])
 
@@ -173,7 +167,7 @@ function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingC
   }
 
   return (
-    <section className={`v-shelf-row ${row.decorated ? 'is-decorated' : ''} ${expandedFaceId ? 'has-expanded-face' : ''} ${draggingCategory === row.key ? 'is-dragging' : ''} ${dropClass}`} style={shelfStyle} onDragOver={canDrag ? (event) => onDragOver(event, row.key) : undefined} onDrop={canDrag ? (event) => onDrop(event, row.key) : undefined}>
+    <section className={`v-shelf-row ${expandedFaceId ? 'has-expanded-face' : ''} ${draggingCategory === row.key ? 'is-dragging' : ''} ${dropClass}`} style={shelfStyle} onDragOver={canDrag ? (event) => onDragOver(event, row.key) : undefined} onDrop={canDrag ? (event) => onDrop(event, row.key) : undefined}>
       <header className="v-shelf-heading">
         <strong
           className={canDrag ? 'is-draggable' : ''}
@@ -191,7 +185,6 @@ function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingC
         <button onClick={() => onOpenCategory(row)}>{`全部 ${row.totalCount ?? row.books.length} 本`}<span aria-hidden="true">›</span></button>
       </header>
       <div ref={booksRef} className="v-shelf-books">
-        {row.decorated ? <img className="v-shelf-moon" src={shelfMoon} alt="" /> : null}
         <div className="v-face-group">
           {layout.covers.map((book) => <FaceBook key={book.id} book={book} customCover={coversMap[book.id]} defaultCover={defaultCover} progress={progressMap[book.id]?.percent} onOpen={onOpen} expanded={expandedFaceId === book.id} onActivate={setExpandedFaceId} />)}
         </div>
@@ -257,7 +250,7 @@ export default function VirtualBookshelfHome({ books, progressMap, statusMap, co
     const matches = (book) => !needle || `${book.title} ${book.author || ''}`.toLocaleLowerCase('zh-CN').includes(needle)
     const result = []
     const recent = recentBookIds.map((id) => byId.get(id)).filter(Boolean).filter(matches)
-    if (recent.length) result.push({ key: 'recent', label: '最近在读', managementKey: 'recent', books: recent, totalCount: recent.length, decorated: true })
+    if (recent.length) result.push({ key: 'recent', label: '最近在读', managementKey: 'recent', books: recent, totalCount: recent.length })
     const all = books.filter(matches)
     if (all.length) result.push({ key: 'all', label: '全部', managementKey: 'all', books: all, totalCount: books.length })
     const unreadAll = books.filter((book) => getStatus(book, progressMap, statusMap) === 'unread')
