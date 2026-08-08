@@ -15,6 +15,9 @@ import { moveBeforeOrAfter } from './ui-b/shelfLayout'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
+  fontWeight: 400,
+  titleFontFamily: 'serif',
+  titleFontWeight: 700,
   fontSize: 20,
   lineHeight: 1.9,
   paragraphGap: 16,
@@ -50,6 +53,7 @@ export default function App() {
   const [storedAppearance, setAppearance] = useStoredState('reader:appearance-v2', DEFAULT_APPEARANCE)
   const [recentBookIds, setRecentBookIds, recentBooksReady] = useStoredState('reader:recent-books', [])
   const [categoryBookOrder, setCategoryBookOrder] = useStoredState('reader:shelf-book-order', {})
+  const [epubFontOverrides, setEpubFontOverrides] = useStoredState('reader:epub-font-overrides', {})
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false)
   const [homeView, setHomeView] = useState('virtual')
@@ -340,6 +344,7 @@ export default function App() {
     setTagsMap({})
     setCategories([])
     setCategoryBookOrder({})
+    setEpubFontOverrides({})
     setProgressMap({})
     setStatusMap({})
     setNotesMap({})
@@ -524,6 +529,14 @@ export default function App() {
           onDeleteNote={(noteId) => setNotesMap((current) => ({ ...current, [activeBook.id]: (current[activeBook.id] || []).filter((note) => note.id !== noteId) }))}
           initialNote={pendingNote}
           onEncodingChange={changeEncoding}
+          epubFontOverride={epubFontOverrides[activeBook.id] || null}
+          onEpubFontOverrideChange={(nextValue) => setEpubFontOverrides((current) => {
+            const next = typeof nextValue === 'function' ? nextValue(current[activeBook.id] || null) : nextValue
+            if (next) return { ...current, [activeBook.id]: next }
+            const remaining = { ...current }
+            delete remaining[activeBook.id]
+            return remaining
+          })}
           entityProfiles={entityProfilesMap[activeBook.id] || []}
           onSaveEntityProfile={saveEntityProfile}
           onUpdateEntityIdentity={updateEntityIdentity}

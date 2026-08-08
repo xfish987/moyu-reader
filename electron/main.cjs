@@ -91,6 +91,7 @@ const STORE_KEYS = new Set([
   'reader:appearance-v2',
   'reader:recent-books',
   'reader:shelf-book-order',
+  'reader:epub-font-overrides',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()

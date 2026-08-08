@@ -289,7 +289,7 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-.ui-b .encoding-select, .ui-b .setting-toggle span,
+.ui-b .encoding-select, .ui-b .epub-font-select select, .ui-b .setting-toggle span,
 .ui-b .settings-panel input[type="range"]::-webkit-slider-thumb { background: var(--b-surface-solid); }
 .ui-b .toc-title { border-bottom-color: var(--b-line); color: var(--b-ink); }
 .ui-b .toc-title span, .ui-b .notes-empty, .ui-b .toc-list p { color: var(--b-ink-3); }
@@ -544,6 +544,7 @@
 .ui-b-theme-mist .library-design-search input::placeholder { color: rgba(28, 43, 72, .5); }
 .ui-b-theme-mist .library-head-actions > button:hover,
 .ui-b-theme-mist .library-head-actions > button.active { background: rgba(106, 144, 180, .2); }
+.ui-b-theme-mist .library-head-actions > button svg { color: #1c2b48; }
 .ui-b-theme-mist .library-head-actions > button.is-trash img { content: url("./assets/light-shelf/manager-trash.svg"); }
 .ui-b-theme-mist .library-head-actions > button.is-ai img { content: url("./assets/light-shelf/manager-ai.svg"); }
 .ui-b-theme-mist .library-head-actions > button.is-directory img { content: url("./assets/light-shelf/manager-directory.svg"); }
@@ -711,6 +712,7 @@
 .ui-b .category-row.is-drop-after::after { right: 2px; bottom: -2px; left: 2px; height: 2px; }
 .ui-b .book-reorder-handle { position: absolute; z-index: 5; top: 7px; left: 7px; width: 26px; height: 26px; border: 1px solid color-mix(in srgb, var(--b-line-strong) 80%, transparent); border-radius: 4px; display: grid; place-items: center; background: color-mix(in srgb, var(--b-surface-solid) 91%, transparent); color: var(--b-ink-2); cursor: grab; }
 .ui-b .book-reorder-handle:hover, .ui-b .book-reorder-handle:focus-visible { border-color: var(--b-accent); color: var(--b-accent); outline: none; }
+.ui-b .book-reorder-handle:active { cursor: grabbing; }
 .ui-b .book-item.is-drop-before::before { top: 0; bottom: 0; left: -7px; width: 2px; }
 .ui-b .book-item.is-drop-after::after { top: 0; right: -7px; bottom: 0; width: 2px; }
 
@@ -953,10 +955,14 @@
 .ui-b .library-head-actions { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 17px; }
 .ui-b .library-head-actions > button { width: 28px; height: 30px; padding: 0 0 5px; border: 0; border-radius: 3px; display: flex; align-items: flex-end; justify-content: center; background: transparent; cursor: pointer; }
 .ui-b .library-head-actions > button:hover, .ui-b .library-head-actions > button.active { background: rgba(115,148,183,.2); }
+.ui-b .library-head-actions > button:disabled { cursor: wait; opacity: .65; }
+.ui-b .library-head-actions > button svg { margin-bottom: 1px; color: #e8ecef; stroke-width: 1.45; }
+.ui-b .library-head-actions > button.is-refresh.is-loading svg { animation: library-refresh-spin 850ms linear infinite; }
 .ui-b .library-head-actions > button img { display: block; object-fit: contain; }
 .ui-b .library-head-actions > button.is-trash img { width: 13.9565px; height: 19.3629px; }
 .ui-b .library-head-actions > button.is-ai img { width: 20.0168px; height: 20.0169px; }
 .ui-b .library-head-actions > button.is-directory img { width: 27.6846px; height: 14.541px; }
+@keyframes library-refresh-spin { to { transform: rotate(360deg); } }
 .ui-b .library-design-search { position: relative; width: min(325px, 34vw); height: 36px; padding: 0 13px; border: 1px solid rgba(232,236,239,.88); border-radius: 19px; display: flex; align-items: center; gap: 9px; background: rgba(0,10,18,.12); color: #e8ecef; }
 .ui-b .library-design-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #e8ecef; font: 500 10px/1.2 "Moyu Source Han Serif", serif; }
 .ui-b .library-design-search > img { width: 15.37px; height: 16.2px; flex: 0 0 auto; object-fit: contain; }

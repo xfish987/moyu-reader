@@ -20,7 +20,7 @@ function pickRepresentative(items, limit = 400) {
   return [...first, ...sampled, ...last]
 }
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
+export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
@@ -28,6 +28,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [panel, setPanel] = useState(null)
   const [chapters, setChapters] = useState([])
   const [progress, setProgress] = useState(savedProgress || { percent: 0, page: 0, pageCount: 1 })
+  const [epubFontFeatures, setEpubFontFeatures] = useState({ bold: false, italic: false })
   const [scrubProgress, setScrubProgress] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -1004,6 +1005,10 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     return () => cancelAnimationFrame(frame)
   }, [initialNote, source.kind])
 
+  useEffect(() => {
+    setEpubFontFeatures({ bold: false, italic: false })
+  }, [book.id])
+
   if (actionRef) {
     actionRef.current = {
       next: () => readerRef.current?.next(),
@@ -1070,7 +1075,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         ) : source.kind === 'text-large' ? (
           <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} />
         ) : (
-          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} onDismissPanel={() => setPanel(null)} />
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} onFontFeatures={setEpubFontFeatures} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} onDismissPanel={() => setPanel(null)} />
         )}
 
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
@@ -1144,7 +1149,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           <button className="toolbar-button" onClick={onToggleImmersive} title="退出沉浸阅读 (F11)" aria-label="退出沉浸阅读"><Minimize2 size={17} /></button>
         </div>
       ) : null}
-      {panel === 'settings' && !immersive ? <ReaderSettings settings={settings} onChange={setSettings} encoding={source.kind.startsWith('text') ? source.encoding : null} onEncodingChange={onEncodingChange} /> : null}
+      {panel === 'settings' && !immersive ? <ReaderSettings settings={settings} onChange={setSettings} encoding={source.kind.startsWith('text') ? source.encoding : null} onEncodingChange={onEncodingChange} epubFontOverride={source.kind === 'epub' ? epubFontOverride : undefined} epubFontFeatures={epubFontFeatures} onEpubFontOverrideChange={onEpubFontOverrideChange} /> : null}
       {panel === 'toc' && !immersive ? (
         <aside className="toc-panel">
           <div className="toc-title"><List size={16} /><strong>目录</strong><span>{percent}% · {chapters.length} 章</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>

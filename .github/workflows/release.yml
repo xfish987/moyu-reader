@@ -33,5 +33,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/MoyuReader-*.exe
+          files: |
+            release/MoyuReader-*.exe
+            release/MoyuReader-*-Setup.msi
           generate_release_notes: true

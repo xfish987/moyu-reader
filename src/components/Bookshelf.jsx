@@ -39,7 +39,7 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
 
   return (
     <div className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''}`} onContextMenu={(event) => { event.preventDefault(); onManage(book) }} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
-      {reordering ? <span className="book-reorder-handle" tabIndex={0} role="button" aria-label={`拖动调整 ${book.title} 的顺序`} title="拖动调整主页陈列顺序" onPointerDown={(event) => { event.preventDefault(); onPointerStart(book.id) }} onKeyDown={(event) => { if (event.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); onKeyboardMove(book.id, ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1) } }}><GripVertical size={14} /></span> : null}
+      {reordering ? <span className="book-reorder-handle" draggable tabIndex={0} role="button" aria-label={`拖动调整 ${book.title} 的顺序`} title="拖动调整主页陈列顺序" onDragStart={(event) => onDragStart(event, book.id)} onDragEnd={onDragEnd} onPointerDown={(event) => { if (event.pointerType === 'mouse') return; event.preventDefault(); onPointerStart(book.id) }} onKeyDown={(event) => { if (event.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); onKeyboardMove(book.id, ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1) } }}><GripVertical size={14} /></span> : null}
       {selecting ? <button className={`book-select ${selected ? 'selected' : ''}`} onClick={() => onToggle(book.id)} aria-label={selected ? `取消选择 ${book.title}` : `选择 ${book.title}`}><Check size={13} /></button> : null}
       <button className="book-open" onClick={() => onOpen(book)}>
         <span className={`book-cover ${coverSource ? 'has-image' : ''} ${!displayCover && defaultCover ? 'is-default' : ''}`} style={{ '--cover': COVER_COLORS[index % COVER_COLORS.length] }}>
@@ -315,6 +315,14 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     setSortBy(categories.includes(category) ? 'custom' : 'recent')
   }
 
+  const refreshDirectory = () => {
+    setActiveCategory('全部书籍')
+    setSortBy('modified')
+    setStatusFilter('all')
+    setQuery('')
+    onRefresh?.()
+  }
+
   const assignCategory = (category) => setTagsMap((current) => ({ ...current, [managedBook.id]: category ? [category] : [] }))
   const toggleSelected = (id) => setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])
   const selectedBooks = books.filter((book) => selectedIds.includes(book.id))
@@ -379,6 +387,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
       <header className="library-design-header">
         <h1>{view === 'notes' ? '阅读笔记' : '管理视图'}</h1>
         <div className="library-head-actions">
+          {view === 'shelf' && directory ? <button className={`is-refresh ${loading ? 'is-loading' : ''}`} onClick={refreshDirectory} disabled={loading} title="刷新书籍目录" aria-label={loading ? '正在刷新书籍目录' : '刷新书籍目录'}><RefreshCw size={17} /></button> : null}
           {view === 'shelf' ? <button className={`is-trash ${selecting ? 'active' : ''}`} onClick={() => { setSelecting((current) => !current); setSelectedIds([]) }} title="批量管理书籍" aria-label="批量管理书籍"><img src={managerTrashIcon} alt="" /></button> : null}
           <button className="is-ai" onClick={() => setAiSettingsOpen(true)} title="AI 设置" aria-label="AI 设置"><img src={managerAiIcon} alt="" /></button>
           <button className="is-directory" onClick={onChooseDirectory} title={directory ? '更换书籍目录' : '导入书籍目录'} aria-label={directory ? '更换书籍目录' : '导入书籍目录'}><img src={managerDirectoryIcon} alt="" /></button>

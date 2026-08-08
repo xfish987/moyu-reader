@@ -3,7 +3,8 @@ import ePub from 'epubjs'
 import { NotePopup, SelectionPopup } from './NotePopups'
 import { truncateCompanionText } from './TextReader'
 import { convertChinese, searchVariants } from '../chineseConversion'
-import { getReaderFontStack, installReaderFonts } from '../readerFonts'
+import { inspectEpubPageDirection, resolveEpubReadingDirection } from '../epubDirection'
+import { detectEpubFontFeatures, getReaderFontStack, installReaderFonts, normalizeEpubFontOverride } from '../readerFonts'
 
 const boundViewDocuments = new WeakSet()
 
@@ -24,16 +25,30 @@ function makeEpubPageTransparent(document, theme) {
   }
 }
 
-function applyRenditionSettings(rendition, settings) {
+function applyRenditionSettings(rendition, settings, fontOverride) {
   if (!rendition) return
-  const fontFamily = getReaderFontStack(settings.fontFamily)
+  const override = normalizeEpubFontOverride(fontOverride, settings.fontFamily)
+  const titleFontFamily = getReaderFontStack(override.titleFont)
+  const bodyFontFamily = getReaderFontStack(override.bodyFont)
+  const boldFontFamily = getReaderFontStack(override.boldFont)
+  const italicFontFamily = getReaderFontStack(override.italicFont)
   const textColor = settings.theme === 'night'
     ? `rgba(232, 236, 239, ${settings.opacity})`
     : `rgba(1, 22, 43, ${settings.opacity})`
+  for (const contents of rendition.getContents?.() || []) {
+    contents.document?.getElementById('epubjs-inserted-css-reader-settings')?.remove()
+  }
   rendition.themes.register('reader-settings', {
     html: { 'background-color': 'transparent !important' },
+    ...(override.enabled ? {
+      'body, body *': {
+        'font-family': `${bodyFontFamily} !important`,
+        'font-weight': `${override.bodyWeight} !important`,
+        'font-style': 'normal !important',
+        'font-synthesis': 'weight style !important',
+      },
+    } : {}),
     body: {
-      'font-family': `${fontFamily} !important`,
       'font-size': `${settings.fontSize}px !important`,
       'line-height': `${settings.lineHeight} !important`,
       'letter-spacing': `${settings.letterSpacing}px !important`,
@@ -41,7 +56,6 @@ function applyRenditionSettings(rendition, settings) {
       'background-color': 'transparent !important',
     },
     'p, div.para, div.paragraph, div[class~="para"], div[class~="paragraph"]': {
-      'font-weight': '400 !important',
       'margin-top': '0 !important',
       'margin-right': '0 !important',
       'margin-bottom': `${settings.paragraphGap}px !important`,
@@ -55,9 +69,12 @@ function applyRenditionSettings(rendition, settings) {
       'overflow-wrap': 'break-word !important',
       'word-break': 'normal !important',
     },
-    'h1, h2, h3, h4, h5, h6': {
-      'font-family': `${fontFamily} !important`,
-      'font-weight': '700 !important',
+    'body h1, body h2, body h3, body h4, body h5, body h6': {
+      ...(override.enabled ? {
+        'font-family': `${titleFontFamily} !important`,
+        'font-weight': `${override.titleWeight} !important`,
+        'letter-spacing': '.1em !important',
+      } : {}),
       'line-height': '1.45 !important',
       'text-indent': '0 !important',
       'text-align': 'left !important',
@@ -65,10 +82,13 @@ function applyRenditionSettings(rendition, settings) {
       'page-break-after': 'avoid !important',
       'break-after': 'avoid !important',
     },
-    'h1, h2, p.title, div.title, .chapter-title, .chapter_title, .chaptertitle': {
-      'font-family': `${fontFamily} !important`,
+    'body h1, body h2, body p.title, body div.title, body .chapter-title, body .chapter_title, body .chaptertitle': {
+      ...(override.enabled ? {
+        'font-family': `${titleFontFamily} !important`,
+        'font-weight': `${override.titleWeight} !important`,
+        'letter-spacing': '.1em !important',
+      } : {}),
       'font-size': '1.55em !important',
-      'font-weight': '700 !important',
       'line-height': '1.45 !important',
       'margin-top': '0 !important',
       'margin-right': '0 !important',
@@ -82,7 +102,17 @@ function applyRenditionSettings(rendition, settings) {
       'page-break-after': 'avoid !important',
       'break-after': 'avoid !important',
     },
-    'strong, b': { 'font-weight': '700 !important' },
+    ...(override.enabled ? {
+      'body strong, body b': {
+        'font-family': `${boldFontFamily} !important`,
+        'font-weight': `${override.boldWeight} !important`,
+      },
+      'body em, body i': {
+        'font-family': `${italicFontFamily} !important`,
+        'font-weight': `${override.italicWeight} !important`,
+        'font-style': 'italic !important',
+      },
+    } : {}),
   })
   rendition.themes.select('reader-settings')
   for (const contents of rendition.getContents?.() || []) makeEpubPageTransparent(contents.document, settings.theme)
@@ -174,25 +204,7 @@ function hasReadableContent(document) {
   return Boolean(visibleBodyText(body))
 }
 
-function getPageDirection(document) {
-  const view = document?.defaultView
-  const bodyStyle = document?.body && view?.getComputedStyle(document.body)
-  const rootStyle = document?.documentElement && view?.getComputedStyle(document.documentElement)
-  const writingMode = bodyStyle?.writingMode || rootStyle?.writingMode || ''
-  const cssDirection = bodyStyle?.direction || rootStyle?.direction || ''
-  const verticalRl = writingMode === 'vertical-rl' || writingMode === 'sideways-rl'
-  const verticalLr = writingMode === 'vertical-lr' || writingMode === 'sideways-lr'
-  const rtl = verticalRl
-    || cssDirection === 'rtl'
-    || document?.body?.dir === 'rtl'
-    || document?.documentElement?.dir === 'rtl'
-  return {
-    rtl,
-    forcedDirection: verticalRl ? 'rtl' : verticalLr ? 'ltr' : null,
-  }
-}
-
-const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, onDismissPanel }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, onFontFeatures, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, onDismissPanel }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -222,6 +234,8 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   const wheelCallbackRef = useRef(onWheel)
   const dismissPanelRef = useRef(onDismissPanel)
   const settingsRef = useRef(settings)
+  const fontFeaturesCallbackRef = useRef(onFontFeatures)
+  const detectedFontFeaturesRef = useRef({ bold: false, italic: false })
   if (initialDataRef.current !== data) {
     initialDataRef.current = data
     initialCfiRef.current = initialCfi
@@ -232,6 +246,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   wheelCallbackRef.current = onWheel
   dismissPanelRef.current = onDismissPanel
   settingsRef.current = settings
+  fontFeaturesCallbackRef.current = onFontFeatures
 
   useEffect(() => {
     if (!hostRef.current) return undefined
@@ -244,6 +259,16 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
       manager: 'default',
     })
     rendition.hooks.content.register((contents) => {
+      const detected = detectEpubFontFeatures(contents.document)
+      const currentFeatures = detectedFontFeaturesRef.current
+      const nextFeatures = {
+        bold: currentFeatures.bold || detected.bold,
+        italic: currentFeatures.italic || detected.italic,
+      }
+      if (nextFeatures.bold !== currentFeatures.bold || nextFeatures.italic !== currentFeatures.italic) {
+        detectedFontFeaturesRef.current = nextFeatures
+        fontFeaturesCallbackRef.current?.(nextFeatures)
+      }
       installReaderFonts(contents.document)
       const currentSettings = settingsRef.current
       makeEpubPageTransparent(contents.document, currentSettings.theme)
@@ -258,12 +283,13 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
     })
     bookRef.current = book
     renditionRef.current = rendition
-    applyRenditionSettings(rendition, settings)
+    applyRenditionSettings(rendition, settings, fontOverride)
     locationsPromiseRef.current = null
     locationsReadyRef.current = false
     pagingRef.current = false
     readingRtlRef.current = false
     appliedDirectionRef.current = null
+    detectedFontFeaturesRef.current = { bold: false, italic: false }
     let disposed = false
     let resizeFrame = null
     let measuredWidth = 0
@@ -426,14 +452,13 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
         })
       }
       fitFullPageBackground(view.document)
-      const pageDirection = getPageDirection(view.document)
-      const effectiveDirection = pageDirection.forcedDirection || rendition.settings.direction
-      readingRtlRef.current = effectiveDirection === 'rtl' || (!pageDirection.forcedDirection && pageDirection.rtl)
-      if (pageDirection.forcedDirection
-        && rendition.settings.direction !== pageDirection.forcedDirection
-        && appliedDirectionRef.current !== pageDirection.forcedDirection) {
-        appliedDirectionRef.current = pageDirection.forcedDirection
-        rendition.direction(pageDirection.forcedDirection)
+      const pageDirection = inspectEpubPageDirection(view.document)
+      const effectiveDirection = resolveEpubReadingDirection(book.package?.metadata?.direction, pageDirection)
+      readingRtlRef.current = effectiveDirection === 'rtl'
+      if (rendition.settings.direction !== effectiveDirection
+        && appliedDirectionRef.current !== effectiveDirection) {
+        appliedDirectionRef.current = effectiveDirection
+        rendition.direction(effectiveDirection)
         return
       }
       if (hasReadableContent(view.document)) {
@@ -523,8 +548,8 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   useEffect(() => {
     const rendition = renditionRef.current
     if (!rendition) return
-    applyRenditionSettings(rendition, settings)
-  }, [settings])
+    applyRenditionSettings(rendition, settings, fontOverride)
+  }, [fontOverride, settings])
 
   // 把带 CFI 的笔记渲染成正文里的评论标记，点击标记弹出评论卡片。
   // 笔记增删时整体重挂，避免遗留已删除笔记的标记。
