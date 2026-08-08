@@ -743,10 +743,10 @@
 /* Illustrator handoff: dark spine view. These rules intentionally sit after the earlier
    virtual-shelf prototype so the delivered composition is the single source of truth. */
 @font-face { font-family: "Moyu New York"; src: url("./assets/dark-shelf/NewYork.otf") format("opentype"); font-display: swap; }
-@font-face { font-family: "Moyu Source Han Serif"; src: url("./assets/dark-shelf/SourceHanSerifCN-Medium.otf") format("opentype"); font-weight: 400; font-display: swap; }
-@font-face { font-family: "Moyu Source Han Serif"; src: url("./assets/dark-shelf/SourceHanSerifCN-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
-@font-face { font-family: "Moyu Source Han Serif"; src: url("./assets/dark-shelf/SourceHanSerifCN-Bold.otf") format("opentype"); font-weight: 600; font-display: swap; }
-@font-face { font-family: "Moyu Source Han Serif"; src: url("./assets/dark-shelf/SourceHanSerifCN-Bold.otf") format("opentype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Moyu Source Han Serif"; src: url("../assets/reader-fonts/families/DFSongGB-W5.otf") format("opentype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Moyu Source Han Serif"; src: url("../assets/reader-fonts/families/DFSongGB-W5.otf") format("opentype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Moyu Source Han Serif"; src: url("../assets/reader-fonts/families/DFSongGB-W9.otf") format("opentype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Moyu Source Han Serif"; src: url("../assets/reader-fonts/families/DFSongGB-W9.otf") format("opentype"); font-weight: 700; font-display: swap; }
 
 .ui-b.has-designed-titlebar { --designed-titlebar-height: 33.601331px; grid-template-rows: minmax(var(--designed-titlebar-height), var(--designed-titlebar-height)) minmax(0, 1fr); }
 .ui-b.has-designed-titlebar .window-bar { height: var(--designed-titlebar-height); min-height: var(--designed-titlebar-height); max-height: var(--designed-titlebar-height); padding-left: 18px; overflow: visible; flex-shrink: 0; grid-template-columns: 1fr auto; border: 0; background: rgba(28,43,72,.94); box-shadow: 0 3px 0 #1c2b48; color: #e8ecef; backdrop-filter: none; -webkit-backdrop-filter: none; }

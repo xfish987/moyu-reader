@@ -1,5 +1,3 @@
-import sourceHanSerifRegularUrl from './ui-b/assets/dark-shelf/SourceHanSerifCN-Medium.otf'
-import sourceHanSerifBoldUrl from './ui-b/assets/dark-shelf/SourceHanSerifCN-Bold.otf'
 import sourceHanSansRegularUrl from './assets/reader-fonts/SourceHanSansCN-Regular.otf'
 import sourceHanSansBoldUrl from './assets/reader-fonts/SourceHanSansCN-Bold.otf'
 import lxgwWenKaiUrl from './assets/reader-fonts/LXGWWenKaiGBScreen.ttf'
@@ -14,14 +12,25 @@ import lanTingHeiVariableUrl from './assets/reader-fonts/families/FZLanTingHei-V
 import youHeiVariableUrl from './assets/reader-fonts/families/FZYouHei-Variable.ttf'
 import tsukuGothicRegularUrl from './assets/reader-fonts/families/FZTsukuGothic-Regular.ttf'
 import tsukuGothicBoldUrl from './assets/reader-fonts/families/FZTsukuGothic-Bold.ttf'
+import hanYiQiHeiHairlineUrl from './assets/reader-fonts/families/HYQiHei-Hairline.ttf'
+import hanYiQiHeiUltraLightUrl from './assets/reader-fonts/families/HYQiHei-UltraLight.ttf'
+import hanYiQiHeiLightUrl from './assets/reader-fonts/families/HYQiHei-Light.ttf'
+import hanYiQiHeiDemiBoldUrl from './assets/reader-fonts/families/HYQiHei-DemiBold.ttf'
+import hanYiQiHeiBlackUrl from './assets/reader-fonts/families/HYQiHei-Black.ttf'
+import hanYiQiHeiUltraBlackUrl from './assets/reader-fonts/families/HYQiHei-UltraBlack.ttf'
+import dfSongW3Url from './assets/reader-fonts/families/DFSongGB-W3.otf'
+import dfSongW5Url from './assets/reader-fonts/families/DFSongGB-W5.otf'
+import dfSongW7Url from './assets/reader-fonts/families/DFSongGB-W7.otf'
+import dfSongW9Url from './assets/reader-fonts/families/DFSongGB-W9.otf'
+import dfSongW12Url from './assets/reader-fonts/families/DFSongGB-W12.otf'
 
 const resolveAssetUrl = (value) => {
   try { return new URL(value, globalThis.location?.href).href } catch { return value }
 }
 
 const EPUB_FONT_URLS = Object.fromEntries(Object.entries({
-  sourceHanSerifRegular: sourceHanSerifRegularUrl,
-  sourceHanSerifBold: sourceHanSerifBoldUrl,
+  sourceHanSerifRegular: dfSongW5Url,
+  sourceHanSerifBold: dfSongW9Url,
   sourceHanSansRegular: sourceHanSansRegularUrl,
   sourceHanSansBold: sourceHanSansBoldUrl,
   lxgwWenKai: lxgwWenKaiUrl,
@@ -36,6 +45,17 @@ const EPUB_FONT_URLS = Object.fromEntries(Object.entries({
   youHeiVariable: youHeiVariableUrl,
   tsukuGothicRegular: tsukuGothicRegularUrl,
   tsukuGothicBold: tsukuGothicBoldUrl,
+  hanYiQiHeiHairline: hanYiQiHeiHairlineUrl,
+  hanYiQiHeiUltraLight: hanYiQiHeiUltraLightUrl,
+  hanYiQiHeiLight: hanYiQiHeiLightUrl,
+  hanYiQiHeiDemiBold: hanYiQiHeiDemiBoldUrl,
+  hanYiQiHeiBlack: hanYiQiHeiBlackUrl,
+  hanYiQiHeiUltraBlack: hanYiQiHeiUltraBlackUrl,
+  dfSongW3: dfSongW3Url,
+  dfSongW5: dfSongW5Url,
+  dfSongW7: dfSongW7Url,
+  dfSongW9: dfSongW9Url,
+  dfSongW12: dfSongW12Url,
 }).map(([key, value]) => [key, resolveAssetUrl(value)]))
 
 const REGULAR_BOLD_FACES = [
@@ -51,6 +71,23 @@ const VARIABLE_FACES = [
   { label: 'Bold', value: 700 },
 ]
 
+const HANYI_QIHEI_FACES = [
+  { label: 'Hairline', value: 100 },
+  { label: 'UltraLight', value: 200 },
+  { label: 'Light', value: 300 },
+  { label: 'DemiBold', value: 600 },
+  { label: 'Black', value: 900 },
+  { label: 'UltraBlack', value: 950 },
+]
+
+const DFSONG_FACES = [
+  { label: 'Light（W3）', value: 300 },
+  { label: 'Regular（W5）', value: 400 },
+  { label: 'Bold（W7）', value: 700 },
+  { label: 'ExtraBold（W9）', value: 800 },
+  { label: 'Black（W12）', value: 900 },
+]
+
 export const READER_FONT_OPTIONS = [
   { label: '思源宋体', value: 'serif', faces: REGULAR_BOLD_FACES },
   { label: '思源黑体', value: 'sans', faces: REGULAR_BOLD_FACES },
@@ -62,6 +99,8 @@ export const READER_FONT_OPTIONS = [
   { label: '方正兰亭黑', value: 'lantinghei', faces: VARIABLE_FACES },
   { label: '方正悠黑', value: 'youhei', faces: VARIABLE_FACES },
   { label: '方正筑紫黑', value: 'tsukugothic', faces: REGULAR_BOLD_FACES },
+  { label: '汉仪旗黑', value: 'hanyiqihei', faces: HANYI_QIHEI_FACES },
+  { label: '华康宋体', value: 'dfsong', faces: DFSONG_FACES },
 ]
 
 const READER_FONT_VALUES = new Set(READER_FONT_OPTIONS.map((option) => option.value))
@@ -111,6 +150,8 @@ const READER_FONT_STACKS = {
   lantinghei: '"Moyu FZ LanTingHei", "FZ LanTingHei", "Microsoft YaHei", sans-serif',
   youhei: '"Moyu FZ YouHei", "FZ YouHei", "Microsoft YaHei", sans-serif',
   tsukugothic: '"Moyu FZ TsukuGothic", "FZ TsukuGothic", "Microsoft YaHei", sans-serif',
+  hanyiqihei: '"Moyu HanYi QiHei", "HYQiHei", "Microsoft YaHei", sans-serif',
+  dfsong: '"Moyu DF Song", "DFSongGB", "Songti SC", serif',
 }
 
 export function getReaderFontStack(value) {
@@ -138,6 +179,17 @@ export function installReaderFonts(document) {
     @font-face { font-family: "Moyu FZ YouHei"; src: url("${EPUB_FONT_URLS.youHeiVariable}") format("truetype"); font-weight: 300 700; font-style: normal; }
     @font-face { font-family: "Moyu FZ TsukuGothic"; src: url("${EPUB_FONT_URLS.tsukuGothicRegular}") format("truetype"); font-weight: 400; font-style: normal; }
     @font-face { font-family: "Moyu FZ TsukuGothic"; src: url("${EPUB_FONT_URLS.tsukuGothicBold}") format("truetype"); font-weight: 700; font-style: normal; }
+    @font-face { font-family: "Moyu HanYi QiHei"; src: url("${EPUB_FONT_URLS.hanYiQiHeiHairline}") format("truetype"); font-weight: 100; font-style: normal; }
+    @font-face { font-family: "Moyu HanYi QiHei"; src: url("${EPUB_FONT_URLS.hanYiQiHeiUltraLight}") format("truetype"); font-weight: 200; font-style: normal; }
+    @font-face { font-family: "Moyu HanYi QiHei"; src: url("${EPUB_FONT_URLS.hanYiQiHeiLight}") format("truetype"); font-weight: 300; font-style: normal; }
+    @font-face { font-family: "Moyu HanYi QiHei"; src: url("${EPUB_FONT_URLS.hanYiQiHeiDemiBold}") format("truetype"); font-weight: 600; font-style: normal; }
+    @font-face { font-family: "Moyu HanYi QiHei"; src: url("${EPUB_FONT_URLS.hanYiQiHeiBlack}") format("truetype"); font-weight: 900; font-style: normal; }
+    @font-face { font-family: "Moyu HanYi QiHei"; src: url("${EPUB_FONT_URLS.hanYiQiHeiUltraBlack}") format("truetype"); font-weight: 950; font-style: normal; }
+    @font-face { font-family: "Moyu DF Song"; src: url("${EPUB_FONT_URLS.dfSongW3}") format("opentype"); font-weight: 300; font-style: normal; }
+    @font-face { font-family: "Moyu DF Song"; src: url("${EPUB_FONT_URLS.dfSongW5}") format("opentype"); font-weight: 400; font-style: normal; }
+    @font-face { font-family: "Moyu DF Song"; src: url("${EPUB_FONT_URLS.dfSongW7}") format("opentype"); font-weight: 700; font-style: normal; }
+    @font-face { font-family: "Moyu DF Song"; src: url("${EPUB_FONT_URLS.dfSongW9}") format("opentype"); font-weight: 800; font-style: normal; }
+    @font-face { font-family: "Moyu DF Song"; src: url("${EPUB_FONT_URLS.dfSongW12}") format("opentype"); font-weight: 900; font-style: normal; }
   `
   document.head.appendChild(style)
 }
