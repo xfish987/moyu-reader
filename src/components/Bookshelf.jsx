@@ -163,7 +163,7 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
 
   return (
     <aside className="category-sidebar">
-      <div className="category-sidebar-title"><span>书架分类</span><button onClick={() => setCreating(true)} title="新建分类"><Plus size={14} /></button></div>
+      <div className="category-sidebar-title"><span>书架分类</span><button onClick={() => setCreating(true)} title="新建分类" aria-label="新建分类"><Plus size={14} /></button></div>
       <nav>
         <button className={active === '全部书籍' ? 'active' : ''} onClick={() => onSelect('全部书籍')}><span>全部书籍</span><small>{counts.all}</small></button>
         <button className={active === RECENT_CATEGORY ? 'active' : ''} onClick={() => onSelect(RECENT_CATEGORY)}><span>最近在读</span><small>{counts.recent}</small></button>
@@ -180,7 +180,7 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
             <button onClick={cancelCreate} title="取消" aria-label="取消新建分类"><X size={14} /></button>
             <button onClick={submit} disabled={!name.trim()} title="确认" aria-label="确认新建分类"><Check size={14} /></button>
           </div>
-        ) : <button className="category-add-inline" onClick={() => setCreating(true)} title="新建分类" aria-label="新建分类"><Plus size={14} /></button>}
+        ) : null}
       </nav>
       {contextMenu ? <div className="category-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }}><button role="menuitem" onClick={() => { onDelete(contextMenu.category); setContextMenu(null) }}><Trash2 size={13} />删除分类</button></div> : null}
     </aside>

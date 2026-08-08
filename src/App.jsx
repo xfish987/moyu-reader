@@ -474,6 +474,11 @@ export default function App() {
     setHomeView('library')
   }, [])
 
+  const toggleAppearanceTheme = useCallback(() => setAppearance((current) => {
+    const normalized = normalizeAppearance(current)
+    return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night', activeSchemeId: '' }
+  }), [setAppearance])
+
   const appearanceStyle = {
     '--b-topbar-color': appearance.bars.top.color,
     '--b-topbar-opacity': `${appearance.bars.top.opacity * 100}%`,
@@ -497,7 +502,7 @@ export default function App() {
     <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
-      {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} /> : null}
+      {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} /> : null}
       {activeBook && source ? (
         <ReaderView
           book={activeBook}
@@ -555,10 +560,7 @@ export default function App() {
           onOpenAppearance={() => setAppearanceOpen(true)}
           onChooseDirectory={chooseDirectory}
           onClearAllData={clearReadingData}
-          onToggleTheme={() => setAppearance((current) => {
-            const normalized = normalizeAppearance(current)
-            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night', activeSchemeId: '' }
-          })}
+          onToggleTheme={toggleAppearanceTheme}
           onReorderCategories={reorderCategories}
           scrollMemory={homeScrollRef.current}
         />
@@ -604,10 +606,7 @@ export default function App() {
           onViewChange={setLibraryView}
           onOpenVirtualHome={() => setHomeView('virtual')}
           onOpenAppearance={() => setAppearanceOpen(true)}
-          onToggleTheme={() => setAppearance((current) => {
-            const normalized = normalizeAppearance(current)
-            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night', activeSchemeId: '' }
-          })}
+          onToggleTheme={toggleAppearanceTheme}
           appearanceTheme={appearance.theme}
           scrollMemory={homeScrollRef.current}
           onClearReadingData={clearReadingData}

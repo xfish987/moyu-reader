@@ -7,6 +7,56 @@ import { getReaderFontStack, installReaderFonts } from '../readerFonts'
 
 const boundViewDocuments = new WeakSet()
 
+function makeEpubPageTransparent(document, theme) {
+  if (!document) return
+  const colorScheme = theme === 'night' ? 'dark' : 'light'
+  for (const element of [document.documentElement, document.body]) {
+    element?.style?.setProperty('background-color', 'transparent', 'important')
+    element?.style?.setProperty('color-scheme', colorScheme, 'important')
+  }
+  const frame = document.defaultView?.frameElement
+  if (!frame) return
+  frame.setAttribute('allowtransparency', 'true')
+  frame.style?.setProperty('color-scheme', colorScheme)
+  let surface = frame
+  for (let depth = 0; surface && depth < 3; depth += 1, surface = surface.parentElement) {
+    surface.style?.setProperty('background-color', 'transparent', 'important')
+  }
+}
+
+function applyRenditionSettings(rendition, settings) {
+  if (!rendition) return
+  const fontFamily = getReaderFontStack(settings.fontFamily)
+  const textColor = settings.theme === 'night'
+    ? `rgba(232, 236, 239, ${settings.opacity})`
+    : `rgba(1, 22, 43, ${settings.opacity})`
+  rendition.themes.register('reader-settings', {
+    html: { 'background-color': 'transparent !important' },
+    body: {
+      'font-family': `${fontFamily} !important`,
+      'font-size': `${settings.fontSize}px !important`,
+      'line-height': `${settings.lineHeight} !important`,
+      'letter-spacing': `${settings.letterSpacing}px !important`,
+      color: `${textColor} !important`,
+      'background-color': 'transparent !important',
+    },
+    p: {
+      'font-weight': '400 !important',
+      'margin-top': '0 !important',
+      'margin-bottom': `${settings.paragraphGap}px !important`,
+      'text-align': 'justify !important',
+    },
+    'h1, h2, h3, h4, h5, h6': {
+      'font-family': `${fontFamily} !important`,
+      'font-weight': '700 !important',
+      'line-height': '1.45 !important',
+    },
+    'strong, b': { 'font-weight': '700 !important' },
+  })
+  rendition.themes.select('reader-settings')
+  for (const contents of rendition.getContents?.() || []) makeEpubPageTransparent(contents.document, settings.theme)
+}
+
 function decodeBase64(value) {
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)
@@ -140,6 +190,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   const shortcutRef = useRef(onShortcut)
   const wheelCallbackRef = useRef(onWheel)
   const dismissPanelRef = useRef(onDismissPanel)
+  const settingsRef = useRef(settings)
   if (initialDataRef.current !== data) {
     initialDataRef.current = data
     initialCfiRef.current = initialCfi
@@ -149,6 +200,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   shortcutRef.current = onShortcut
   wheelCallbackRef.current = onWheel
   dismissPanelRef.current = onDismissPanel
+  settingsRef.current = settings
 
   useEffect(() => {
     if (!hostRef.current) return undefined
@@ -162,17 +214,20 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
     })
     rendition.hooks.content.register((contents) => {
       installReaderFonts(contents.document)
-      if (!settings.scriptConversion || settings.scriptConversion === 'none') return
+      const currentSettings = settingsRef.current
+      makeEpubPageTransparent(contents.document, currentSettings.theme)
+      if (!currentSettings.scriptConversion || currentSettings.scriptConversion === 'none') return
       const document = contents.document
       const walker = document.createTreeWalker(document.body, document.defaultView.NodeFilter.SHOW_TEXT)
       let node = walker.nextNode()
       while (node) {
-        if (!['SCRIPT', 'STYLE'].includes(node.parentElement?.tagName)) node.nodeValue = convertChinese(node.nodeValue, settings.scriptConversion)
+        if (!['SCRIPT', 'STYLE'].includes(node.parentElement?.tagName)) node.nodeValue = convertChinese(node.nodeValue, currentSettings.scriptConversion)
         node = walker.nextNode()
       }
     })
     bookRef.current = book
     renditionRef.current = rendition
+    applyRenditionSettings(rendition, settings)
     locationsPromiseRef.current = null
     locationsReadyRef.current = false
     pagingRef.current = false
@@ -314,6 +369,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
     rendition.on('relocated', () => { selectionPayloadRef.current = null; setSelPopup(null); setNotePopup(null) })
 
     rendition.on('rendered', (section, view) => {
+      makeEpubPageTransparent(view.document, settingsRef.current.theme)
       // 'rendered' can fire again on the same document (resize, theme change,
       // direction switch) — bind listeners only once or every key/wheel event
       // would trigger multiple page turns.
@@ -436,38 +492,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   useEffect(() => {
     const rendition = renditionRef.current
     if (!rendition) return
-    const fontFamily = getReaderFontStack(settings.fontFamily)
-    const textColor = settings.theme === 'night'
-      ? `rgba(232, 236, 239, ${settings.opacity})`
-      : `rgba(1, 22, 43, ${settings.opacity})`
-    rendition.themes.register('reader-settings', {
-      // html 也要透明：不少 EPUB 把白底写在 html 上，只透明 body 会
-      // 让书页白纸叠在宿主纸页上，底部露出第二层纸。
-      html: {
-        'background-color': 'transparent !important',
-      },
-      body: {
-        'font-family': `${fontFamily} !important`,
-        'font-size': `${settings.fontSize}px !important`,
-        'line-height': `${settings.lineHeight} !important`,
-        'letter-spacing': `${settings.letterSpacing}px !important`,
-        color: `${textColor} !important`,
-        'background-color': 'transparent !important',
-      },
-      p: {
-        'font-weight': '400 !important',
-        'margin-top': '0 !important',
-        'margin-bottom': `${settings.paragraphGap}px !important`,
-        'text-align': 'justify !important',
-      },
-      'h1, h2, h3, h4, h5, h6': {
-        'font-family': `${fontFamily} !important`,
-        'font-weight': '700 !important',
-        'line-height': '1.45 !important',
-      },
-      'strong, b': { 'font-weight': '700 !important' },
-    })
-    rendition.themes.select('reader-settings')
+    applyRenditionSettings(rendition, settings)
   }, [settings])
 
   // 把带 CFI 的笔记渲染成正文里的评论标记，点击标记弹出评论卡片。

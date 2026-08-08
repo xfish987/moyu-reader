@@ -15,11 +15,11 @@ const BUILTIN_BACKGROUNDS = {
 const DEFAULT_OVERLAYS = {
   home: {
     mist: { startColor: '#d2dbec', startOpacity: 0.6, endColor: '#d2dbec', endOpacity: 0.6, angle: 90, midpoint: 0.5 },
-    night: { startColor: '#01162b', startOpacity: 0.5, endColor: '#01162b', endOpacity: 0.5, angle: 90, midpoint: 0.5 },
+    night: { startColor: '#01162b', startOpacity: 0.72, endColor: '#01162b', endOpacity: 0.61, angle: 90, midpoint: 0.5 },
   },
   reader: {
-    mist: { startColor: '#d2dbec', startOpacity: 0.8, endColor: '#d2dbec', endOpacity: 0.8, angle: 90, midpoint: 0.5 },
-    night: { startColor: '#01162b', startOpacity: 0.8, endColor: '#01162b', endOpacity: 0.8, angle: 90, midpoint: 0.5 },
+    mist: { startColor: '#d2dbec', startOpacity: 0.95, endColor: '#d2dbec', endOpacity: 0.83, angle: 90, midpoint: 0.5 },
+    night: { startColor: '#01162b', startOpacity: 0.95, endColor: '#01162b', endOpacity: 0.83, angle: 90, midpoint: 0.5 },
   },
 }
 
@@ -96,10 +96,12 @@ export const DEFAULT_APPEARANCE = {
   activeSchemeId: 'builtin-mist',
 }
 
-export const APPEARANCE_VERSION = 12
+export const APPEARANCE_VERSION = 13
 
 export function normalizeAppearance(value) {
   const current = value && typeof value === 'object' ? value : {}
+  const storedVersion = Number(current.v || 0)
+  const usesBuiltInScheme = !current.activeSchemeId || /^builtin-(mist|night)$/.test(current.activeSchemeId)
   const custom = Array.isArray(current.custom)
     ? current.custom.filter((asset) => asset?.assetPath).map((asset) => ({ ...asset, name: String(asset.name || asset.fileName || '自定义背景').trim().slice(0, 40) }))
     : []
@@ -113,11 +115,23 @@ export function normalizeAppearance(value) {
       const saved = previous.overlay?.[theme] || {}
       let legacyResolvedOpacity = clamp01(saved.opacity ?? legacyOpacity, defaults.startOpacity)
       if (scope === 'home' && theme === 'night' && Number(current.v || 0) < 9 && legacyResolvedOpacity === 0.4) legacyResolvedOpacity = 0.5
+      const migrateReaderPreset = scope === 'reader'
+        && storedVersion < 13
+        && usesBuiltInScheme
+        && clamp01(saved.startOpacity, legacyResolvedOpacity) === 0.8
+        && clamp01(saved.endOpacity, legacyResolvedOpacity) === 0.8
+      const migrateDarkHomePreset = scope === 'home'
+        && theme === 'night'
+        && storedVersion < 13
+        && usesBuiltInScheme
+        && clamp01(saved.startOpacity, legacyResolvedOpacity) === 0.5
+        && clamp01(saved.endOpacity, legacyResolvedOpacity) === 0.5
+      const migratePreset = migrateReaderPreset || migrateDarkHomePreset
       return [theme, {
         startColor: normalizeColor(saved.startColor ?? saved.color, defaults.startColor),
-        startOpacity: clamp01(saved.startOpacity, legacyResolvedOpacity),
+        startOpacity: migratePreset ? defaults.startOpacity : clamp01(saved.startOpacity, legacyResolvedOpacity),
         endColor: normalizeColor(saved.endColor ?? saved.color, defaults.endColor),
-        endOpacity: clamp01(saved.endOpacity, legacyResolvedOpacity),
+        endOpacity: migratePreset ? defaults.endOpacity : clamp01(saved.endOpacity, legacyResolvedOpacity),
         angle: normalizeAngle(saved.angle, defaults.angle),
         midpoint: normalizeMidpoint(saved.midpoint, defaults.midpoint),
       }]

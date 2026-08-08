@@ -971,7 +971,7 @@
 .ui-b .library-design-view .continue-reading em { color: #1c2b48; font: 500 8px/1 "Moyu Source Han Serif", serif; }
 .ui-b .library-catalog { width: min(1320px, 100%); margin: 0 auto; }
 .ui-b .library-design-view .category-sidebar { position: static; min-width: 0; margin-bottom: 19.2px; display: flex; align-items: center; gap: 8px; }
-.ui-b .library-design-view .category-sidebar-title { position: relative; width: 18px; height: 24px; flex: 0 0 18px; padding: 0; background: url("./assets/dark-shelf/manager-tag.svg") center / 12px 12px no-repeat; }
+.ui-b .library-design-view .category-sidebar-title { position: relative; width: 18px; height: 24px; flex: 0 0 18px; padding: 0; display: flex; background: url("./assets/dark-shelf/manager-tag.svg") center / 12px 12px no-repeat; }
 .ui-b .library-design-view .category-sidebar-title span { display: none; }
 .ui-b .library-design-view .category-sidebar-title button { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
 .ui-b .library-design-view .category-sidebar nav { min-width: 0; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; }
@@ -1284,6 +1284,7 @@
   mask: var(--window-icon) center / contain no-repeat;
 }
 .ui-b .window-action-icon.is-keyboard { width: 17px; height: 14px; }
+.ui-b .window-action-icon.is-theme { width: 16px; height: 16px; }
 
 .ui-b .v-bottom-dock {
   background: color-mix(in srgb, var(--b-bottombar-color, #1c2b48) var(--b-bottombar-opacity, 90%), transparent);
