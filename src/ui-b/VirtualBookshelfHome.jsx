@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MoonStar } from 'lucide-react'
 import AISettingsModal from '../components/AISettingsModal'
-import { countSpinesHiddenForExpansion, layoutShelfBooks, orderBooksByIds, hashSeed } from './shelfLayout'
+import { ALL_BOOKS_ORDER_KEY, countSpinesHiddenForExpansion, layoutShelfBooks, orderBooksByIds, orderBooksWithNewFirst, hashSeed } from './shelfLayout'
 import libraryIcon from './assets/dark-shelf/library.svg'
 import importIcon from './assets/dark-shelf/import.svg'
 import notesIcon from './assets/dark-shelf/notes.svg'
@@ -251,7 +251,7 @@ export default function VirtualBookshelfHome({ books, progressMap, statusMap, co
     const result = []
     const recent = recentBookIds.map((id) => byId.get(id)).filter(Boolean).filter(matches)
     if (recent.length) result.push({ key: 'recent', label: '最近在读', managementKey: 'recent', books: recent, totalCount: recent.length })
-    const all = books.filter(matches)
+    const all = orderBooksWithNewFirst(books, categoryBookOrder[ALL_BOOKS_ORDER_KEY]).filter(matches)
     if (all.length) result.push({ key: 'all', label: '全部', managementKey: 'all', books: all, totalCount: books.length })
     const unreadAll = books.filter((book) => getStatus(book, progressMap, statusMap) === 'unread')
     const unread = unreadAll.filter(matches)

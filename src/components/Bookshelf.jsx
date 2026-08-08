@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Plus, RefreshCw, Rows3, ServerCog, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
-import { moveBeforeOrAfter, orderBooksByIds } from '../ui-b/shelfLayout'
+import { ALL_BOOKS_ORDER_KEY, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst } from '../ui-b/shelfLayout'
 import CoverEditor from './CoverEditor'
 import NotesLibrary from './NotesLibrary'
 import AISettingsModal from './AISettingsModal'
@@ -227,7 +227,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const [managedBook, setManagedBook] = useState(null)
   const [coverBook, setCoverBook] = useState(null)
   const [query, setQuery] = useState('')
-  const [sortBy, setSortBy] = useState('recent')
+  const [sortBy, setSortBy] = useState('custom')
   const [layout, setLayout] = useState('grid')
   const [statusFilter, setStatusFilter] = useState('all')
   const [selecting, setSelecting] = useState(false)
@@ -263,7 +263,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
       setStatusFilter('all')
     } else {
       setActiveCategory('全部书籍')
-      setSortBy('recent')
+      setSortBy('custom')
       setStatusFilter('all')
     }
   }, [navigationTarget])
@@ -282,6 +282,9 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   }, { all: 0, recent: recentBookIds.filter((id) => books.some((book) => book.id === id)).length, unread: 0, uncategorized: 0 })
 
   const isCustomCategory = categories.includes(activeCategory)
+  const isAllBooks = activeCategory === '全部书籍'
+  const isReorderableCategory = isAllBooks || isCustomCategory
+  const bookOrderKey = isAllBooks ? ALL_BOOKS_ORDER_KEY : activeCategory
   const filteredBooks = books.filter((book) => {
     const category = tagsMap[book.id]?.[0]
     const status = statusMap[book.id] || (progressMap[book.id]?.percent > 0 ? 'reading' : 'unread')
@@ -290,8 +293,10 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     const matchesQuery = !needle || `${book.title} ${book.author || ''} ${book.path}`.toLocaleLowerCase('zh-CN').includes(needle)
     return matchesCategory && matchesQuery && (statusFilter === 'all' || status === statusFilter)
   })
-  const visibleBooks = (sortBy === 'custom' && isCustomCategory ? orderBooksByIds(filteredBooks, categoryBookOrder[activeCategory]) : [...filteredBooks]).sort((a, b) => {
-    if (sortBy === 'custom' && isCustomCategory) return 0
+  const visibleBooks = (sortBy === 'custom' && isReorderableCategory
+    ? (isAllBooks ? orderBooksWithNewFirst(filteredBooks, categoryBookOrder[bookOrderKey]) : orderBooksByIds(filteredBooks, categoryBookOrder[bookOrderKey]))
+    : [...filteredBooks]).sort((a, b) => {
+    if (sortBy === 'custom' && isReorderableCategory) return 0
     if (sortBy === 'title') return a.title.localeCompare(b.title, 'zh-CN')
     if (sortBy === 'progress') return (progressMap[b.id]?.percent || 0) - (progressMap[a.id]?.percent || 0)
     if (sortBy === 'modified') return b.modifiedAt - a.modifiedAt
@@ -312,12 +317,12 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
 
   const selectCategory = (category) => {
     setActiveCategory(category)
-    setSortBy(categories.includes(category) ? 'custom' : 'recent')
+    setSortBy(category === '全部书籍' || categories.includes(category) ? 'custom' : 'recent')
   }
 
   const refreshDirectory = () => {
     setActiveCategory('全部书籍')
-    setSortBy('modified')
+    setSortBy('custom')
     setStatusFilter('all')
     setQuery('')
     onRefresh?.()
@@ -334,11 +339,13 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   }
 
   const reorderBook = (source, target, position) => {
-    if (!isCustomCategory || source === target) return
-    const members = books.filter((book) => tagsMap[book.id]?.[0] === activeCategory)
-    const completeOrder = orderBooksByIds(members, categoryBookOrder[activeCategory]).map((book) => book.id)
+    if (!isReorderableCategory || source === target) return
+    const members = isAllBooks ? books : books.filter((book) => tagsMap[book.id]?.[0] === activeCategory)
+    const completeOrder = (isAllBooks
+      ? orderBooksWithNewFirst(members, categoryBookOrder[bookOrderKey])
+      : orderBooksByIds(members, categoryBookOrder[bookOrderKey])).map((book) => book.id)
     const next = moveBeforeOrAfter(completeOrder, source, target, position)
-    setCategoryBookOrder?.((current) => ({ ...current, [activeCategory]: next }))
+    setCategoryBookOrder?.((current) => ({ ...current, [bookOrderKey]: next }))
     setSortBy('custom')
   }
 
@@ -370,7 +377,9 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     event.preventDefault()
     event.stopPropagation()
     const source = event.dataTransfer.getData('text/book-id') || event.dataTransfer.getData('text/plain').replace(/^book:/, '') || draggingBook
-    if (source) reorderBook(source, target, bookDropState?.target === target ? bookDropState.position : 'before')
+    const rect = event.currentTarget.getBoundingClientRect()
+    const before = layout === 'list' ? event.clientY < rect.top + rect.height / 2 : event.clientX < rect.left + rect.width / 2
+    if (source) reorderBook(source, target, before ? 'before' : 'after')
     setDraggingBook('')
     setBookDropState(null)
   }
@@ -413,7 +422,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
             {selecting ? <div className="batch-bar"><span>已选 {selectedIds.length} 本</span><button onClick={() => setSelectedIds(visibleBooks.map((book) => book.id))}>全选当前结果</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('unread')}>设为未读</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('reading')}>设为阅读中</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('finished')}>设为已读完</button><button className="danger" disabled={!selectedIds.length} onClick={removeSelected}>移出书架</button></div> : null}
             {visibleBooks.length ? (
               <div className="book-grid is-grid">
-                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={!selecting && sortBy === 'custom' && isCustomCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
+                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={!selecting && sortBy === 'custom' && isReorderableCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
               </div>
             ) : <div className="empty-filter">这个分类里还没有书</div>}
           </section>

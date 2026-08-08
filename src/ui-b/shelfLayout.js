@@ -1,4 +1,5 @@
 export const SPINE_COLORS = ['#091831', '#042b58', '#2a5d85', '#7394b7', '#d0e5ef']
+export const ALL_BOOKS_ORDER_KEY = '__all_books__'
 const SPINE_WIDTHS = [17, 13, 17, 17]
 export const MAX_SECTION_GAP = 22.07
 const MIN_SECTION_GAP = 12
@@ -108,6 +109,14 @@ export function orderBooksByIds(books, orderedIds = []) {
     if (!seen.has(book.id)) ordered.push(book)
   }
   return ordered
+}
+
+export function orderBooksWithNewFirst(books, orderedIds = []) {
+  if (!orderedIds.length) return [...books]
+  const knownIds = new Set(orderedIds)
+  const newBooks = books.filter((book) => !knownIds.has(book.id))
+  const knownBooks = books.filter((book) => knownIds.has(book.id))
+  return [...newBooks, ...orderBooksByIds(knownBooks, orderedIds)]
 }
 
 export function moveBeforeOrAfter(values, source, target, position = 'before') {
