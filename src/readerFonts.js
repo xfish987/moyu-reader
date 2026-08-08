@@ -90,40 +90,14 @@ export function normalizeEpubFontOverride(value, fallback = 'serif') {
   const fallbackFont = normalizeReaderFontFamily(fallback)
   const titleFont = normalizeReaderFontFamily(value?.titleFont, fallbackFont)
   const bodyFont = normalizeReaderFontFamily(value?.bodyFont, fallbackFont)
-  const boldFont = normalizeReaderFontFamily(value?.boldFont, fallbackFont)
-  const italicFont = normalizeReaderFontFamily(value?.italicFont, fallbackFont)
   return {
-    enabled: Boolean(value?.enabled),
+    active: value !== null && value !== undefined,
+    force: Boolean(value?.force ?? value?.enabled),
     titleFont,
     titleWeight: getNearestReaderFontWeight(titleFont, value?.titleWeight, 700),
     bodyFont,
     bodyWeight: getNearestReaderFontWeight(bodyFont, value?.bodyWeight, 400),
-    boldFont,
-    boldWeight: getNearestReaderFontWeight(boldFont, value?.boldWeight, 700),
-    italicFont,
-    italicWeight: getNearestReaderFontWeight(italicFont, value?.italicWeight, 400),
   }
-}
-
-export function detectEpubFontFeatures(document) {
-  const features = {
-    bold: Boolean(document?.querySelector?.('strong, b')),
-    italic: Boolean(document?.querySelector?.('em, i')),
-  }
-  const inspectRules = (rules) => {
-    for (const rule of rules || []) {
-      const weight = String(rule.style?.getPropertyValue?.('font-weight') || '').toLowerCase()
-      const style = String(rule.style?.getPropertyValue?.('font-style') || '').toLowerCase()
-      if (/\bbold\b|\b[6-9]00\b/.test(weight)) features.bold = true
-      if (/\bitalic\b|\boblique\b/.test(style)) features.italic = true
-      try { inspectRules(rule.cssRules) } catch {}
-    }
-  }
-  for (const sheet of document?.styleSheets || []) {
-    if (sheet.ownerNode?.id === 'moyu-reader-fonts' || sheet.ownerNode?.id?.startsWith('epubjs-inserted-css-')) continue
-    try { inspectRules(sheet.cssRules) } catch {}
-  }
-  return features
 }
 
 const READER_FONT_STACKS = {

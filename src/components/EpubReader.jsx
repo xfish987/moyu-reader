@@ -4,7 +4,7 @@ import { NotePopup, SelectionPopup } from './NotePopups'
 import { truncateCompanionText } from './TextReader'
 import { convertChinese, searchVariants } from '../chineseConversion'
 import { inspectEpubPageDirection, resolveEpubReadingDirection } from '../epubDirection'
-import { detectEpubFontFeatures, getReaderFontStack, installReaderFonts, normalizeEpubFontOverride } from '../readerFonts'
+import { getNearestReaderFontWeight, getReaderFontStack, installReaderFonts, normalizeEpubFontOverride } from '../readerFonts'
 
 const boundViewDocuments = new WeakSet()
 
@@ -30,8 +30,9 @@ function applyRenditionSettings(rendition, settings, fontOverride) {
   const override = normalizeEpubFontOverride(fontOverride, settings.fontFamily)
   const titleFontFamily = getReaderFontStack(override.titleFont)
   const bodyFontFamily = getReaderFontStack(override.bodyFont)
-  const boldFontFamily = getReaderFontStack(override.boldFont)
-  const italicFontFamily = getReaderFontStack(override.italicFont)
+  const bodyBoldWeight = getNearestReaderFontWeight(override.bodyFont, 700, 700)
+  const priority = override.force ? ' !important' : ''
+  const fontValue = (value) => `${value}${priority}`
   const textColor = settings.theme === 'night'
     ? `rgba(232, 236, 239, ${settings.opacity})`
     : `rgba(1, 22, 43, ${settings.opacity})`
@@ -40,7 +41,7 @@ function applyRenditionSettings(rendition, settings, fontOverride) {
   }
   rendition.themes.register('reader-settings', {
     html: { 'background-color': 'transparent !important' },
-    ...(override.enabled ? {
+    ...(override.active && override.force ? {
       'body, body *': {
         'font-family': `${bodyFontFamily} !important`,
         'font-weight': `${override.bodyWeight} !important`,
@@ -49,6 +50,11 @@ function applyRenditionSettings(rendition, settings, fontOverride) {
       },
     } : {}),
     body: {
+      ...(override.active && !override.force ? {
+        'font-family': bodyFontFamily,
+        'font-weight': `${override.bodyWeight}`,
+        'font-synthesis': 'weight style',
+      } : {}),
       'font-size': `${settings.fontSize}px !important`,
       'line-height': `${settings.lineHeight} !important`,
       'letter-spacing': `${settings.letterSpacing}px !important`,
@@ -70,10 +76,10 @@ function applyRenditionSettings(rendition, settings, fontOverride) {
       'word-break': 'normal !important',
     },
     'body h1, body h2, body h3, body h4, body h5, body h6': {
-      ...(override.enabled ? {
-        'font-family': `${titleFontFamily} !important`,
-        'font-weight': `${override.titleWeight} !important`,
-        'letter-spacing': '.1em !important',
+      ...(override.active ? {
+        'font-family': fontValue(titleFontFamily),
+        'font-weight': fontValue(override.titleWeight),
+        'letter-spacing': fontValue('.1em'),
       } : {}),
       'line-height': '1.45 !important',
       'text-indent': '0 !important',
@@ -83,10 +89,10 @@ function applyRenditionSettings(rendition, settings, fontOverride) {
       'break-after': 'avoid !important',
     },
     'body h1, body h2, body p.title, body div.title, body .chapter-title, body .chapter_title, body .chaptertitle': {
-      ...(override.enabled ? {
-        'font-family': `${titleFontFamily} !important`,
-        'font-weight': `${override.titleWeight} !important`,
-        'letter-spacing': '.1em !important',
+      ...(override.active ? {
+        'font-family': fontValue(titleFontFamily),
+        'font-weight': fontValue(override.titleWeight),
+        'letter-spacing': fontValue('.1em'),
       } : {}),
       'font-size': '1.55em !important',
       'line-height': '1.45 !important',
@@ -102,15 +108,15 @@ function applyRenditionSettings(rendition, settings, fontOverride) {
       'page-break-after': 'avoid !important',
       'break-after': 'avoid !important',
     },
-    ...(override.enabled ? {
+    ...(override.active ? {
       'body strong, body b': {
-        'font-family': `${boldFontFamily} !important`,
-        'font-weight': `${override.boldWeight} !important`,
+        'font-family': fontValue(bodyFontFamily),
+        'font-weight': fontValue(bodyBoldWeight),
       },
       'body em, body i': {
-        'font-family': `${italicFontFamily} !important`,
-        'font-weight': `${override.italicWeight} !important`,
-        'font-style': 'italic !important',
+        'font-family': fontValue(bodyFontFamily),
+        'font-weight': fontValue(override.bodyWeight),
+        'font-style': fontValue('italic'),
       },
     } : {}),
   })
@@ -204,7 +210,7 @@ function hasReadableContent(document) {
   return Boolean(visibleBodyText(body))
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, onFontFeatures, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, onDismissPanel }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, onDismissPanel }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -234,8 +240,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   const wheelCallbackRef = useRef(onWheel)
   const dismissPanelRef = useRef(onDismissPanel)
   const settingsRef = useRef(settings)
-  const fontFeaturesCallbackRef = useRef(onFontFeatures)
-  const detectedFontFeaturesRef = useRef({ bold: false, italic: false })
   if (initialDataRef.current !== data) {
     initialDataRef.current = data
     initialCfiRef.current = initialCfi
@@ -246,7 +250,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   wheelCallbackRef.current = onWheel
   dismissPanelRef.current = onDismissPanel
   settingsRef.current = settings
-  fontFeaturesCallbackRef.current = onFontFeatures
 
   useEffect(() => {
     if (!hostRef.current) return undefined
@@ -259,16 +262,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
       manager: 'default',
     })
     rendition.hooks.content.register((contents) => {
-      const detected = detectEpubFontFeatures(contents.document)
-      const currentFeatures = detectedFontFeaturesRef.current
-      const nextFeatures = {
-        bold: currentFeatures.bold || detected.bold,
-        italic: currentFeatures.italic || detected.italic,
-      }
-      if (nextFeatures.bold !== currentFeatures.bold || nextFeatures.italic !== currentFeatures.italic) {
-        detectedFontFeaturesRef.current = nextFeatures
-        fontFeaturesCallbackRef.current?.(nextFeatures)
-      }
       installReaderFonts(contents.document)
       const currentSettings = settingsRef.current
       makeEpubPageTransparent(contents.document, currentSettings.theme)
@@ -289,7 +282,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     pagingRef.current = false
     readingRtlRef.current = false
     appliedDirectionRef.current = null
-    detectedFontFeaturesRef.current = { bold: false, italic: false }
     let disposed = false
     let resizeFrame = null
     let measuredWidth = 0

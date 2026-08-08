@@ -31,15 +31,21 @@ function FontSelect({ label, value, weight, onChange, onWeightChange }) {
   )
 }
 
-export default function ReaderSettings({ settings, onChange, encoding, onEncodingChange, epubFontOverride, epubFontFeatures = {}, onEpubFontOverrideChange }) {
+export default function ReaderSettings({ settings, onChange, encoding, onEncodingChange, epubFontOverride, onEpubFontOverrideChange }) {
   const set = (key, value) => onChange((current) => ({ ...current, [key]: value }))
   const setMany = (patch) => onChange((current) => ({ ...current, ...patch }))
   const isEpub = epubFontOverride !== undefined
   const override = normalizeEpubFontOverride(epubFontOverride, settings.fontFamily)
   const setOverride = (patch) => onEpubFontOverrideChange?.((current) => ({
     ...normalizeEpubFontOverride(current, settings.fontFamily),
+    active: true,
     ...patch,
   }))
+  const setOverrideBold = (role, checked) => {
+    const fontKey = `${role}Font`
+    const weightKey = `${role}Weight`
+    setOverride({ [weightKey]: getNearestReaderFontWeight(override[fontKey], checked ? 700 : 400, checked ? 700 : 400) })
+  }
   return (
     <aside className="settings-panel">
       <div className="settings-title"><Type size={16} /><strong>阅读设置</strong></div>
@@ -66,17 +72,17 @@ export default function ReaderSettings({ settings, onChange, encoding, onEncodin
         <section className="epub-font-override">
           <div className="setting-row">
             <div><Type size={15} /><span>强制替换为选定字体</span></div>
-            <button className={`setting-toggle ${override.enabled ? 'active' : ''}`} role="switch" aria-checked={override.enabled} onClick={() => setOverride({ enabled: !override.enabled })}><span /></button>
+            <button className={`setting-toggle ${override.force ? 'active' : ''}`} role="switch" aria-checked={override.force} onClick={() => setOverride({ force: !override.force })}><span /></button>
           </div>
-          {override.enabled ? (
-            <div className="epub-font-options">
-              <FontSelect label="标题 / 章节" value={override.titleFont} weight={override.titleWeight} onChange={(font, weight) => setOverride({ titleFont: font, titleWeight: weight })} onWeightChange={(value) => setOverride({ titleWeight: value })} />
-              <FontSelect label="正文" value={override.bodyFont} weight={override.bodyWeight} onChange={(font, weight) => setOverride({ bodyFont: font, bodyWeight: weight })} onWeightChange={(value) => setOverride({ bodyWeight: value })} />
-              {epubFontFeatures.bold ? <FontSelect label="粗体" value={override.boldFont} weight={override.boldWeight} onChange={(font, weight) => setOverride({ boldFont: font, boldWeight: weight })} onWeightChange={(value) => setOverride({ boldWeight: value })} /> : null}
-              {epubFontFeatures.italic ? <FontSelect label="斜体" value={override.italicFont} weight={override.italicWeight} onChange={(font, weight) => setOverride({ italicFont: font, italicWeight: weight })} onWeightChange={(value) => setOverride({ italicWeight: value })} /> : null}
-              <button className="epub-font-reset" onClick={() => onEpubFontOverrideChange?.(null)}><RotateCcw size={13} />重置</button>
+          <div className="epub-font-options">
+            <FontSelect label="标题 / 章节" value={override.titleFont} weight={override.titleWeight} onChange={(font, weight) => setOverride({ titleFont: font, titleWeight: weight })} onWeightChange={(value) => setOverride({ titleWeight: value })} />
+            <FontSelect label="正文" value={override.bodyFont} weight={override.bodyWeight} onChange={(font, weight) => setOverride({ bodyFont: font, bodyWeight: weight })} onWeightChange={(value) => setOverride({ bodyWeight: value })} />
+            <div className="epub-bold-options">
+              <label className="epub-bold-option"><input type="checkbox" checked={override.titleWeight >= 600} onChange={(event) => setOverrideBold('title', event.target.checked)} /><span>标题粗体</span></label>
+              <label className="epub-bold-option"><input type="checkbox" checked={override.bodyWeight >= 600} onChange={(event) => setOverrideBold('body', event.target.checked)} /><span>正文粗体</span></label>
             </div>
-          ) : null}
+            <button className="epub-font-reset" onClick={() => onEpubFontOverrideChange?.(null)}><RotateCcw size={13} />重置</button>
+          </div>
         </section>
       )}
       {encoding ? (
