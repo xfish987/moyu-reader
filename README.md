@@ -1,15 +1,27 @@
 # 墨读阅读器
 
-墨读是一款面向 Windows 的本地 TXT / EPUB 阅读器。书籍内容、阅读进度和笔记默认保存在本机，不需要注册账号。只有当用户主动使用“查看资料”时，应用才会把当前阅读位置之前的相关正文片段发送给用户自行配置的 AI 供应商；不会发送后续章节。
+墨读是一款面向 Windows 和 Android 的本地 TXT / EPUB 阅读器。书籍内容、阅读进度和笔记默认保存在本机，不需要注册账号。只有当用户主动使用 AI 功能时，应用才会把当前阅读位置之前的相关正文片段发送给用户自行配置的 AI 供应商；不会发送后续章节。
 
 ## 下载与使用
 
 1. 打开项目的 **Releases** 页面。
-2. 下载最新版本的 `MoyuReader-版本号.exe`。
-3. 双击运行，无需安装。
-4. 点击“添加书籍”选择 TXT / EPUB，或点击“选择目录”扫描整个书籍文件夹。
+2. Windows 免安装使用下载 `MoyuReader-版本号.exe`，安装使用下载 `MoyuReader-版本号-Setup.msi`。
+3. Android 下载 `MoyuReader-版本号-android.apk`，允许浏览器或文件管理器安装未知来源应用后完成安装。
+4. 在应用中导入 TXT / EPUB；Android 会打开系统文件选择器，不需要授予“管理所有文件”权限。
 
 当前发行包没有商业代码签名。Windows SmartScreen 首次运行时可能显示安全提示，请确认文件来自本项目的 GitHub Release 后选择继续运行。
+
+Android 版使用独立发布密钥签名。Android 12 及更早版本声明只读存储权限；Android 13 及更高版本使用系统文件选择器授权单个书籍或背景图片，不申请宽泛的全部文件访问权限。导入的书籍和背景会保存为应用私有副本，重启后仍可阅读。
+
+## Android 触控操作
+
+- 点按书籍立即进入全屏阅读。
+- 阅读页左侧点按上一页，右侧点按下一页；音量上键上一页，音量下键下一页。
+- 点按正文中间区域，同时显示或隐藏顶部工具栏、底部进度条和 AI 陪读状态栏。
+- AI 陪读开启后，“停止 AI 陪读”只出现在顶部的“更多”菜单。
+- 书脊在按住时短暂展开封面，松开后打开阅读；近期书籍继续使用正面封面。
+- 管理视图点齿轮进入/退出排序模式；长按书封打开分类、修改封面、重新定位和删除本地副本操作页。
+- Windows 的资料卡、字典和陪读独立窗口在 Android 上改为应用内全屏页面。
 
 ## 主要功能
 
@@ -58,7 +70,7 @@
 
 应用写入数据前会在同目录的 `backups` 文件夹生成备份，并保留最近 10 份。书架顶部的导入/导出按钮可以生成可迁移的 JSON 备份。
 
-AI 供应商配置另存于同一数据目录的 `ai-settings.json`。API Key 使用 Electron 调用 Windows 系统安全存储加密；界面只能看到“已保存”状态，无法读回 Key。阅读数据导出不会包含 API Key。供应商 URL 默认必须使用 HTTPS，仅本机 `localhost` / 回环地址允许 HTTP；应用会拒绝携带 Key 的 HTTP 重定向。
+AI 供应商配置在 Windows 另存于同一数据目录的 `ai-settings.json`，Android 则保存在应用私有数据中。API Key 在 Windows 使用系统安全存储加密，在 Android 使用 Android Keystore 的 AES-GCM 密钥加密；界面只能看到“已保存”状态，无法读回 Key。阅读数据导出不会包含 API Key。供应商 URL 默认必须使用 HTTPS，仅本机 `localhost` / 回环地址允许 HTTP；应用会拒绝携带 Key 的 HTTP 重定向。Android 的模型拉取和对话请求使用原生 HTTP 通道，不受 WebView CORS 限制。
 
 “生成资料”会把已读范围内命中的片段、已确认的名称关联规则和所选名称发送到当前 AI 供应商（增量更新时还会附带上一份资料卡的内容）。该功能不会进行外部资料检索。不同供应商如何保存和处理请求数据，取决于用户选择的供应商政策。
 
@@ -66,7 +78,7 @@ AI 供应商配置另存于同一数据目录的 `ai-settings.json`。API Key �
 
 从旧版本升级时，应用会自动把原有 `localStorage` 数据迁移到新的磁盘存储中。
 
-> 阅读器不会复制原始 TXT / EPUB 文件。文件在已扫描目录中改名或移动后，刷新书架即可重新识别；目录外的文件可在“整理书籍”中选择“重新定位”。
+> Windows 版不会复制原始 TXT / EPUB 文件。文件在已扫描目录中改名或移动后，刷新书架即可重新识别；目录外的文件可在“整理书籍”中选择“重新定位”。Android 版通过系统选择器导入应用私有副本，因此删除本地副本不会修改系统中的原文件。
 
 ## 快捷键
 
@@ -103,15 +115,24 @@ pnpm run dist
 
 构建结果位于 `release/MoyuReader-版本号.exe`。
 
+构建 Android APK（需要 JDK 21 和 Android SDK 36）：
+
+```powershell
+npm run android:apk
+```
+
+正式 APK 通过 `MOYU_ANDROID_KEYSTORE`、`MOYU_ANDROID_STORE_PASSWORD`、`MOYU_ANDROID_KEY_ALIAS` 和 `MOYU_ANDROID_KEY_PASSWORD` 四个环境变量注入签名配置；签名文件和口令不应提交到仓库。
+
 ## 项目结构
 
 ```text
-electron/    Electron 主进程、文件读取、持久化与系统窗口接口
-src/         React 界面和 TXT / EPUB 阅读器
+electron/    Electron 主进程、Windows 文件读取、持久化与系统窗口接口
+android/     Capacitor Android 工程、音量键与 Keystore 原生桥接
+src/         React 界面、移动端平台接口和 TXT / EPUB 阅读器
 assets/      应用图标
 test-*       大文本分块、多编码、繁简转换与资料身份规则回归测试
 ```
 
 ## 当前定位
 
-墨读专注于 Windows 本地 TXT / EPUB 阅读体验。
+墨读专注于 Windows 与 Android 的本地 TXT / EPUB 阅读体验。

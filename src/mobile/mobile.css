@@ -1,0 +1,321 @@
+.moyu-mobile,
+.moyu-mobile body,
+.moyu-mobile #root {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.moyu-mobile .app-shell {
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.moyu-mobile button,
+.moyu-mobile [role="button"] {
+  touch-action: manipulation;
+}
+
+.moyu-mobile .app-notice {
+  top: max(12px, env(safe-area-inset-top));
+}
+
+/* Touch selection actions replace Electron's native context menu. */
+.mobile-action-backdrop {
+  position: fixed;
+  z-index: 300;
+  inset: 0;
+  padding: 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(1, 22, 43, .46);
+}
+
+.mobile-action-sheet {
+  width: min(100%, 480px);
+  padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+  border: 1px solid var(--line-strong);
+  border-radius: 8px 8px 4px 4px;
+  display: grid;
+  gap: 2px;
+  background: var(--surface, #e8ecef);
+  color: var(--ink, #01162b);
+  box-shadow: 0 18px 54px rgba(1, 22, 43, .32);
+}
+
+.mobile-action-sheet > strong {
+  min-height: 42px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  color: var(--ink-2, #1c2b48);
+  font-size: 13px;
+}
+
+.mobile-action-sheet > button {
+  min-height: 48px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.mobile-action-sheet > button:active { background: rgba(92, 127, 162, .14); }
+.mobile-action-sheet > button:disabled { opacity: .35; }
+.mobile-action-sheet > button.is-cancel { margin-top: 6px; border-top: 1px solid var(--line); text-align: center; }
+
+/* Virtual shelf: covers remain visible, real spines keep a 44px touch slot. */
+.moyu-mobile .ui-b .v-library-toolbar {
+  height: 116px;
+  padding: max(12px, env(safe-area-inset-top)) 12px 10px;
+}
+
+.moyu-mobile .ui-b .v-library-toolbar-top,
+.moyu-mobile .ui-b .v-library-search { width: 100%; }
+.moyu-mobile .ui-b .v-home-actions { gap: 4px; }
+.moyu-mobile .ui-b .v-home-actions > button { min-width: 44px; min-height: 44px; }
+.moyu-mobile .ui-b .v-bookshelf-scene { padding: 116px 10px calc(58px + env(safe-area-inset-bottom)); }
+.moyu-mobile .ui-b .v-shelf-stack { padding: 18px 0 28px; gap: 22px; }
+.moyu-mobile .ui-b .v-shelf-row { min-height: 190px; }
+.moyu-mobile .ui-b .v-shelf-heading { height: 38px; padding-inline: 4px; }
+.moyu-mobile .ui-b .v-shelf-heading > button { min-width: 72px; min-height: 44px; justify-content: flex-end; }
+.moyu-mobile .ui-b .v-shelf-heading > strong { min-height: 32px; }
+.moyu-mobile .ui-b .v-shelf-books {
+  height: calc(var(--cover-height) + 12px);
+  padding: 4px 4px 0;
+  justify-content: flex-start;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  touch-action: pan-x;
+}
+
+.moyu-mobile .ui-b .v-face-book { scroll-snap-align: start; }
+.moyu-mobile .ui-b .v-face-book:hover { transform: none; }
+.moyu-mobile .ui-b .v-face-book:active { transform: scale(.97); }
+.moyu-mobile .ui-b .v-face-book.is-expanded .v-face-closed,
+.moyu-mobile .ui-b .v-face-book.is-expanded .v-face-open { transform: none; opacity: 1; }
+.moyu-mobile .ui-b .v-face-book .v-face-open { display: none; }
+.moyu-mobile .ui-b .v-spine-group { margin-left: 2px; gap: 0; }
+.moyu-mobile .ui-b .v-spine {
+  width: 44px !important;
+  min-width: 44px !important;
+  flex-basis: 44px !important;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  scroll-snap-align: start;
+}
+.moyu-mobile .ui-b .v-spine-art {
+  right: auto;
+  left: 50%;
+  width: var(--spine-wide-width, 17px);
+  transform: translateX(-50%);
+}
+.moyu-mobile .ui-b .v-spine-1 .v-spine-art { width: var(--spine-narrow-width, 13px); }
+.moyu-mobile .ui-b .v-spine:hover { transform: none; }
+.moyu-mobile .ui-b .v-spine:active .v-spine-art { opacity: 0; }
+.moyu-mobile .ui-b .v-spine:active .v-spine-reveal {
+  left: 50%;
+  right: auto;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) rotateY(0);
+  transition: opacity 90ms ease-out, transform 150ms ease-out;
+}
+.moyu-mobile .ui-b .v-spine-reveal { pointer-events: none; }
+.moyu-mobile .ui-b .v-bottom-dock {
+  height: calc(52px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.moyu-mobile .ui-b .v-dock-side { height: 52px; }
+.moyu-mobile .ui-b .v-bottom-dock button { width: 44px; min-width: 44px; height: 48px; }
+
+/* Management mode: no hover-only controls; long press opens the bottom sheet. */
+.moyu-mobile .ui-b .library-design-view .shelf-workspace {
+  padding: max(18px, env(safe-area-inset-top)) 14px calc(68px + env(safe-area-inset-bottom));
+}
+.moyu-mobile .ui-b .library-design-header { min-height: 52px; grid-template-columns: 1fr; margin-bottom: 5px; }
+.moyu-mobile .ui-b .library-head-actions { width: 100%; gap: 4px; }
+.moyu-mobile .ui-b .library-head-actions > button { width: 44px; height: 44px; padding: 0; align-items: center; }
+.moyu-mobile .ui-b .library-design-search { min-width: 0; width: auto; flex: 1; height: 42px; }
+.moyu-mobile .ui-b .library-design-view .category-sidebar { margin-bottom: 12px; overflow-x: auto; }
+.moyu-mobile .ui-b .library-design-view .category-sidebar nav > button,
+.moyu-mobile .ui-b .library-design-view .category-row { min-height: 44px; }
+.moyu-mobile .ui-b .library-design-view .category-sidebar nav > button,
+.moyu-mobile .ui-b .library-design-view .category-row > button:first-of-type { height: 44px; padding-inline: 13px; font-size: 11px; }
+.moyu-mobile .ui-b .library-design-view .category-heading { min-height: 38px; margin-bottom: 12px; }
+.moyu-mobile .ui-b .library-design-view .category-heading h2 { font-size: 18px; }
+.moyu-mobile .ui-b .book-order-toggle { width: 44px; height: 44px; flex-basis: 44px; }
+.moyu-mobile .ui-b .library-design-view .category-books .book-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px 13px; }
+.moyu-mobile .ui-b .library-design-view .book-info { padding-top: 7px; }
+.moyu-mobile .ui-b .library-design-view .book-info strong { font-size: 11px; }
+.moyu-mobile .ui-b .library-design-view .cover-edit,
+.moyu-mobile .ui-b .library-design-view .book-manage { display: none !important; }
+.moyu-mobile .ui-b .book-reorder-handle { width: 44px; height: 44px; top: 0; left: 0; }
+.moyu-mobile .manager-backdrop {
+  padding: 16px;
+  align-items: end;
+}
+.moyu-mobile .book-manager {
+  width: 100%;
+  max-height: min(78vh, 680px);
+  border-radius: 8px 8px 3px 3px;
+}
+.moyu-mobile .book-manager button { min-height: 44px; }
+.moyu-mobile .book-manager footer:not(.confirming-delete) { display: block; padding: 10px 12px max(10px, env(safe-area-inset-bottom)); }
+.moyu-mobile .book-manager .manager-footer-actions { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.moyu-mobile .book-manager .manager-footer-actions > button { min-width: 0; padding-inline: 4px; justify-content: center; gap: 4px; font-size: 11px; }
+.moyu-mobile .book-manager footer:not(.confirming-delete) > span { min-height: 22px; padding-top: 5px; display: block; text-align: center; }
+.moyu-mobile .book-manager footer.confirming-delete { padding: 14px 12px max(14px, env(safe-area-inset-bottom)); }
+.moyu-mobile .book-manager .delete-choice > div:last-child { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.moyu-mobile .book-manager .delete-choice .cancel-delete { grid-column: 1 / -1; }
+
+/* Full-screen reader chrome is controlled only by a center tap. */
+.moyu-mobile .reader-view.is-mobile-reader,
+.moyu-mobile .reader-view.is-mobile-reader.is-immersive {
+  width: 100%;
+  height: 100%;
+  grid-template-rows: minmax(0, 1fr);
+}
+.moyu-mobile .reader-view.is-mobile-reader .reading-stage { width: 100%; height: 100%; }
+.moyu-mobile .reader-view.is-mobile-reader .reader-toolbar.mobile-overlay-toolbar {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: calc(58px + env(safe-area-inset-top));
+  min-height: calc(58px + env(safe-area-inset-top));
+  max-height: none;
+  padding: env(safe-area-inset-top) 8px 0;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  background: color-mix(in srgb, var(--reader-bg) 92%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.moyu-mobile .reader-toolbar .toolbar-button { width: 44px; height: 44px; }
+.moyu-mobile .reader-actions { --reader-action-step: 44px; }
+.moyu-mobile .toolbar-overflow-menu {
+  top: 48px;
+  right: 0;
+  min-width: 210px;
+  padding: 6px;
+}
+.moyu-mobile .toolbar-overflow-menu button { min-height: 46px; padding-inline: 12px; }
+.moyu-mobile .reader-view.is-mobile-reader .page-zone {
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+  opacity: 0;
+  background: transparent;
+}
+.moyu-mobile .reader-view.is-mobile-reader .page-zone.previous { left: 0; }
+.moyu-mobile .reader-view.is-mobile-reader .page-zone.next { right: 0; }
+.moyu-mobile .reader-view.is-mobile-reader .text-columns { padding-block: clamp(34px, 7vh, 64px); }
+.moyu-mobile .reader-view.is-mobile-reader .epub-host { margin-inline: clamp(18px, 6vw, 28px); }
+.moyu-mobile .reader-view.is-mobile-reader .reader-footer {
+  height: calc(52px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  grid-template-columns: minmax(44px, auto) minmax(100px, 1fr) 44px;
+  gap: 8px;
+}
+.moyu-mobile .reader-footer .progress-scrubber { height: 44px; }
+.moyu-mobile .progress-scrubber::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -9px; }
+.moyu-mobile .percent-entry { height: 44px; }
+.moyu-mobile .percent-entry input { height: 36px; font-size: 13px; }
+.moyu-mobile .reader-view.is-mobile-reader .companion-bar {
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  max-width: calc(100% - 24px);
+  height: 40px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+.moyu-mobile .reader-view.is-mobile-reader .companion-bar.is-visible { opacity: 1; pointer-events: auto; }
+.moyu-mobile .reader-view.is-mobile-reader .companion-actions { display: none; }
+.moyu-mobile .reader-view.is-mobile-reader .companion-status { font-size: 11px; }
+.moyu-mobile .settings-panel,
+.moyu-mobile .toc-panel,
+.moyu-mobile .notes-panel,
+.moyu-mobile .search-panel {
+  z-index: 50;
+  top: calc(58px + env(safe-area-inset-top));
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: none;
+  border-radius: 0;
+}
+.moyu-mobile .panel-close { width: 44px; height: 44px; }
+.moyu-mobile .toc-list button,
+.moyu-mobile .notes-list button,
+.moyu-mobile .search-results button { min-height: 48px; }
+.moyu-mobile .selection-popup,
+.moyu-mobile .note-popup { width: min(320px, calc(100vw - 24px)); }
+.moyu-mobile .popup-cancel,
+.moyu-mobile .popup-save { min-height: 44px; }
+
+/* Desktop auxiliary BrowserWindows become in-page full-screen layers. */
+.mobile-auxiliary-layer {
+  position: fixed;
+  z-index: 240;
+  inset: 0;
+  overflow: hidden;
+  background: var(--reader-bg, #e8ecef);
+  color: rgb(var(--reader-ink, 1, 22, 43));
+}
+.moyu-mobile .mobile-auxiliary-layer > main { width: 100%; height: 100%; border: 0; }
+.moyu-mobile .profiles-window-header,
+.moyu-mobile .dictionary-header,
+.moyu-mobile .companion-header {
+  min-height: calc(54px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+}
+.moyu-mobile .profile-panel-actions button,
+.moyu-mobile .dictionary-nav button,
+.moyu-mobile .companion-nav button { width: 44px; height: 44px; }
+.moyu-mobile .profile-collection-content,
+.moyu-mobile .dictionary-main,
+.moyu-mobile .companion-main { grid-template-columns: 1fr; }
+.moyu-mobile .dictionary-sidebar,
+.moyu-mobile .companion-sidebar {
+  max-height: 132px;
+  border-right: 0;
+  border-bottom: 1px solid var(--line);
+  overflow-y: auto;
+}
+.moyu-mobile .dictionary-sidebar.is-collapsed,
+.moyu-mobile .companion-sidebar.is-collapsed { max-height: 44px; }
+.moyu-mobile .dictionary-entry-delete { width: 44px; height: 44px; opacity: 1; pointer-events: auto; }
+.moyu-mobile .delete-note { width: 44px; height: 44px; top: 4px; right: 4px; opacity: 1; }
+.moyu-mobile .chat-actions { opacity: 1; transform: none; }
+.moyu-mobile .chat-actions button { width: 44px; height: 44px; }
+.moyu-mobile .companion-session-actions { top: 0; right: 0; opacity: 1; pointer-events: auto; }
+.moyu-mobile .companion-session-actions button { width: 44px; height: 44px; }
+.moyu-mobile .companion-session-open { padding-right: 92px; }
+.moyu-mobile .profile-alias-chips span { min-height: 36px; padding-inline: 10px; display: inline-flex; align-items: center; cursor: pointer; }
+
+@media (max-width: 360px) {
+  .moyu-mobile .ui-b .library-design-view .category-books .book-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .moyu-mobile .ui-b .v-library-filters { gap: 7px; overflow-x: auto; }
+  .moyu-mobile .reader-view.is-mobile-reader .book-heading { text-align: left; }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .moyu-mobile .ui-b .v-library-toolbar { height: 82px; }
+  .moyu-mobile .ui-b .v-library-search { margin-top: 4px; }
+  .moyu-mobile .ui-b .v-bookshelf-scene { padding-top: 82px; }
+  .moyu-mobile .reader-view.is-mobile-reader .text-columns { padding-block: 24px; }
+}

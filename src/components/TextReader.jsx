@@ -446,7 +446,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>
-      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'}`} ref={viewportRef} onMouseUp={captureSelection} onContextMenu={openSelectionMenu}>
+      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'}`} ref={viewportRef} onPointerUp={captureSelection} onContextMenu={openSelectionMenu}>
         <article
           ref={contentRef}
           className={`text-columns ${paintReady ? 'is-ready' : 'is-reflowing'}`}

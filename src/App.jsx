@@ -12,6 +12,7 @@ import BackgroundLayer from './ui-b/BackgroundLayer'
 import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
 import VirtualBookshelfHome from './ui-b/VirtualBookshelfHome'
 import { moveBeforeOrAfter } from './ui-b/shelfLayout'
+import MobileAuxiliaryLayer from './components/MobileAuxiliaryLayer'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -30,6 +31,7 @@ const DEFAULT_SETTINGS = {
 }
 
 export default function App() {
+  const isMobile = Boolean(window.readerAPI?.isMobile)
   const [directory, setDirectory] = useStoredState('reader:directory', '')
   const [settings, setSettings] = useStoredState('reader:settings', DEFAULT_SETTINGS)
   const [progressMap, setProgressMap] = useStoredState('reader:progress', {})
@@ -269,6 +271,7 @@ export default function App() {
       const nextSource = await window.readerAPI.openBook(book.path)
       setActiveBook(book)
       setSource(nextSource)
+      if (isMobile) setImmersive(true)
       setLastBookId(book.id)
       setRecentBookIds((current) => [book.id, ...current.filter((id) => id !== book.id)])
       return true
@@ -410,6 +413,25 @@ export default function App() {
     setHomeView('virtual')
   }
 
+  useEffect(() => {
+    if (!isMobile) return undefined
+    window.readerAPI?.setReadingMode?.(Boolean(activeBook))
+    return () => window.readerAPI?.setReadingMode?.(false)
+  }, [activeBook, isMobile])
+
+  useEffect(() => {
+    if (!isMobile) return undefined
+    const handleBack = (event) => {
+      if (event.defaultPrevented || window.__moyuAuxOpen) return
+      if (activeBook) {
+        event.preventDefault()
+        closeReader()
+      }
+    }
+    window.addEventListener('moyu:android-back', handleBack)
+    return () => window.removeEventListener('moyu:android-back', handleBack)
+  }, [activeBook, isMobile])
+
   const saveProgress = useCallback((nextProgress) => {
     if (!activeBook) return
     setProgressMap((current) => ({ ...current, [activeBook.id]: { ...nextProgress, updatedAt: Date.now() } }))
@@ -507,7 +529,7 @@ export default function App() {
     <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
-      {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} /> : null}
+      {!immersive && !isMobile ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} /> : null}
       {activeBook && source ? (
         <ReaderView
           book={activeBook}
@@ -632,6 +654,7 @@ export default function App() {
       )}
       {appearanceOpen ? <AppearancePanel appearance={appearance} onChange={setAppearance} onClose={() => setAppearanceOpen(false)} /> : null}
       {shortcutSettingsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutSettingsOpen(false)} /> : null}
+      {isMobile ? <MobileAuxiliaryLayer /> : null}
     </div>
   )
 }

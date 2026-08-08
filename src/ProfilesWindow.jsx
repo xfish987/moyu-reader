@@ -13,7 +13,8 @@ const TYPE_ORDER = ['人物', '物品', '地点', '组织', '能力', '事件', 
 // 所有数据来自阅读窗口推送的快照（主进程会留存最新一份，窗口打开即有数据）；
 // 用户操作通过 profiles:action 回传阅读窗口执行。
 // 不用 localStorage 缓存快照：关窗后换书，旧书快照会残留成“上一本书的设定集”。
-export default function ProfilesWindow() {
+export default function ProfilesWindow({ onClose }) {
+  const isMobile = Boolean(window.readerAPI?.isMobile)
   const [snapshot, setSnapshot] = useState(null)
   const [toast, setToast] = useState(null)
   const previousTasksRef = useRef([])
@@ -153,6 +154,7 @@ export default function ProfilesWindow() {
         <div className="profile-panel-actions">
           <button className="profiles-tasks-toggle" onClick={() => setTasksOpen((current) => !current)} title="生成任务队列"><ListChecks size={16} />{activeTaskCount ? <span className="tasks-badge">{activeTaskCount}</span> : null}</button>
           <button onClick={() => setSettingsOpen(true)} title="AI 供应商"><ServerCog size={16} /></button>
+          {onClose ? <button onClick={onClose} title="关闭" aria-label="关闭"><X size={16} /></button> : null}
         </div>
       </header>
       <nav className="storyline-page-tabs" aria-label="设定集页面">
@@ -255,7 +257,10 @@ export default function ProfilesWindow() {
               {selectedProfile ? (
                 <article>
                   <header>
-                    <div><strong>{selectedProfile.name}</strong><span>{selectedProfile.type || '未分类'} · 已读范围内找到 {selectedProfile.totalMatches} 处{selectedProfile.identityLocked ? ' · 人工关联已锁定' : ''}{selectedProfile.incremental ? ' · 增量更新' : ''}{selectedProfile.truncated ? ' · 输出曾被截断' : ''}</span>{selectedProfile.aliases?.length ? <em className="profile-alias-chips">别名：{selectedProfile.aliases.map((alias) => <span key={alias} title="右键移除这个别名" onContextMenu={(event) => { event.preventDefault(); if (window.confirm(`将「${alias}」从「${selectedProfile.name}」的别名中移除？\n移除后会记住它不是同一对象，之后不会被自动关联。`)) window.readerAPI?.sendProfilesAction?.({ type: 'remove-alias', profileId: selectedProfile.id, alias }) }}>{alias}</span>)}</em> : null}</div>
+                    <div><strong>{selectedProfile.name}</strong><span>{selectedProfile.type || '未分类'} · 已读范围内找到 {selectedProfile.totalMatches} 处{selectedProfile.identityLocked ? ' · 人工关联已锁定' : ''}{selectedProfile.incremental ? ' · 增量更新' : ''}{selectedProfile.truncated ? ' · 输出曾被截断' : ''}</span>{selectedProfile.aliases?.length ? <em className="profile-alias-chips">别名：{selectedProfile.aliases.map((alias) => {
+                      const removeAlias = () => { if (window.confirm(`将「${alias}」从「${selectedProfile.name}」的别名中移除？\n移除后会记住它不是同一对象，之后不会被自动关联。`)) window.readerAPI?.sendProfilesAction?.({ type: 'remove-alias', profileId: selectedProfile.id, alias }) }
+                      return <span key={alias} role={isMobile ? 'button' : undefined} tabIndex={isMobile ? 0 : undefined} title={isMobile ? '点按移除这个别名' : '右键移除这个别名'} onClick={isMobile ? removeAlias : undefined} onKeyDown={isMobile ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); removeAlias() } } : undefined} onContextMenu={(event) => { event.preventDefault(); removeAlias() }}>{alias}</span>
+                    })}</em> : null}</div>
                     <div className="profile-article-actions"><button onClick={() => { setAliasInputFor(aliasInputFor === selectedProfile.id ? null : selectedProfile.id); setAliasText('') }}>添加别名</button><button onClick={() => window.readerAPI?.sendProfilesAction?.({ type: 'open-identity', profileId: selectedProfile.id })}>管理关联</button><button onClick={() => { if (window.confirm(`删除「${selectedProfile.name}」的资料卡？此操作不可撤销。`)) { window.readerAPI?.sendProfilesAction?.({ type: 'delete-profile', profileId: selectedProfile.id }); setSelectedProfileId('') } }}>删除</button></div>
                   </header>
                   {aliasInputFor === selectedProfile.id ? (

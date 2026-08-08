@@ -17,7 +17,7 @@ function formatSessionTime(timestamp) {
   return `${date.getMonth() + 1}月${date.getDate()}日`
 }
 
-export default function CompanionWindow() {
+export default function CompanionWindow({ onClose = () => window.close() }) {
   const [snapshot, setSnapshot] = useState(null)
   const [selectedId, setSelectedId] = useState('')
   const [question, setQuestion] = useState('')
@@ -86,7 +86,7 @@ export default function CompanionWindow() {
         </div>
         <div className="companion-nav">
           {hasBook ? <button onClick={() => send({ type: 'new-session' })} title="新会话"><SquarePen size={15} /></button> : null}
-          <button onClick={() => window.close()} title="关闭"><X size={15} /></button>
+          <button onClick={onClose} title="关闭"><X size={15} /></button>
         </div>
       </header>
       {hasBook ? (

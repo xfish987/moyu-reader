@@ -8,8 +8,12 @@ import CompanionWindow from './CompanionWindow'
 import CompanionBarWindow from './CompanionBarWindow'
 import './styles.css'
 import './ui-b/ui-b.css'
+import './mobile/mobile.css'
+import { installMobilePlatform } from './mobile/platform'
 
 const windowKind = new URLSearchParams(window.location.search).get('window')
+
+installMobilePlatform()
 
 function applyStoredTheme() {
   try {

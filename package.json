@@ -1,9 +1,9 @@
 {
   "name": "moyu-reader",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "private": true,
   "type": "module",
-  "description": "A quiet local TXT and EPUB reader for Windows",
+  "description": "A quiet local TXT and EPUB reader for Windows and Android",
   "author": "xfish987",
   "repository": {
     "type": "git",
@@ -16,9 +16,17 @@
     "build": "vite build",
     "test": "node test-chunks.cjs && node test-text-encodings.cjs && node test-conversion.mjs && node test-entity-profiles.mjs && node test-model-catalog.mjs && node test-json-repair.mjs && node test-excerpt-select.mjs && node test-luna-prompt.mjs && node test-dictionary-prompt.mjs && node test-companion-prompt.mjs && node test-storyline.mjs && node test-shelf-layout.mjs && node test-epub-direction.mjs",
     "dist": "npm run build && electron-builder --win portable msi",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "android:sync": "npm run build && cap sync android",
+    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleRelease"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/share": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.3",
     "@xmldom/xmldom": "0.9.10",
     "chardet": "^2.1.0",
     "epubjs": "^0.3.93",
@@ -31,6 +39,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "electron": "^33.2.1",
@@ -46,7 +55,9 @@
       "dist/**/*",
       "electron/**/*",
       "assets/icon.ico",
-      "package.json"
+      "package.json",
+      "!node_modules/@capacitor/android/**/*",
+      "!node_modules/@capacitor/*/android/**/*"
     ],
     "win": {
       "target": [

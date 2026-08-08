@@ -7,7 +7,7 @@ import ChatMessages, { MarkdownText } from './components/ChatMessages'
 // 右侧详情：引用块（点击跳转到书中原文位置）→ AI 初解释 → 追问对话 → 底部输入框。
 // 数据全部来自阅读窗口推送的快照；动作通过 dict:action 回传阅读窗口执行。
 // 注意：本应用的 Electron 页面 UA 默认样式不生效，所有元素必须显式类名 + CSS display。
-export default function DictionaryWindow() {
+export default function DictionaryWindow({ onClose = () => window.close() }) {
   const [snapshot, setSnapshot] = useState(null)
   const [selectedId, setSelectedId] = useState('')
   const [question, setQuestion] = useState('')
@@ -61,7 +61,7 @@ export default function DictionaryWindow() {
       <header className="dictionary-header">
         <div className="dictionary-title"><BookOpenText size={16} /><strong>{snapshot?.bookTitle ? `《${snapshot.bookTitle}》字典百科` : '字典百科'}</strong>{entries.length ? <span>{entries.length} 条</span> : null}</div>
         <div className="dictionary-nav">
-          <button onClick={() => window.close()} title="关闭"><X size={15} /></button>
+          <button onClick={onClose} title="关闭"><X size={15} /></button>
         </div>
       </header>
       {entries.length ? (

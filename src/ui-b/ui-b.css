@@ -990,10 +990,16 @@
 .ui-b .category-context-menu { position: fixed; z-index: 80; min-width: 104px; padding: 4px; border: 1px solid var(--b-line-strong); border-radius: 4px; background: var(--b-surface-solid); box-shadow: 0 8px 24px rgba(1,22,43,.24); }
 .ui-b .category-context-menu button { width: 100%; height: 30px; padding: 0 9px; border: 0; border-radius: 3px; display: flex; align-items: center; gap: 7px; background: transparent; color: var(--b-ink-2); font: 500 10px/1 var(--font-ui); cursor: pointer; }
 .ui-b .category-context-menu button:hover { background: var(--b-surface-muted); color: var(--b-ink); }
-.ui-b .library-design-view .category-heading { height: 17.8487pt; margin: 0 0 8.85pt; border: 0; display: flex; align-items: flex-end; gap: 4px; }
-.ui-b .library-design-view .category-heading img { width: 10.42px; height: 6.98px; }
+.ui-b .library-design-view .category-heading { min-height: 27px; margin: 0 0 8.85pt; border: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.ui-b .library-design-view .category-heading-copy { min-width: 0; display: flex; align-items: flex-end; gap: 4px; }
+.ui-b .library-design-view .category-heading h2 { margin: 0 14px 0 0; color: #e8ecef; font: 700 20px/1 var(--font-ui); letter-spacing: .1em; }
+.ui-b .library-design-view .category-heading img { width: 10.42px; height: 6.98px; margin-bottom: 2px; }
 .ui-b .library-design-view .category-heading strong { color: #e8ecef; font: 700 17.8487pt/1 var(--font-ui); letter-spacing: .1em; }
-.ui-b .library-design-view .category-heading span { color: #e8ecef; font: 700 6.2619pt/1 var(--font-ui); letter-spacing: .1em; }
+.ui-b .library-design-view .category-heading span { margin-bottom: 1px; color: #e8ecef; font: 700 6.2619pt/1 var(--font-ui); letter-spacing: .1em; }
+.ui-b .book-order-toggle { width: 30px; height: 30px; flex: 0 0 30px; margin-bottom: -1px; padding: 0; border: 0; border-radius: 3px; display: grid; place-items: center; background: transparent; color: #ccd4e7; cursor: pointer; }
+.ui-b .book-order-toggle:hover, .ui-b .book-order-toggle:focus-visible, .ui-b .book-order-toggle.active { background: rgba(115,148,183,.2); color: #e8ecef; outline: none; }
+.ui-b.ui-b-theme-mist .book-order-toggle { color: #5c7fa2; }
+.ui-b.ui-b-theme-mist .book-order-toggle:hover, .ui-b.ui-b-theme-mist .book-order-toggle:focus-visible, .ui-b.ui-b-theme-mist .book-order-toggle.active { background: rgba(92,127,162,.15); color: #1c2b48; }
 .ui-b .library-design-view .batch-bar { margin: 0 0 12px; border: 1px solid rgba(115,148,183,.35); background: rgba(28,43,72,.86); }
 .ui-b .library-design-view .batch-bar span { color: #ccd4e7; }
 .ui-b .library-design-view .batch-bar button { border-color: rgba(190,211,226,.35); background: rgba(115,148,183,.18); color: #e8ecef; }
