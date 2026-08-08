@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { MessageSquareQuote } from 'lucide-react'
 import { NotePopup, SelectionPopup } from './NotePopups'
 import { convertChinese } from '../chineseConversion'
+import { getReaderFontStack } from '../readerFonts'
 
 const CHAPTER_PATTERN = /^(?:(?:正文\s*)?第\s*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟]+\s*[章节卷部篇回集幕]\s*.{0,50}|(?:卷|部|篇|章)\s*[0-9０-９零〇一二三四五六七八九十百千万两]+(?:[\s:：.-]+.{0,45})?|(?:序章|序言|前言|楔子|引子|后记|尾声|终章|大结局)(?:[\s:：.-]+.{0,45})?|(?:番外|外传|附录)\s*[0-9０-９零〇一二三四五六七八九十百千万两]*(?:[\s:：.-]+.{0,45})?|(?:chapter|part|volume|book)\s+[0-9ivxlcdm]+(?:[\s:：.-]+.{0,50})?)$/i
 
@@ -436,11 +437,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     })
   }
 
-  const fontFamily = settings.fontFamily === 'sans'
-    ? '"Microsoft YaHei UI", "PingFang SC", sans-serif'
-    : settings.fontFamily === 'kai'
-      ? 'KaiTi, STKaiti, serif'
-      : '"Moyu Source Han Serif", "Source Han Serif SC", "Songti SC", SimSun, serif'
+  const fontFamily = getReaderFontStack(settings.fontFamily)
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>

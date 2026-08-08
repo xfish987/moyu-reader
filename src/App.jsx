@@ -70,7 +70,6 @@ export default function App() {
   const appearance = useMemo(() => normalizeAppearance(storedAppearance), [storedAppearance])
   const colorTheme = appearance.theme === 'night' ? 'night' : 'light'
   const readerSettings = useMemo(() => ({ ...settings, theme: colorTheme }), [colorTheme, settings])
-  const hasCustomHomeBackground = Boolean(appearance.home?.enabled && appearance.home?.asset?.assetPath)
 
   useEffect(() => {
     document.documentElement.dataset.moyuTheme = colorTheme
@@ -331,14 +330,21 @@ export default function App() {
 
   const toggleImmersive = useCallback(() => setImmersive((current) => !current), [])
 
-  // 一键清空阅读数据：进度、状态、笔记、书签、自定义封面与 AI 衍生数据。
-  // 书架本身（书籍、目录、分类、标签归属）保留，方便重新测试或重新开始。
+  // 清空本地书架数据，但绝不调用源文件删除接口。
   const clearReadingData = () => {
-    if (!window.confirm('将清空全部阅读进度、笔记、书签、自定义封面与 AI 衍生数据（书籍和分类保留）。确定清理吗？')) return
+    if (!window.confirm('将清空书架、目录记忆、分类、阅读进度、笔记、自定义封面与 AI 衍生数据。源文件不会被删除。确定清理吗？')) return
+    setDirectory('')
+    setDirectoryBooks([])
+    setManualBooks([])
+    setHiddenBooks([])
+    setTagsMap({})
+    setCategories([])
+    setCategoryBookOrder({})
     setProgressMap({})
     setStatusMap({})
     setNotesMap({})
     setBookmarksMap({})
+    setBookMetadata({})
     setCoversMap({})
     setEntityProfilesMap({})
     setDictionaryMap({})
@@ -347,7 +353,7 @@ export default function App() {
     setStorylineMap({})
     setLastBookId('')
     setRecentBookIds([])
-    showSuccess('阅读数据已清空')
+    showSuccess('全部本地书架数据已清空，源文件未删除')
   }
 
   const shortcut = useCallback((event) => {
@@ -362,7 +368,13 @@ export default function App() {
       return
     }
     if (!activeBook) return
-    if (pressed === (shortcuts.prevPage || 'a') || event.key === 'ArrowLeft') {
+    if (pressed === (shortcuts.startCompanion || 'F2')) {
+      event.preventDefault()
+      setCompanionMap((current) => current[activeBook.id] ? current : { ...current, [activeBook.id]: true })
+    } else if (pressed === (shortcuts.stopCompanion || 'F3')) {
+      event.preventDefault()
+      setCompanionMap((current) => current[activeBook.id] ? { ...current, [activeBook.id]: false } : current)
+    } else if (pressed === (shortcuts.prevPage || 'a') || event.key === 'ArrowLeft') {
       event.preventDefault()
       readerActionRef.current?.goLeft()
     } else if (pressed === (shortcuts.nextPage || 'd') || event.key === 'ArrowRight') {
@@ -378,7 +390,7 @@ export default function App() {
       event.preventDefault()
       setSettings((current) => ({ ...current, opacity: Math.max(0.15, +(current.opacity - 0.05).toFixed(2)) }))
     }
-  }, [activeBook, setSettings, shortcuts, toggleImmersive])
+  }, [activeBook, setCompanionMap, setSettings, shortcuts, toggleImmersive])
 
   useEffect(() => {
     window.addEventListener('keydown', shortcut)
@@ -462,11 +474,30 @@ export default function App() {
     setHomeView('library')
   }, [])
 
+  const appearanceStyle = {
+    '--b-topbar-color': appearance.bars.top.color,
+    '--b-topbar-opacity': `${appearance.bars.top.opacity * 100}%`,
+    '--b-topbar-icon-color': appearance.bars.top.iconColor,
+    '--b-topbar-icon-opacity': appearance.bars.top.iconOpacity,
+    '--b-bottombar-color': appearance.bars.bottom.color,
+    '--b-bottombar-opacity': `${appearance.bars.bottom.opacity * 100}%`,
+    '--b-bottombar-icon-color': appearance.bars.bottom.iconColor,
+    '--b-bottombar-icon-opacity': appearance.bars.bottom.iconOpacity,
+    '--b-theme-circle-color': appearance.bars.bottom.circleColor,
+    '--b-theme-circle-opacity': appearance.bars.bottom.circleOpacity,
+    '--b-theme-sun-start': appearance.bars.bottom.sunStartColor,
+    '--b-theme-sun-end': appearance.bars.bottom.sunEndColor,
+    '--b-theme-sun-opacity': appearance.bars.bottom.sunOpacity,
+    '--b-theme-moon-start': appearance.bars.bottom.moonStartColor,
+    '--b-theme-moon-end': appearance.bars.bottom.moonEndColor,
+    '--b-theme-moon-opacity': appearance.bars.bottom.moonOpacity,
+  }
+
   return (
-    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${hasCustomHomeBackground ? 'has-custom-home-background' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
-      {!immersive ? <WindowBar bookshelf={!activeBook} pinned={pinned} onTogglePin={() => setPinned((current) => !current)} onOpenAppearance={() => setAppearanceOpen(true)} onOpenShortcuts={() => setShortcutSettingsOpen(true)} /> : null}
+      {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} /> : null}
       {activeBook && source ? (
         <ReaderView
           book={activeBook}
@@ -522,9 +553,11 @@ export default function App() {
           onOpenNotes={() => { setLibraryView('notes'); setHomeView('library') }}
           onSearch={() => { setLibraryView('shelf'); setHomeView('library'); setTimeout(() => document.querySelector('.shelf-search input')?.focus(), 80) }}
           onOpenAppearance={() => setAppearanceOpen(true)}
+          onChooseDirectory={chooseDirectory}
+          onClearAllData={clearReadingData}
           onToggleTheme={() => setAppearance((current) => {
             const normalized = normalizeAppearance(current)
-            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night' }
+            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night', activeSchemeId: '' }
           })}
           onReorderCategories={reorderCategories}
           scrollMemory={homeScrollRef.current}
@@ -573,7 +606,7 @@ export default function App() {
           onOpenAppearance={() => setAppearanceOpen(true)}
           onToggleTheme={() => setAppearance((current) => {
             const normalized = normalizeAppearance(current)
-            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night' }
+            return { ...normalized, theme: normalized.theme === 'night' ? 'mist' : 'night', activeSchemeId: '' }
           })}
           appearanceTheme={appearance.theme}
           scrollMemory={homeScrollRef.current}

@@ -4,6 +4,11 @@
    间距、圆角、阴影、动效各只有一档很小的集合。
    单个组件不做私人微调；需要新值时先回到这里。
    ============================================================ */
+@font-face { font-family: "Moyu Source Han Sans"; src: url("./assets/reader-fonts/SourceHanSansCN-Regular.otf") format("opentype"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Moyu Source Han Sans"; src: url("./assets/reader-fonts/SourceHanSansCN-Bold.otf") format("opentype"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Moyu LXGW WenKai"; src: url("./assets/reader-fonts/LXGWWenKaiGBScreen.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Moyu LXGW WenKai"; src: url("./assets/reader-fonts/LXGWWenKaiGBScreen.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; }
+
 :root {
   /* 字体 */
   --font-ui: "Microsoft YaHei UI", "PingFang SC", sans-serif;
@@ -683,7 +688,10 @@ button:focus-visible, input:focus-visible {
 .book-heading { min-width: 0; text-align: center; }
 .book-heading strong { display: block; overflow: hidden; color: rgb(var(--reader-ink)); font: 600 var(--text-md)/1.4 serif; text-overflow: ellipsis; white-space: nowrap; }
 .book-heading span { display: block; overflow: hidden; margin-top: 1px; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; opacity: .62; }
-.reader-actions { display: flex; justify-content: flex-end; gap: 4px; }
+.reader-actions { --reader-icon-size: 18px; --reader-action-step: 27px; display: flex; justify-content: flex-end; gap: 0; }
+.reader-actions > .toolbar-button, .reader-actions > .toolbar-overflow { width: var(--reader-action-step); flex: 0 0 var(--reader-action-step); }
+.reader-actions > .toolbar-overflow > .toolbar-button { width: 100%; }
+.reader-actions .toolbar-button svg { width: var(--reader-icon-size); height: var(--reader-icon-size); }
 .toolbar-button {
   position: relative;
   width: 34px;
@@ -1252,7 +1260,7 @@ a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26,
   .share-preview { width: 190px; max-height: 420px; }
   .theme-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reader-toolbar { grid-template-columns: 40px minmax(0, 1fr) 270px; padding-inline: 8px; }
-  .reader-actions .toolbar-button { width: 30px; }
+  .reader-actions .toolbar-button { width: var(--reader-action-step); }
   .settings-panel, .toc-panel, .notes-panel, .search-panel { right: 10px; width: min(310px, calc(100% - 20px)); }
   .profile-collection-panel { right: 10px; width: calc(100% - 20px); }
   .modal-backdrop { padding: 14px; }

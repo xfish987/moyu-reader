@@ -1,10 +1,5 @@
 import { AlignJustify, Eye, EyeOff, Minus, Plus, Type } from 'lucide-react'
-
-const FONT_OPTIONS = [
-  { label: '宋体', value: 'serif' },
-  { label: '黑体', value: 'sans' },
-  { label: '楷体', value: 'kai' },
-]
+import { READER_FONT_OPTIONS } from '../readerFonts'
 
 function Stepper({ value, min, max, step, onChange, suffix }) {
   return (
@@ -25,7 +20,7 @@ export default function ReaderSettings({ settings, onChange, encoding, onEncodin
       <section>
         <label>字体</label>
         <div className="segment-control">
-          {FONT_OPTIONS.map((option) => (
+          {READER_FONT_OPTIONS.map((option) => (
             <button key={option.value} className={settings.fontFamily === option.value ? 'active' : ''} onClick={() => set('fontFamily', option.value)}>{option.label}</button>
           ))}
         </div>

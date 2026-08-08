@@ -41,19 +41,18 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const profileTasksRef = useRef([])
   const [identityProfile, setIdentityProfile] = useState(null)
   const [linkAlias, setLinkAlias] = useState('')
-  const chromeTimerRef = useRef(null)
   const toolbarRef = useRef(null)
   const overflowRef = useRef(null)
   const [toolbarCompact, setToolbarCompact] = useState(false)
   const [overflowOpen, setOverflowOpen] = useState(false)
 
-  // 工具栏宽度不足时把次要按钮收纳进溢出菜单（给中间书名区留至少 ~120px）。
+  // 窄窗只保留两个主操作和“更多”，总计三个图标。
   useEffect(() => {
     const element = toolbarRef.current
     if (!element || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width || 0
-      setToolbarCompact(width < 620)
+      setToolbarCompact(width < 760)
     })
     observer.observe(element)
     return () => observer.disconnect()
@@ -157,26 +156,6 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     state.lockedUntil = now + 320
     direction > 0 ? readerRef.current?.next() : readerRef.current?.prev()
   }, [])
-
-  const scheduleChromeHide = useCallback(() => {
-    clearTimeout(chromeTimerRef.current)
-    chromeTimerRef.current = setTimeout(() => setChromeZone(null), 650)
-  }, [])
-
-  const handleChromeMouseMove = useCallback((event) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const y = event.clientY - rect.top
-    const zone = y <= 86 ? 'top' : rect.height - y <= 104 ? 'bottom' : null
-    if (zone) {
-      clearTimeout(chromeTimerRef.current)
-      chromeTimerRef.current = null
-      setChromeZone((current) => (current === zone ? current : zone))
-    } else {
-      scheduleChromeHide()
-    }
-  }, [scheduleChromeHide])
-
-  useEffect(() => () => clearTimeout(chromeTimerRef.current), [])
 
   // 沉浸顶栏手动拖拽：frameless 窗口最大化时 app-region 拖动无效，改走 IPC 逐帧 setPosition。
   const startChromeDrag = useCallback((event) => {
@@ -1043,8 +1022,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     { id: 'notes', icon: NotebookPen, iconSize: 17, label: '摘录与笔记', active: panel === 'notes', onClick: () => setPanel(panel === 'notes' ? null : 'notes') },
     { id: 'profiles', icon: BookOpenCheck, iconSize: 17, label: '本书设定集', title: '本书设定集（打开/关闭独立窗口）', onClick: () => window.readerAPI.toggleProfilesWindow?.() },
     { id: 'dictionary', icon: BookOpenText, iconSize: 17, label: '字典百科', title: '字典百科（本书全部解释记录）', onClick: () => window.readerAPI.openDictionaryWindow?.('') },
-    { id: 'companion', icon: Sparkles, iconSize: 17, label: 'AI陪读', title: 'AI陪读（自动逐章总结剧情）', active: companionEnabled, pinned: false, onClick: onToggleCompanion },
-    { id: 'search', icon: Search, iconSize: 17, label: '全书搜索', pinned: true, active: panel === 'search', onClick: () => setPanel(panel === 'search' ? null : 'search') },
+    { id: 'companion', icon: Sparkles, iconSize: 17, label: 'AI陪读', title: 'AI陪读（F2 开始 / F3 停止）', active: companionEnabled, pinned: false, onClick: onToggleCompanion },
+    { id: 'search', icon: Search, iconSize: 17, label: '全书搜索', active: panel === 'search', onClick: () => setPanel(panel === 'search' ? null : 'search') },
     { id: 'settings', icon: Settings2, iconSize: 18, label: '阅读设置', active: panel === 'settings', onClick: () => setPanel(panel === 'settings' ? null : 'settings') },
     { id: 'immersive', icon: Maximize, iconSize: 17, label: '沉浸阅读', title: '沉浸阅读 (F11)', pinned: true, onClick: onToggleImmersive },
   ]
@@ -1052,7 +1031,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const overflowActions = toolbarCompact ? toolbarActions.filter((action) => !action.pinned) : []
 
   return (
-    <main className={`reader-view theme-${settings.theme} ${immersive ? 'is-immersive' : ''} ${!settings.showProgress ? 'without-progress' : ''}`} onMouseMove={handleChromeMouseMove} onMouseLeave={scheduleChromeHide}>
+    <main className={`reader-view theme-${settings.theme} ${immersive ? 'is-immersive' : ''} ${!settings.showProgress ? 'without-progress' : ''}`} onMouseLeave={() => setChromeZone(null)}>
       {!immersive ? (
         <header className="reader-toolbar" ref={toolbarRef}>
           <button className="toolbar-button back" onClick={onBack} title="返回书架"><ArrowLeft size={18} /></button>
@@ -1098,11 +1077,17 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         <button className="page-zone next" onClick={() => readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()} aria-label="向右翻页"><ChevronRight size={22} /></button>
       </section>
 
-      {immersive ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => { clearTimeout(chromeTimerRef.current); setChromeZone('top') }} aria-hidden="true" /> : null}
-      <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => { clearTimeout(chromeTimerRef.current); setChromeZone('bottom') }} aria-hidden="true" />
+      {immersive ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => setChromeZone('top')} aria-hidden="true" /> : null}
+      <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => setChromeZone('bottom')} aria-hidden="true" />
 
       {settings.showProgress ? (
-        <footer className={`reader-footer ${footerVisible ? 'is-visible' : ''}`}>
+        <footer
+          className={`reader-footer ${footerVisible ? 'is-visible' : ''}`}
+          onMouseEnter={() => setChromeZone('bottom')}
+          onMouseLeave={() => setChromeZone((current) => (current === 'bottom' ? null : current))}
+          onFocusCapture={() => setChromeZone('bottom')}
+          onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setChromeZone((current) => (current === 'bottom' ? null : current)) }}
+        >
           <span>{progress.pageCount > 1 ? `${progress.page + (source.kind.startsWith('text') ? 1 : 0)} / ${progress.pageCount}` : ''}</span>
           <input
             className="progress-scrubber"
@@ -1144,7 +1129,14 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       ) : null}
 
       {immersive ? (
-        <div className={`immersive-topbar ${chromeZone === 'top' ? 'is-visible' : ''}`} onMouseDown={startChromeDrag}>
+        <div
+          className={`immersive-topbar ${chromeZone === 'top' ? 'is-visible' : ''}`}
+          onMouseDown={startChromeDrag}
+          onMouseEnter={() => setChromeZone('top')}
+          onMouseLeave={() => setChromeZone((current) => (current === 'top' ? null : current))}
+          onFocusCapture={() => setChromeZone('top')}
+          onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setChromeZone((current) => (current === 'top' ? null : current)) }}
+        >
           <div className="immersive-heading">
             <strong>{book.title}</strong>
             <span title={activeChapter?.label || ''}>{activeChapter ? activeChapter.label : ' '}</span>

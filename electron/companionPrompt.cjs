@@ -4,6 +4,7 @@
 //
 // 陪读的核心约束与字典百科一致：只能依据读者已读到/已总结的材料，
 // 严禁剧透梳理进度之后的情节。
+const { appendDocumentWorkHandshake, withLunaRole } = require('./lunaPrompt.cjs')
 
 // 前序总结（最多 3 条，按章节顺序最接近的）帮助模型衔接剧情。
 function formatPreviousSummaries(previousSummaries = []) {
@@ -40,57 +41,58 @@ function formatEntityProfiles(entityProfiles = []) {
 // 章节剧情梳理：根据一章全文产出结构化 JSON 总结，供后续陪读问答引用。
 function buildChapterSummaryMessages({ bookTitle = '', author = '', chapterLabel = '', chapterText = '', previousSummaries = [], coverageNote = '' } = {}) {
   const system = [
-    `你是剧情梳理助手，正在为读者陪读《${bookTitle || '未知'}》${author ? `（作者：${author}）` : ''}。读者每读完一章，你根据该章节全文产出一份结构化剧情总结。`,
+    `Create structured plot notes while accompanying the reader through 《${bookTitle || '未知'}》${author ? ` by ${author}` : ''}. Produce one summary after each supplied chapter.`,
     '',
-    '输出一个严格闭合的 JSON 对象，schema 如下（键名固定，不要增减键）：',
+    'Return one strictly closed JSON object with exactly these keys:',
     '{"timePoint":"故事内时间点","location":"主要地点","characters":["出场人物"],"events":["按顺序的关键事件，每条一句"],"gains":"主角获得/失去的东西，无则空字符串","openThreads":"本章留下的悬念伏笔，无则空字符串","text":"150字以内的本章剧情连贯叙述"}',
     '',
-    '约束：',
-    '- 只依据所给章节文本与前序总结，不引入外部资料，不剧透未提供的内容。',
-    '- events 按故事内时间顺序排列，不超过 6 条，每条一句话。',
-    '- characters 列出本章实际出场的人物名，没有把握的不要写。',
-    '- 若章节文本标注了截断，则只基于可见内容总结，不要脑补缺失部分。',
-    '- 必须输出合法闭合的 JSON；除 JSON 之外不要输出任何内容（不要 Markdown 代码围栏，不要解释）。',
+    'Rules:',
+    '- Use only the supplied chapter text and preceding summaries. Do not add outside information or reveal unsupplied plot.',
+    '- Write all JSON values in concise Simplified Chinese.',
+    '- Order events by in-story chronology, with at most 6 one-sentence items.',
+    '- Include only characters who actually appear in this chapter and whose names are supported.',
+    '- If the chapter text is marked as truncated, summarize only the visible material and do not invent the missing portion.',
+    '- Return complete, valid JSON only, with no Markdown fence or explanation. Prefer a shorter complete object over a truncated response.',
   ].join('\n')
-  const user = [
-    coverageNote ? `【覆盖范围说明】\n${coverageNote}\n` : '',
-    `【前序章节总结（按章节顺序最接近的）】\n${formatPreviousSummaries(previousSummaries)}`,
+  const source = [
+    'REFERENCE MATERIAL',
+    coverageNote ? `COVERAGE NOTE\n${coverageNote}\n` : '',
+    `NEAREST PRECEDING CHAPTER SUMMARIES\n${formatPreviousSummaries(previousSummaries)}`,
     '',
-    `【本次要总结的章节：${chapterLabel || '未知章节'}】\n${chapterText || '（章节内容不可用）'}`,
-    '',
-    '请按系统要求的 JSON schema 输出本章剧情总结。',
+    `CHAPTER TO SUMMARIZE: ${chapterLabel || '未知章节'}\n${chapterText || '(Chapter content unavailable.)'}`,
   ].join('\n')
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ]
+  return appendDocumentWorkHandshake([
+    { role: 'system', content: withLunaRole(system) },
+    { role: 'user', content: source },
+  ], 'Luna, summarize the supplied chapter now. Return only the complete JSON object required by the system instructions.')
 }
 
 // 陪读问答：读者针对已读剧情自由提问，材料为剧情梳理 + 设定集 + 对话历史。
 function buildCompanionChatMessages({ bookTitle = '', author = '', storyline = [], entityProfiles = [], history = [], question = '' } = {}) {
   const system = [
-    `你是《${bookTitle || '未知'}》${author ? `（作者：${author}）` : ''}的 AI 陪读，已跟随读者读到最新总结进度。读者会随时就剧情、人物、伏笔向你提问。`,
+    `Act as the AI reading companion for 《${bookTitle || '未知'}》${author ? ` by ${author}` : ''}. You have followed the reader only through the latest supplied summary and will answer questions about plot, characters, and open threads.`,
     '',
-    '回答要求：',
-    '- 只能依据所给的剧情梳理、设定集和对话历史回答；严禁剧透梳理进度之后的情节。',
-    '- 若所给材料里没有相关信息，就明说"目前读到的部分还没有相关信息"，不要编造。',
-    '- 涉及人物、物品、地点等设定时，与所给设定集保持一致。',
-    '- 回答用简体中文，可以用 Markdown 列表/加粗组织要点。',
-    '- 紧扣问题本身作答，不要客套开场白，不超过 500 字。',
+    'Answering rules:',
+    '- Use only the supplied plot notes, entity notes, and conversation history. Never reveal events beyond the supplied summary range.',
+    '- If the material has no relevant evidence, say "目前读到的部分还没有相关信息" instead of inventing an answer.',
+    '- Keep people, objects, places, and other entities consistent with the supplied entity notes.',
+    '- Answer the question directly in natural Simplified Chinese, without a greeting, in at most 500 Chinese characters. Simple Markdown lists and bold text are allowed.',
+  ].join('\n')
+  const source = [
+    'REFERENCE MATERIAL',
+    `PLOT NOTES IN CHAPTER ORDER\n${formatStoryline(storyline)}`,
     '',
-    `【剧情梳理（读者已总结进度，按章节顺序）】\n${formatStoryline(storyline)}`,
-    '',
-    `【本书设定集（压缩名单）】\n${formatEntityProfiles(entityProfiles)}`,
+    `ENTITY NOTES\n${formatEntityProfiles(entityProfiles)}`,
   ].join('\n')
   const historyMessages = (Array.isArray(history) ? history : [])
     .filter((item) => item && (item.role === 'user' || item.role === 'assistant') && String(item.content || '').trim())
     .slice(-10)
     .map((item) => ({ role: item.role, content: String(item.content) }))
-  return [
-    { role: 'system', content: system },
+  return appendDocumentWorkHandshake([
+    { role: 'system', content: withLunaRole(system) },
+    { role: 'user', content: source },
     ...historyMessages,
-    { role: 'user', content: String(question || '') },
-  ]
+  ], question)
 }
 
 module.exports = { buildChapterSummaryMessages, buildCompanionChatMessages }

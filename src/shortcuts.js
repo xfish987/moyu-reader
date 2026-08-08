@@ -2,6 +2,8 @@
 // 配置存于 localStorage（reader:shortcuts）。
 export const DEFAULT_SHORTCUTS = {
   toggleProfiles: 'F1',
+  startCompanion: 'F2',
+  stopCompanion: 'F3',
   prevPage: 'a',
   nextPage: 'd',
   immersive: 'F11',
@@ -10,6 +12,8 @@ export const DEFAULT_SHORTCUTS = {
 
 export const SHORTCUT_ACTIONS = [
   { id: 'toggleProfiles', label: '打开 / 关闭设定集', note: '书架与阅读中都可用' },
+  { id: 'startCompanion', label: '阅读 · 开始 AI 陪读', note: '仅在打开书籍后生效' },
+  { id: 'stopCompanion', label: '阅读 · 停止 AI 陪读', note: '仅在打开书籍后生效' },
   { id: 'prevPage', label: '阅读 · 上一页', note: '← 方向键始终可用' },
   { id: 'nextPage', label: '阅读 · 下一页', note: '→ 方向键始终可用' },
   { id: 'immersive', label: '阅读 · 沉浸模式', note: '' },

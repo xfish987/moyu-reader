@@ -3,6 +3,7 @@ import ePub from 'epubjs'
 import { NotePopup, SelectionPopup } from './NotePopups'
 import { truncateCompanionText } from './TextReader'
 import { convertChinese, searchVariants } from '../chineseConversion'
+import { getReaderFontStack, installReaderFonts } from '../readerFonts'
 
 const boundViewDocuments = new WeakSet()
 
@@ -160,6 +161,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
       manager: 'default',
     })
     rendition.hooks.content.register((contents) => {
+      installReaderFonts(contents.document)
       if (!settings.scriptConversion || settings.scriptConversion === 'none') return
       const document = contents.document
       const walker = document.createTreeWalker(document.body, document.defaultView.NodeFilter.SHOW_TEXT)
@@ -434,9 +436,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, initialCfi, 
   useEffect(() => {
     const rendition = renditionRef.current
     if (!rendition) return
-    const fontFamily = settings.fontFamily === 'sans'
-      ? 'Microsoft YaHei UI, PingFang SC, sans-serif'
-      : settings.fontFamily === 'kai' ? 'KaiTi, STKaiti, serif' : '"Moyu Source Han Serif", "Source Han Serif SC", "Songti SC", SimSun, serif'
+    const fontFamily = getReaderFontStack(settings.fontFamily)
     const textColor = settings.theme === 'night'
       ? `rgba(232, 236, 239, ${settings.opacity})`
       : `rgba(1, 22, 43, ${settings.opacity})`

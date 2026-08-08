@@ -10,7 +10,6 @@ import libraryDockIcon from '../ui-b/assets/dark-shelf/library.svg'
 import importDockIcon from '../ui-b/assets/dark-shelf/import.svg'
 import notesDockIcon from '../ui-b/assets/dark-shelf/notes.svg'
 import appearanceDockIcon from '../ui-b/assets/dark-shelf/appearance.svg'
-import suppliedCover from '../ui-b/assets/dark-shelf/default-cover.png'
 import managerDirectoryIcon from '../ui-b/assets/dark-shelf/manager-directory.svg'
 import managerAiIcon from '../ui-b/assets/dark-shelf/manager-ai.svg'
 import managerTrashIcon from '../ui-b/assets/dark-shelf/manager-trash.svg'
@@ -48,6 +47,7 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
         </span>
         <span className="book-info">
           <strong title={book.title}>{book.title}</strong>
+          <i className="book-info-divider" aria-hidden="true" />
           <small>{book.author || '作者未知'}</small>
           <span>{sizeLabel}</span>
           {progress ? <i className="manager-book-progress" style={{ '--progress': `${Math.round(progress * 100)}%` }}><b>阅读进度</b><em>{Math.round(progress * 100)}%</em></i> : null}
@@ -108,6 +108,7 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
   const [name, setName] = useState('')
   const [dragging, setDragging] = useState('')
   const [dropState, setDropState] = useState(null)
+  const [contextMenu, setContextMenu] = useState(null)
   useEffect(() => {
     if (!dragging) return undefined
     const clear = () => { setDragging(''); setDropState(null) }
@@ -115,6 +116,18 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
     window.addEventListener('pointercancel', clear)
     return () => { window.removeEventListener('pointerup', clear); window.removeEventListener('pointercancel', clear) }
   }, [dragging])
+  useEffect(() => {
+    if (!contextMenu) return undefined
+    const close = (event) => { if (!event.target.closest?.('.category-context-menu')) setContextMenu(null) }
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setContextMenu(null) }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [contextMenu])
+  const cancelCreate = () => { setName(''); setCreating(false) }
   const submit = () => {
     const value = name.trim().slice(0, 12)
     if (!value) return
@@ -153,32 +166,29 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
       <div className="category-sidebar-title"><span>书架分类</span><button onClick={() => setCreating(true)} title="新建分类"><Plus size={14} /></button></div>
       <nav>
         <button className={active === '全部书籍' ? 'active' : ''} onClick={() => onSelect('全部书籍')}><span>全部书籍</span><small>{counts.all}</small></button>
-        <button className={active === RECENT_CATEGORY ? 'active' : ''} onClick={() => onSelect(RECENT_CATEGORY)}><span>最近阅读</span><small>{counts.recent}</small></button>
-        <button className={active === '正在阅读' ? 'active' : ''} onClick={() => onSelect('正在阅读')}><span>正在阅读</span><small>{counts.reading}</small></button>
-        <button className={active === '已读完' ? 'active' : ''} onClick={() => onSelect('已读完')}><span>已读完</span><small>{counts.finished}</small></button>
-        <button className={active === '未分类' ? 'active' : ''} onClick={() => onSelect('未分类')}><span>未分类</span><small>{counts.uncategorized}</small></button>
+        <button className={active === RECENT_CATEGORY ? 'active' : ''} onClick={() => onSelect(RECENT_CATEGORY)}><span>最近在读</span><small>{counts.recent}</small></button>
+        <button className={active === '未读' ? 'active' : ''} onClick={() => onSelect('未读')}><span>未读</span><small>{counts.unread}</small></button>
         {categories.map((category) => (
-          <div className={`category-row ${active === category ? 'active' : ''} ${dragging === category ? 'is-dragging' : ''} ${dropState?.target === category ? `is-drop-${dropState.position}` : ''}`} key={category} onDragOverCapture={(event) => dragOver(event, category)} onDropCapture={(event) => drop(event, category)} onPointerMove={(event) => { if (dragging) setDropState({ target: category, position: pointerPosition(event) }) }} onPointerUp={(event) => { if (dragging) onReorder(dragging, category, pointerPosition(event)); setDragging(''); setDropState(null) }}>
+          <div className={`category-row ${active === category ? 'active' : ''} ${dragging === category ? 'is-dragging' : ''} ${dropState?.target === category ? `is-drop-${dropState.position}` : ''}`} key={category} onContextMenu={(event) => { event.preventDefault(); setContextMenu({ category, x: event.clientX, y: event.clientY }) }} onDragOverCapture={(event) => dragOver(event, category)} onDropCapture={(event) => drop(event, category)} onPointerMove={(event) => { if (dragging) setDropState({ target: category, position: pointerPosition(event) }) }} onPointerUp={(event) => { if (dragging) onReorder(dragging, category, pointerPosition(event)); setDragging(''); setDropState(null) }}>
             <span className="category-drag-handle" tabIndex={0} role="button" aria-label={`拖动调整分类 ${category} 的顺序`} title="拖动调整书架顺序" onPointerDown={(event) => { event.preventDefault(); setDragging(category) }} onKeyDown={(event) => { if (!event.altKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return; event.preventDefault(); const index = categories.indexOf(category); const delta = ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1; const target = categories[index + delta]; if (target) onReorder(category, target, delta < 0 ? 'before' : 'after') }}><GripVertical size={12} /></span>
             <button onClick={() => onSelect(category)}><span>{category}</span><small>{counts[category] || 0}</small></button>
-            <button className="delete-category" onClick={() => onDelete(category)} title={`删除分类 ${category}`}><X size={12} /></button>
           </div>
         ))}
-        {/* 窄窗下侧栏标题（含新建按钮）被隐藏，在筛选行末尾补一个内联新建入口 */}
-        <button className="category-add-inline" onClick={() => setCreating(true)} title="新建分类" aria-label="新建分类"><Plus size={14} /></button>
+        {creating ? (
+          <div className="category-create-inline">
+            <input autoFocus value={name} maxLength={12} aria-label="新分类名称" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submit(); if (event.key === 'Escape') cancelCreate() }} />
+            <button onClick={cancelCreate} title="取消" aria-label="取消新建分类"><X size={14} /></button>
+            <button onClick={submit} disabled={!name.trim()} title="确认" aria-label="确认新建分类"><Check size={14} /></button>
+          </div>
+        ) : <button className="category-add-inline" onClick={() => setCreating(true)} title="新建分类" aria-label="新建分类"><Plus size={14} /></button>}
       </nav>
-      {creating ? (
-        <div className="category-create">
-          <input autoFocus value={name} maxLength={12} placeholder="如：女频" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submit(); if (event.key === 'Escape') setCreating(false) }} />
-          <button onClick={submit} aria-label="确认新建分类"><Check size={14} /></button>
-        </div>
-      ) : null}
+      {contextMenu ? <div className="category-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }}><button role="menuitem" onClick={() => { onDelete(contextMenu.category); setContextMenu(null) }}><Trash2 size={13} />删除分类</button></div> : null}
     </aside>
   )
 }
 
 function LibraryBottomDock({ onOpenVirtualHome, onAddBooks, onToggleTheme, onNotes, onOpenAppearance }) {
-  const action = ({ id, label, icon, onClick }) => <button key={id} onClick={onClick} title={label} aria-label={label}><img src={icon} alt="" /></button>
+  const action = ({ id, label, icon, onClick }) => <button key={id} onClick={onClick} title={label} aria-label={label}><span className="v-dock-icon" style={{ '--dock-icon': `url("${icon}")` }} aria-hidden="true" /></button>
   return (
     <nav className="v-bottom-dock library-bottom-dock" aria-label="管理视图功能">
       <div className="v-dock-side is-left">{[
@@ -243,12 +253,8 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
       setActiveCategory(RECENT_CATEGORY)
       setSortBy('recent')
       setStatusFilter('all')
-    } else if (navigationTarget.kind === 'reading') {
-      setActiveCategory('正在阅读')
-      setSortBy('recent')
-      setStatusFilter('all')
-    } else if (navigationTarget.kind === 'finished') {
-      setActiveCategory('已读完')
+    } else if (navigationTarget.kind === 'unread') {
+      setActiveCategory('未读')
       setSortBy('recent')
       setStatusFilter('all')
     } else if (navigationTarget.kind === 'category' && categories.includes(navigationTarget.category)) {
@@ -269,18 +275,17 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     const category = tagsMap[book.id]?.[0]
     const status = statusMap[book.id] || (progressMap[book.id]?.percent > 0 ? 'reading' : 'unread')
     result.all += 1
-    if (status === 'reading') result.reading += 1
-    if (status === 'finished') result.finished += 1
+    if (status === 'unread') result.unread += 1
     if (category) result[category] = (result[category] || 0) + 1
     else result.uncategorized += 1
     return result
-  }, { all: 0, recent: recentBookIds.filter((id) => books.some((book) => book.id === id)).length, reading: 0, finished: 0, uncategorized: 0 })
+  }, { all: 0, recent: recentBookIds.filter((id) => books.some((book) => book.id === id)).length, unread: 0, uncategorized: 0 })
 
   const isCustomCategory = categories.includes(activeCategory)
   const filteredBooks = books.filter((book) => {
     const category = tagsMap[book.id]?.[0]
     const status = statusMap[book.id] || (progressMap[book.id]?.percent > 0 ? 'reading' : 'unread')
-    const matchesCategory = activeCategory === '全部书籍' || (activeCategory === RECENT_CATEGORY ? recentSet.has(book.id) : activeCategory === '正在阅读' ? status === 'reading' : activeCategory === '已读完' ? status === 'finished' : activeCategory === '未分类' ? !category : category === activeCategory)
+    const matchesCategory = activeCategory === '全部书籍' || (activeCategory === RECENT_CATEGORY ? recentSet.has(book.id) : activeCategory === '未读' ? status === 'unread' : category === activeCategory)
     const needle = query.trim().toLocaleLowerCase('zh-CN')
     const matchesQuery = !needle || `${book.title} ${book.author || ''} ${book.path}`.toLocaleLowerCase('zh-CN').includes(needle)
     return matchesCategory && matchesQuery && (statusFilter === 'all' || status === statusFilter)
@@ -399,7 +404,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
             {selecting ? <div className="batch-bar"><span>已选 {selectedIds.length} 本</span><button onClick={() => setSelectedIds(visibleBooks.map((book) => book.id))}>全选当前结果</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('unread')}>设为未读</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('reading')}>设为阅读中</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('finished')}>设为已读完</button><button className="danger" disabled={!selectedIds.length} onClick={removeSelected}>移出书架</button></div> : null}
             {visibleBooks.length ? (
               <div className="book-grid is-grid">
-                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={suppliedCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={!selecting && sortBy === 'custom' && isCustomCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
+                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={!selecting && sortBy === 'custom' && isCustomCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
               </div>
             ) : <div className="empty-filter">这个分类里还没有书</div>}
           </section>
