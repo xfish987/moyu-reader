@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Plus, RefreshCw, Rows3, ServerCog, Tags, Trash2, X } from 'lucide-react'
+import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Plus, RefreshCw, Rows3, ServerCog, Settings, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
 import { ALL_BOOKS_ORDER_KEY, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst } from '../ui-b/shelfLayout'
 import CoverEditor from './CoverEditor'
@@ -234,6 +234,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const [selectedIds, setSelectedIds] = useState([])
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [reorderMode, setReorderMode] = useState(false)
   const [draggingBook, setDraggingBook] = useState('')
   const [bookDropState, setBookDropState] = useState(null)
   useEffect(() => {
@@ -284,6 +285,9 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const isCustomCategory = categories.includes(activeCategory)
   const isAllBooks = activeCategory === '全部书籍'
   const isReorderableCategory = isAllBooks || isCustomCategory
+  useEffect(() => {
+    if (selecting || sortBy !== 'custom' || !isReorderableCategory) setReorderMode(false)
+  }, [isReorderableCategory, selecting, sortBy])
   const bookOrderKey = isAllBooks ? ALL_BOOKS_ORDER_KEY : activeCategory
   const filteredBooks = books.filter((book) => {
     const category = tagsMap[book.id]?.[0]
@@ -316,6 +320,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   }
 
   const selectCategory = (category) => {
+    setReorderMode(false)
     setActiveCategory(category)
     setSortBy(category === '全部书籍' || categories.includes(category) ? 'custom' : 'recent')
   }
@@ -418,11 +423,15 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         <div className="library-catalog">
           <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} />
           <section className="category-books">
-            <div className="category-heading"><img src={managerChevronsIcon} alt="" /><strong>{visibleBooks.length}</strong><span>本</span></div>
+            <div className="category-heading">
+              <img src={managerChevronsIcon} alt="" />
+              <strong>{visibleBooks.length}</strong><span>本</span>
+              {isReorderableCategory && !selecting ? <button className={`book-order-toggle ${reorderMode ? 'active' : ''}`} onClick={() => { setSortBy('custom'); setReorderMode((current) => !current) }} title={reorderMode ? '完成顺序调整' : '调整书籍顺序'} aria-label={reorderMode ? '完成顺序调整' : '调整书籍顺序'} aria-pressed={reorderMode}><Settings size={14} /></button> : null}
+            </div>
             {selecting ? <div className="batch-bar"><span>已选 {selectedIds.length} 本</span><button onClick={() => setSelectedIds(visibleBooks.map((book) => book.id))}>全选当前结果</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('unread')}>设为未读</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('reading')}>设为阅读中</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('finished')}>设为已读完</button><button className="danger" disabled={!selectedIds.length} onClick={removeSelected}>移出书架</button></div> : null}
             {visibleBooks.length ? (
               <div className="book-grid is-grid">
-                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={!selecting && sortBy === 'custom' && isReorderableCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
+                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={reorderMode && !selecting && sortBy === 'custom' && isReorderableCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
               </div>
             ) : <div className="empty-filter">这个分类里还没有书</div>}
           </section>

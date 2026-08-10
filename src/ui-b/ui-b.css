@@ -997,6 +997,10 @@
 .ui-b .library-design-view .category-heading img { width: 10.42px; height: 6.98px; }
 .ui-b .library-design-view .category-heading strong { color: #e8ecef; font: 700 17.8487pt/1 var(--font-ui); letter-spacing: .1em; }
 .ui-b .library-design-view .category-heading span { color: #e8ecef; font: 700 6.2619pt/1 var(--font-ui); letter-spacing: .1em; }
+.ui-b .library-design-view .book-order-toggle { width: 20px; height: 20px; margin: 0 0 -2px 2px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; color: #e8ecef; cursor: pointer; opacity: .82; transition: background-color .16s ease, color .16s ease, opacity .16s ease, transform .16s ease; }
+.ui-b .library-design-view .book-order-toggle:hover, .ui-b .library-design-view .book-order-toggle:focus-visible { background: rgba(232,236,239,.16); opacity: 1; outline: none; }
+.ui-b .library-design-view .book-order-toggle.active { background: rgba(232,236,239,.22); opacity: 1; transform: rotate(22.5deg); }
+.ui-b .library-design-view .book-order-toggle svg { display: block; }
 .ui-b .library-design-view .batch-bar { margin: 0 0 12px; border: 1px solid rgba(115,148,183,.35); background: rgba(28,43,72,.86); }
 .ui-b .library-design-view .batch-bar span { color: #ccd4e7; }
 .ui-b .library-design-view .batch-bar button { border-color: rgba(190,211,226,.35); background: rgba(115,148,183,.18); color: #e8ecef; }
@@ -1182,6 +1186,10 @@
 .ui-b.ui-b-theme-mist .library-design-view .category-row::after { background: #1c2b48; }
 .ui-b.ui-b-theme-mist .library-design-view .category-add-inline { color: #1c2b48; }
 .ui-b.ui-b-theme-mist .library-design-view .category-heading img { content: url("./assets/light-shelf/manager-chevrons.svg"); }
+.ui-b.ui-b-theme-mist .library-design-view .book-order-toggle { color: #1c2b48; }
+.ui-b.ui-b-theme-mist .library-design-view .book-order-toggle:hover,
+.ui-b.ui-b-theme-mist .library-design-view .book-order-toggle:focus-visible,
+.ui-b.ui-b-theme-mist .library-design-view .book-order-toggle.active { background: rgba(28,43,72,.12); }
 .ui-b.ui-b-theme-mist .v-library-search > img,
 .ui-b.ui-b-theme-mist .library-design-search > img { content: url("./assets/light-shelf/search.svg"); }
 .ui-b.ui-b-theme-mist .v-home-actions > button.is-trash img { content: url("./assets/light-shelf/manager-trash.svg"); }
