@@ -11,6 +11,7 @@ const { collectModelCatalog } = require('./modelCatalog.cjs')
 const { parseProfileJson } = require('./jsonRepair.cjs')
 const { buildProfileMessages } = require('./profilePrompt.cjs')
 const { buildDictionaryMessages, buildFollowupMessages } = require('./dictionaryPrompt.cjs')
+const { buildRewriteMessages } = require('./rewritePrompt.cjs')
 const { buildChapterSummaryMessages, buildCompanionChatMessages } = require('./companionPrompt.cjs')
 const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
@@ -85,6 +86,7 @@ const STORE_KEYS = new Set([
   'reader:window-bounds',
   'reader:entity-profiles',
   'reader:dictionary',
+  'reader:rewrites',
   'reader:companion-enabled',
   'reader:storyline',
   'reader:companion-chats',
@@ -1873,6 +1875,35 @@ ipcMain.handle('ai:dictionary-chat', async (event, input) => {
   } finally { if (timeout) clearTimeout(timeout) }
 })
 
+ipcMain.handle('ai:rewrite', async (_event, input) => {
+  const config = await loadAiConfig()
+  const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId)) || config.providers[0]
+  if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
+  const model = String(input?.model || provider.model || '').trim().slice(0, 160)
+  if (!model) return { ok: false, error: { stage: 'setup', status: 0, code: 'MODEL_REQUIRED', message: '请选择或填写模型' } }
+  const textOf = (value, limit) => String(value || '').trim().slice(0, limit)
+  const payload = {
+    bookTitle: textOf(input?.bookTitle, 120), author: textOf(input?.author, 80), chapterLabel: textOf(input?.chapterLabel, 160),
+    originalText: textOf(input?.originalText, 12000), paragraph: textOf(input?.paragraph, 16000), chapterText: textOf(input?.chapterText, 30000),
+    requirement: textOf(input?.requirement, 1200), targetLength: Math.max(50, Math.min(5000, Number(input?.targetLength) || 300)),
+  }
+  if (!payload.originalText || !payload.requirement) return { ok: false, error: { stage: 'rewrite', status: 0, code: 'INVALID_INPUT', message: '请选择原文并填写改写要求' } }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 90000)
+  try {
+    const tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
+    const response = await requestProviderStreaming(provider, 'chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, [tokenParameter]: Math.max(1024, Math.min(8192, Math.ceil(payload.targetLength * 2.2))), stream: true, messages: buildRewriteMessages(payload) }),
+    }, 'rewrite', controller.signal)
+    const text = responseText(response?.choices?.[0]?.message).trim()
+    if (!text) return { ok: false, error: { stage: 'rewrite', status: 200, code: 'EMPTY_RESPONSE', message: '供应商没有返回改写内容' } }
+    return { ok: true, text: text.slice(0, 20000), providerId: provider.id, providerName: provider.name, model }
+  } catch (error) {
+    return { ok: false, error: error.aiError || { stage: 'rewrite', status: 0, code: error.name === 'AbortError' ? 'REQUEST_TIMEOUT' : 'UNKNOWN_ERROR', message: error.name === 'AbortError' ? '改写请求超时，请稍后重试' : sanitizeAiErrorText(error.message) } }
+  } finally { clearTimeout(timeout) }
+})
+
 // AI 陪读：缺字段时归一化补齐，characters/events 保证数组，其余保证字符串。
 function normalizeCompanionSummary(value) {
   const source = value && typeof value === 'object' ? value : {}
@@ -2091,6 +2122,7 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
       { type: 'separator' },
       { label: '添加笔记 / 评论', click: () => finish('note') },
       { label: '字典百科（AI 解说这段文字）', click: () => finish('dictionary') },
+      { label: '改写（按要求重写这段文字）', click: () => finish('rewrite') },
     )
     if (options.canLookupEntity) {
       template.push(

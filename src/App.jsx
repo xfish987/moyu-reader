@@ -12,7 +12,6 @@ import BackgroundLayer from './ui-b/BackgroundLayer'
 import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
 import VirtualBookshelfHome from './ui-b/VirtualBookshelfHome'
 import { moveBeforeOrAfter } from './ui-b/shelfLayout'
-import MobileAuxiliaryLayer from './components/MobileAuxiliaryLayer'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -31,7 +30,6 @@ const DEFAULT_SETTINGS = {
 }
 
 export default function App() {
-  const isMobile = Boolean(window.readerAPI?.isMobile)
   const [directory, setDirectory] = useStoredState('reader:directory', '')
   const [settings, setSettings] = useStoredState('reader:settings', DEFAULT_SETTINGS)
   const [progressMap, setProgressMap] = useStoredState('reader:progress', {})
@@ -49,6 +47,7 @@ export default function App() {
   const [bookMetadata, setBookMetadata] = useStoredState('reader:book-metadata', {})
   const [entityProfilesMap, setEntityProfilesMap] = useStoredState('reader:entity-profiles', {})
   const [dictionaryMap, setDictionaryMap] = useStoredState('reader:dictionary', {})
+  const [rewritesMap, setRewritesMap] = useStoredState('reader:rewrites', {})
   const [companionMap, setCompanionMap] = useStoredState('reader:companion-enabled', {})
   const [companionChatsMap, setCompanionChatsMap] = useStoredState('reader:companion-chats', {})
   const [storylineMap, setStorylineMap] = useStoredState('reader:storyline', {})
@@ -185,7 +184,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap, setCompanionMap, setCompanionChatsMap, setStorylineMap].forEach(migrateMap)
+    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap, setRewritesMap, setCompanionMap, setCompanionChatsMap, setStorylineMap].forEach(migrateMap)
     const currentBook = books.find((book) => (book.legacyId || book.path) === lastBookId)
     if (currentBook && currentBook.id !== lastBookId) setLastBookId(currentBook.id)
     const migrateId = (id) => books.find((book) => book.id === id || (book.legacyId || book.path) === id)?.id || id
@@ -211,7 +210,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCategoryBookOrder, setCompanionChatsMap, setCompanionMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setRecentBookIds, setStatusMap, setStorylineMap, setTagsMap])
+  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCategoryBookOrder, setCompanionChatsMap, setCompanionMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setRecentBookIds, setRewritesMap, setStatusMap, setStorylineMap, setTagsMap])
 
   useEffect(() => {
     if (!recentBooksReady || loading || recentSeededRef.current) return
@@ -231,6 +230,7 @@ export default function App() {
     setHiddenBooks((current) => current.includes(book.id) ? current : [...current, book.id])
     // 书籍删除时，字典百科解释、设定集与 AI 陪读数据随这本书的阅读数据一起消失。
     setDictionaryMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
+    setRewritesMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
     setEntityProfilesMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
     setCompanionMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
     setCompanionChatsMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
@@ -271,7 +271,6 @@ export default function App() {
       const nextSource = await window.readerAPI.openBook(book.path)
       setActiveBook(book)
       setSource(nextSource)
-      if (isMobile) setImmersive(true)
       setLastBookId(book.id)
       setRecentBookIds((current) => [book.id, ...current.filter((id) => id !== book.id)])
       return true
@@ -356,6 +355,7 @@ export default function App() {
     setCoversMap({})
     setEntityProfilesMap({})
     setDictionaryMap({})
+    setRewritesMap({})
     setCompanionMap({})
     setCompanionChatsMap({})
     setStorylineMap({})
@@ -365,6 +365,11 @@ export default function App() {
   }
 
   const shortcut = useCallback((event) => {
+    if (event.key === 'Escape' && immersive) {
+      event.preventDefault()
+      setImmersive(false)
+      return
+    }
     const pressed = normalizeKey(event)
     if (!pressed) return
     const target = event.target
@@ -398,7 +403,7 @@ export default function App() {
       event.preventDefault()
       setSettings((current) => ({ ...current, opacity: Math.max(0.15, +(current.opacity - 0.05).toFixed(2)) }))
     }
-  }, [activeBook, setCompanionMap, setSettings, shortcuts, toggleImmersive])
+  }, [activeBook, immersive, setCompanionMap, setSettings, shortcuts, toggleImmersive])
 
   useEffect(() => {
     window.addEventListener('keydown', shortcut)
@@ -412,25 +417,6 @@ export default function App() {
     setPendingNote(null)
     setHomeView('virtual')
   }
-
-  useEffect(() => {
-    if (!isMobile) return undefined
-    window.readerAPI?.setReadingMode?.(Boolean(activeBook))
-    return () => window.readerAPI?.setReadingMode?.(false)
-  }, [activeBook, isMobile])
-
-  useEffect(() => {
-    if (!isMobile) return undefined
-    const handleBack = (event) => {
-      if (event.defaultPrevented || window.__moyuAuxOpen) return
-      if (activeBook) {
-        event.preventDefault()
-        closeReader()
-      }
-    }
-    window.addEventListener('moyu:android-back', handleBack)
-    return () => window.removeEventListener('moyu:android-back', handleBack)
-  }, [activeBook, isMobile])
 
   const saveProgress = useCallback((nextProgress) => {
     if (!activeBook) return
@@ -529,7 +515,7 @@ export default function App() {
     <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
-      {!immersive && !isMobile ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} /> : null}
+      {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} /> : null}
       {activeBook && source ? (
         <ReaderView
           book={activeBook}
@@ -568,6 +554,8 @@ export default function App() {
           dictionaryEntries={dictionaryMap[activeBook.id] || []}
           onSaveDictEntry={saveDictEntry}
           onDeleteDictEntry={deleteDictEntry}
+          rewrites={rewritesMap[activeBook.id] || []}
+          onSaveRewrite={(entry) => setRewritesMap((current) => { const list = current[activeBook.id] || []; const exists = list.some((item) => item.id === entry.id); return { ...current, [activeBook.id]: exists ? list.map((item) => item.id === entry.id ? entry : item) : [...list, entry] } })}
           companionEnabled={Boolean(companionMap[activeBook.id])}
           onToggleCompanion={() => setCompanionMap((current) => ({ ...current, [activeBook.id]: !current[activeBook.id] }))}
           companionChats={companionChatsMap[activeBook.id] || []}
@@ -654,7 +642,6 @@ export default function App() {
       )}
       {appearanceOpen ? <AppearancePanel appearance={appearance} onChange={setAppearance} onClose={() => setAppearanceOpen(false)} /> : null}
       {shortcutSettingsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutSettingsOpen(false)} /> : null}
-      {isMobile ? <MobileAuxiliaryLayer /> : null}
     </div>
   )
 }

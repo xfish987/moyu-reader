@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('readerAPI', {
   saveAiPreferences: (preferences) => ipcRenderer.invoke('ai:save-preferences', preferences),
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
   dictionaryChat: (payload) => ipcRenderer.invoke('ai:dictionary-chat', payload),
+  rewriteText: (payload) => ipcRenderer.invoke('ai:rewrite', payload),
   companionSummary: (payload) => ipcRenderer.invoke('ai:companion-summary', payload),
   companionChat: (payload) => ipcRenderer.invoke('ai:companion-chat', payload),
   openDictionaryWindow: (entryId) => ipcRenderer.invoke('dict:open', entryId || ''),

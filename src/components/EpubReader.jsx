@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import ePub from 'epubjs'
 import { NotePopup, SelectionPopup } from './NotePopups'
 import { truncateCompanionText } from './TextReader'
@@ -149,6 +149,17 @@ function splitHref(value = '') {
   return { hrefPath, fragment }
 }
 
+// 段末评论气泡（起点阅读风格）：样式注入书籍 iframe，造型与 .text-note-marker 一致。
+// 气泡背景需与阅读页背景一致，才能让小尾巴遮住气泡左边的边框。
+const EPUB_NOTE_MARKER_STYLE_ID = 'moyu-epub-note-marker-style'
+function epubNoteMarkerCss(pageBackground) {
+  return `
+.epub-note-marker{position:relative;margin-left:.45em;padding:0 .38em;min-width:1.7em;height:1.5em;box-sizing:border-box;border:1px solid color-mix(in srgb,currentColor 32%,transparent);border-radius:.32em;display:inline-flex;align-items:center;justify-content:center;vertical-align:-.18em;background:${pageBackground};color:inherit;opacity:.6;cursor:pointer;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:clamp(10px,.55em,14px);font-weight:600;line-height:1;-webkit-user-select:none;user-select:none}
+.epub-note-marker::before{content:'';position:absolute;left:-.31em;top:50%;width:.5em;height:.5em;border-left:1px solid color-mix(in srgb,currentColor 32%,transparent);border-bottom:1px solid color-mix(in srgb,currentColor 32%,transparent);background:${pageBackground};transform:translateY(-50%) rotate(45deg)}
+.epub-note-marker:hover{opacity:.95}
+`
+}
+
 function resolveTocHref(location, rendition, book, toc) {
   const currentPath = splitHref(location.start.href).hrefPath
   const candidates = toc.filter((item) => splitHref(item.href).hrefPath === currentPath)
@@ -210,7 +221,7 @@ function hasReadableContent(document) {
   return Boolean(visibleBodyText(body))
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, onDismissPanel, onTap }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -218,7 +229,14 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   const [notePopup, setNotePopup] = useState(null)
   const selectedContentsRef = useRef(null)
   const selectionPayloadRef = useRef(null)
-  const annotationsRef = useRef([])
+  const notesRef = useRef(notes)
+  const injectNoteMarkersRef = useRef(null)
+  const rewritesRef = useRef(rewrites)
+  const openRewriteRef = useRef(onOpenRewrite)
+  const injectRewritesRef = useRef(null)
+  notesRef.current = notes
+  rewritesRef.current = rewrites
+  openRewriteRef.current = onOpenRewrite
   const locationsPromiseRef = useRef(null)
   const progressFrameRef = useRef(null)
   const pendingLocationRef = useRef(null)
@@ -239,7 +257,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   const shortcutRef = useRef(onShortcut)
   const wheelCallbackRef = useRef(onWheel)
   const dismissPanelRef = useRef(onDismissPanel)
-  const tapCallbackRef = useRef(onTap)
   const settingsRef = useRef(settings)
   if (initialDataRef.current !== data) {
     initialDataRef.current = data
@@ -250,7 +267,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   shortcutRef.current = onShortcut
   wheelCallbackRef.current = onWheel
   dismissPanelRef.current = onDismissPanel
-  tapCallbackRef.current = onTap
   settingsRef.current = settings
 
   useEffect(() => {
@@ -400,7 +416,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
         selectedContentsRef.current = contents
         setNotePopup(null)
         const payload = {
-          text: text.slice(0, 500),
+          text: text.slice(0, 12000),
           cfi: cfiRange,
           href: selectionHref,
           spineIndex: Number(rendition.currentLocation()?.start?.index) || 0,
@@ -429,13 +445,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
         view.document.addEventListener('keydown', (event) => shortcutRef.current(event))
         view.document.addEventListener('wheel', (event) => wheelCallbackRef.current?.(event), { passive: false })
         // iframe 内点击不冒泡到外层，面板“点击外部关闭”需要这里兜底。
-        view.document.addEventListener('click', (event) => {
-          dismissPanelRef.current?.()
-          if (!tapCallbackRef.current || event.target?.closest?.('a, button, input, textarea, select')) return
-          const selection = view.document.defaultView?.getSelection()?.toString().trim()
-          const width = view.document.documentElement?.clientWidth || view.document.defaultView?.innerWidth || 1
-          tapCallbackRef.current({ ratio: event.clientX / width, hasSelection: Boolean(selection) })
-        })
+        view.document.addEventListener('click', () => dismissPanelRef.current?.())
         view.document.addEventListener('contextmenu', async (event) => {
           const selectedText = view.document.defaultView?.getSelection()?.toString().trim()
           const payload = selectionPayloadRef.current
@@ -446,6 +456,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
           const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
           if (action === 'note') setSelPopup({ ...payload, editing: true })
           else if (action === 'dictionary') onLookupDict?.(payload)
+          else if (action === 'rewrite') onRewrite?.(payload)
           else if (action === 'lookup-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'generate')
           else if (action === 'view-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'view')
           else if (action === 'link-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'link')
@@ -480,6 +491,9 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
       emptySkipCountRef.current += 1
       rendition.display(adjacent.href)
     })
+
+    // 每次渲染新节（翻页/跳转/重排）后，重新在可见段落末尾注入评论气泡。
+    rendition.on('rendered', () => { injectNoteMarkersRef.current?.(); injectRewritesRef.current?.() })
 
     if (initialCfiRef.current) {
       const restoreCfi = initialCfiRef.current
@@ -551,46 +565,109 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     applyRenditionSettings(rendition, settings, fontOverride)
   }, [fontOverride, settings])
 
-  // 把带 CFI 的笔记渲染成正文里的评论标记，点击标记弹出评论卡片。
-  // 笔记增删时整体重挂，避免遗留已删除笔记的标记。
-  useEffect(() => {
+  // 段末评论气泡：把当前可见节里带 CFI 的笔记按所在段落分组，
+  // 在段落末尾注入计数气泡（起点阅读风格），点击弹出该段全部评论。
+  // 正文不再画高亮/下划线；翻到包含笔记的节时由 'rendered' 事件触发重挂。
+  const injectNoteMarkers = useCallback(() => {
     const rendition = renditionRef.current
     if (!rendition) return
-    annotationsRef.current.forEach(({ cfi, type }) => { try { rendition.annotations.remove(cfi, type) } catch {} })
-    annotationsRef.current = []
-    for (const note of notes || []) {
+    const contentsList = rendition.getContents?.() || []
+    for (const contents of contentsList) {
+      try { contents.document?.querySelectorAll('.epub-note-marker').forEach((node) => node.remove()) } catch {}
+    }
+    const groups = new Map()
+    for (const note of notesRef.current || []) {
       if (!note.cfi) continue
-      try {
-        // epubjs 的 mark 是挂在主文档视图容器上的小图标（点击事件坐标即主窗口坐标）
-        rendition.annotations.mark(note.cfi, { noteId: note.id }, (event) => {
-          const hostRect = hostRef.current?.getBoundingClientRect()
-          if (!hostRect) return
-          const above = (event.clientY || 0) - hostRect.top
-          setSelPopup(null)
-          setNotePopup({
-            note,
-            left: Math.max(150, Math.min(hostRect.width - 150, (event.clientX || 0) - hostRect.left)),
-            below: above < 230,
-            top: above < 230 ? above + 14 : Math.max(10, above - 14),
-          })
+      let range = null
+      try { range = rendition.getRange(note.cfi) } catch { range = null }
+      if (!range?.startContainer) continue
+      const container = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement
+      const block = container?.closest?.('p, li, blockquote, h1, h2, h3, h4, h5, h6')
+        || container?.closest?.('div, section')
+        || range.startContainer.ownerDocument?.body
+      if (!block) continue
+      groups.set(block, [...(groups.get(block) || []), note])
+    }
+    if (!groups.size) return
+    const pageBackground = (hostRef.current ? getComputedStyle(hostRef.current).getPropertyValue('--reader-bg') : '').trim()
+      || (settingsRef.current?.theme === 'night' ? '#01162b' : '#e8ecef')
+    for (const [block, blockNotes] of groups) {
+      const document = block.ownerDocument
+      if (document?.head && !document.getElementById(EPUB_NOTE_MARKER_STYLE_ID)) {
+        const style = document.createElement('style')
+        style.id = EPUB_NOTE_MARKER_STYLE_ID
+        style.textContent = epubNoteMarkerCss(pageBackground)
+        document.head.appendChild(style)
+      }
+      const bubble = document.createElement('span')
+      bubble.className = 'epub-note-marker'
+      bubble.setAttribute('role', 'button')
+      bubble.title = `查看评论（${blockNotes.length}）`
+      bubble.textContent = String(blockNotes.length)
+      bubble.addEventListener('mousedown', (event) => event.stopPropagation())
+      bubble.addEventListener('mouseup', (event) => event.stopPropagation())
+      bubble.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const frame = document.defaultView?.frameElement
+        const hostRect = hostRef.current?.getBoundingClientRect()
+        if (!frame || !hostRect) return
+        const frameRect = frame.getBoundingClientRect()
+        const rect = bubble.getBoundingClientRect()
+        const above = frameRect.top - hostRect.top + rect.top
+        setSelPopup(null)
+        setNotePopup({
+          notes: blockNotes,
+          left: Math.max(150, Math.min(hostRect.width - 150, frameRect.left - hostRect.left + rect.left + rect.width / 2)),
+          below: above < 230,
+          top: above < 230 ? above + rect.height + 10 : Math.max(10, above - 12),
         })
-        annotationsRef.current.push({ cfi: note.cfi, type: 'mark' })
-        if (note.color) {
-          const colors = { amber: 'rgba(166, 199, 230, .34)', sage: 'rgba(142, 177, 209, .3)', rose: 'rgba(148, 162, 191, .3)' }
-          rendition.annotations.highlight(note.cfi, { noteId: note.id }, null, `reader-highlight-${note.color}`, { fill: colors[note.color] || colors.amber, 'fill-opacity': '1', 'mix-blend-mode': 'multiply' })
-          annotationsRef.current.push({ cfi: note.cfi, type: 'highlight' })
-        }
-      } catch {}
+      })
+      block.appendChild(bubble)
     }
-    // 字典百科条目：不同颜色的高亮，点击重新打开上次的 AI 解说。
-    for (const entry of dictEntries || []) {
+  }, [])
+  injectNoteMarkersRef.current = injectNoteMarkers
+
+  useEffect(() => { injectNoteMarkers() }, [injectNoteMarkers, notes, data, settings.theme])
+
+  const injectRewrites = useCallback(() => {
+    const rendition = renditionRef.current
+    if (!rendition) return
+    for (const contents of rendition.getContents?.() || []) {
+      const document = contents.document
+      document?.querySelectorAll('.epub-rewrite-star').forEach((node) => node.remove())
+      document?.querySelectorAll('.epub-rewrite-fragment').forEach((node) => node.replaceWith(document.createTextNode(node.dataset.original || node.textContent || '')))
+    }
+    for (const entry of rewritesRef.current || []) {
       if (!entry.anchor?.cfi) continue
-      try {
-        rendition.annotations.highlight(entry.anchor.cfi, { dictId: entry.id }, () => onOpenDictEntry?.(entry), 'reader-dict-highlight', { fill: '#6a90b4', 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' })
-        annotationsRef.current.push({ cfi: entry.anchor.cfi, type: 'highlight' })
-      } catch {}
+      let range
+      try { range = rendition.getRange(entry.anchor.cfi) } catch { range = null }
+      if (!range?.startContainer) continue
+      const document = range.startContainer.ownerDocument
+      const container = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement
+      const block = container?.closest?.('p,li,blockquote,h1,h2,h3,h4,h5,h6') || container?.closest?.('div,section')
+      if (!block) continue
+      if (!document.getElementById('moyu-epub-rewrite-style')) {
+        const style = document.createElement('style')
+        style.id = 'moyu-epub-rewrite-style'
+        style.textContent = '.epub-rewrite-star{margin-left:.38em;padding:0;border:0;background:transparent;color:#6a90b4;cursor:pointer;font-size:.72em;vertical-align:.2em}.epub-rewrite-fragment{color:inherit}'
+        document.head?.appendChild(style)
+      }
+      if (entry.applied && entry.generatedText) {
+        try {
+          const span = document.createElement('span')
+          span.className = 'epub-rewrite-fragment'; span.dataset.original = entry.originalText; span.textContent = entry.generatedText
+          range.deleteContents(); range.insertNode(span)
+        } catch {}
+      }
+      const star = document.createElement('button')
+      star.className = 'epub-rewrite-star'; star.type = 'button'; star.title = '查看改写'; star.textContent = '✦'
+      star.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); openRewriteRef.current?.(entry) })
+      block.appendChild(star)
     }
-  }, [notes, dictEntries, data])
+  }, [])
+  injectRewritesRef.current = injectRewrites
+  useEffect(() => { injectRewrites() }, [injectRewrites, rewrites, data])
 
   const closeSelectionPopup = () => {
     selectedContentsRef.current?.window?.getSelection()?.removeAllRanges()
@@ -820,7 +897,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   return (
     <div className="epub-host" ref={hostRef} style={{ '--page-margin': `${settings.pageMargin}px` }}>
       {selPopup?.editing ? <SelectionPopup text={selPopup.text} left={selPopup.left} top={selPopup.top} below={selPopup.below} onSave={saveSelectionPopup} onCancel={closeSelectionPopup} /> : null}
-      {notePopup ? <NotePopup notes={[notePopup.note]} left={notePopup.left} top={notePopup.top} below={notePopup.below} onClose={() => setNotePopup(null)} /> : null}
+      {notePopup ? <NotePopup notes={notePopup.notes || []} left={notePopup.left} top={notePopup.top} below={notePopup.below} onClose={() => setNotePopup(null)} /> : null}
     </div>
   )
 })

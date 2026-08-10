@@ -854,32 +854,45 @@ button:focus-visible, input:focus-visible {
 .note-popup-comment.is-empty { color: var(--ink-3); }
 .note-popup-comment svg { flex: 0 0 auto; margin-top: 3px; }
 .note-popup-item > span { color: var(--ink-3); font-size: var(--text-xs); }
+/* 段末评论气泡：起点阅读风格——描边小气泡 + 评论数，不再划线高亮原文。 */
 .text-note-marker {
-  margin-left: 6px;
-  padding: 1px 4px;
-  border: 0;
-  border-radius: 3px;
+  position: relative;
+  margin-left: .45em;
+  padding: 0 .38em;
+  min-width: 1.7em;
+  height: 1.5em;
+  box-sizing: border-box;
+  border: 1px solid rgba(var(--reader-ink), .3);
+  border-radius: .32em;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  vertical-align: baseline;
-  background: rgba(166, 199, 230, .3);
-  color: var(--note);
+  justify-content: center;
+  vertical-align: -.18em;
+  background: var(--reader-bg);
+  color: rgba(var(--reader-ink), .55);
   cursor: pointer;
+  font-size: clamp(10px, .55em, 14px);
 }
-.text-note-marker:hover { background: rgba(166, 199, 230, .5); }
-.text-note-marker em { font: 600 var(--text-xs)/1 var(--font-ui); font-style: normal; }
-.text-highlight { padding: .03em 0; border-radius: 2px; color: inherit; }
-.text-highlight.is-amber { background: rgba(166, 199, 230, .34); }
-.text-highlight.is-sage { background: rgba(142, 177, 209, .3); }
-.text-highlight.is-rose { background: rgba(148, 162, 191, .3); }
+.text-note-marker::before {
+  content: '';
+  position: absolute;
+  left: -.31em;
+  top: 50%;
+  width: .5em;
+  height: .5em;
+  border-left: 1px solid rgba(var(--reader-ink), .3);
+  border-bottom: 1px solid rgba(var(--reader-ink), .3);
+  background: inherit;
+  transform: translateY(-50%) rotate(45deg);
+}
+.text-note-marker:hover { border-color: rgba(var(--reader-ink), .55); color: rgba(var(--reader-ink), .85); }
+.text-note-marker:hover::before { border-color: rgba(var(--reader-ink), .55); }
+.text-note-marker em { font: 600 1em/1 var(--font-ui); font-style: normal; }
 
 .epub-host { position: relative; height: 100%; margin-inline: clamp(22px, 8vw, var(--page-margin)); overflow: hidden; background-color: transparent !important; }
 .epub-host .epub-container, .epub-host .epub-view, .epub-host iframe { background-color: transparent !important; }
-/* epubjs mark 评论标记：正文中带评论位置的 💬 小图标，点击弹出评论 */
-a[ref="epubjs-mk"] { width: 20px; height: 20px; margin-left: 4px; display: inline-block; cursor: pointer; z-index: 6; text-align: center; }
-a[ref="epubjs-mk"]::after { content: '💬'; font-size: var(--text-md); line-height: 20px; filter: drop-shadow(0 1px 2px rgba(23, 29, 26, .35)); }
-a[ref="epubjs-mk"]:hover::after { filter: drop-shadow(0 1px 3px rgba(23, 29, 26, .6)); }
+/* EPUB 的段末评论气泡样式由 EpubReader 注入到书籍 iframe 内（.epub-note-marker），
+   与 .text-note-marker 保持同一造型。 */
 .is-immersive .epub-host { height: 100%; }
 
 .immersive-topbar {
@@ -1498,23 +1511,28 @@ mark.dict-highlight:hover { background: var(--accent-bg, rgba(127, 160, 137, .14
 .dictionary-nav { display: flex; align-items: center; gap: 2px; }
 .dictionary-nav button { width: 26px; height: 26px; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--chrome); cursor: pointer; }
 .dictionary-nav button:hover { background: rgba(var(--reader-ink), .07); }
+.dictionary-nav .dictionary-delete-all:hover { color: var(--danger, #9a4a3e); }
 
 /* 主体：左侧边栏 + 右侧详情 */
 .dictionary-main { flex: 1; min-height: 0; display: flex; }
-.dictionary-sidebar { flex: 0 0 168px; display: flex; flex-direction: column; gap: 2px; padding: 8px 6px; border-right: 1px solid var(--line); overflow-y: auto; transition: flex-basis .18s ease, padding .18s ease; }
-.dictionary-sidebar.is-collapsed { flex-basis: 24px; padding: 8px 0; overflow: hidden; }
-.dictionary-collapse { flex: 0 0 auto; align-self: flex-end; width: 22px; height: 22px; margin-bottom: 4px; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--chrome); cursor: pointer; }
-.dictionary-collapse:hover { background: rgba(var(--reader-ink), .07); }
-.dictionary-sidebar.is-collapsed .dictionary-collapse { align-self: center; margin-bottom: 0; }
+.dictionary-sidebar { position: relative; flex: 0 0 168px; display: flex; flex-direction: column; gap: 2px; padding: 10px 6px; border-right: 1px solid var(--accent, #396081); overflow-x: hidden; overflow-y: auto; transition: flex-basis .18s ease, padding .18s ease; }
+.dictionary-sidebar.is-collapsed { flex-basis: 10px; padding: 0; border-right-color: transparent; overflow: hidden; }
+.dictionary-collapse { position: absolute; z-index: 3; top: 50%; right: 0; width: 10px; height: 28px; padding: 0; border: 0; border-radius: 0; display: block; background: var(--accent, #396081); color: transparent; cursor: pointer; transform: translateY(-50%); clip-path: polygon(0 50%, 100% 0, 100% 100%); transition: filter 160ms ease; }
+.dictionary-collapse:hover { filter: brightness(1.18); }
+.dictionary-collapse span { display: none; }
+.dictionary-sidebar.is-collapsed .dictionary-collapse { right: 0; transform: translateY(-50%); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.dictionary-sidebar.is-collapsed .dictionary-entry { display: none; }
 .dictionary-entry { position: relative; display: block; }
-.dictionary-entry-open { width: 100%; display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+.dictionary-entry-open { width: 100%; display: flex; flex-direction: column; gap: 3px; padding: 7px 28px 7px 9px; border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease; }
 .dictionary-entry-open:hover { background: rgba(var(--reader-ink), .06); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(var(--reader-ink), .08); }
 .dictionary-entry-open.active { background: var(--accent-bg, rgba(127, 160, 137, .16)); box-shadow: inset 3px 0 0 var(--accent, #31615a); }
 .dictionary-entry-open.active:hover { box-shadow: inset 3px 0 0 var(--accent, #31615a), 0 2px 8px rgba(var(--reader-ink), .08); }
 .dictionary-entry-open strong { display: block; overflow: hidden; color: rgb(var(--reader-ink)); font-size: var(--text-xs); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .dictionary-entry-open span { display: block; overflow: hidden; color: var(--chrome); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .dictionary-entry-delete { position: absolute; top: 5px; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--chrome); opacity: 0; pointer-events: none; cursor: pointer; transition: opacity 160ms ease; }
-.dictionary-entry:hover .dictionary-entry-delete, .dictionary-entry-delete:focus-visible { opacity: 1; pointer-events: auto; }
+.dictionary-entry:hover .dictionary-entry-delete,
+.dictionary-entry-open.active + .dictionary-entry-delete,
+.dictionary-entry-delete:focus-visible { opacity: 1; pointer-events: auto; }
 .dictionary-entry-delete:hover { color: var(--danger, #9a4a3e); background: rgba(var(--reader-ink), .08); }
 
 .dictionary-detail { flex: 1; min-width: 0; display: block; padding: 12px 16px; overflow-y: auto; }
@@ -1548,6 +1566,41 @@ mark.dict-highlight:hover { background: var(--accent-bg, rgba(127, 160, 137, .14
 .dictionary-ask textarea:focus { border-color: var(--accent, #7fa089); }
 .dictionary-ask button { flex: 0 0 auto; width: 34px; height: 34px; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--accent, #7fa089); color: #fff; cursor: pointer; }
 .dictionary-ask button:disabled { opacity: .45; cursor: default; }
+
+/* AI 改写：仅覆盖阅读呈现，原书文件始终不变。 */
+.rewrite-panel { position: absolute; z-index: 24; top: 14px; right: 14px; bottom: 14px; width: min(430px, calc(100% - 28px)); border: 1px solid var(--line-strong); display: grid; grid-template-rows: 46px minmax(0, 1fr) 54px; background: color-mix(in srgb, var(--reader-bg) 96%, var(--paper-2)); color: rgb(var(--reader-ink)); box-shadow: var(--shadow-3); }
+.rewrite-panel > header { padding: 0 10px 0 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.rewrite-panel > header > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.rewrite-panel > header strong { font-size: var(--text-lg); }
+.rewrite-panel > header span { overflow: hidden; color: var(--chrome); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.rewrite-panel > header button { width: 28px; height: 28px; border: 0; display: grid; place-items: center; background: transparent; cursor: pointer; }
+.rewrite-panel-body { padding: 14px 16px 18px; overflow-y: auto; }
+.rewrite-panel-body section > span, .rewrite-panel label > span { display: block; margin-bottom: 7px; color: var(--chrome); font-size: var(--text-xs); }
+.rewrite-original { margin-bottom: 16px; padding-left: 11px; border-left: 2px solid var(--accent); }
+.rewrite-original p { margin: 0; font-family: var(--reader-font, var(--font-serif)); font-size: var(--text-sm); line-height: 1.75; }
+.rewrite-requirement { display: block; margin-bottom: 12px; }
+.rewrite-requirement textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); resize: vertical; outline: 0; background: transparent; color: inherit; line-height: 1.6; }
+.rewrite-requirement textarea:focus { border-color: var(--accent); }
+.rewrite-length { margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+.rewrite-length > span { margin: 0 auto 0 0 !important; }
+.rewrite-length input { width: 92px; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: transparent; color: inherit; }
+.rewrite-length em { color: var(--chrome); font-size: var(--text-xs); font-style: normal; }
+.rewrite-result { min-height: 150px; padding-top: 14px; border-top: 1px solid var(--line); }
+.rewrite-result p { margin: 0; font-family: var(--reader-font, var(--font-serif)); font-size: var(--text-md); line-height: 1.9; white-space: pre-wrap; }
+.rewrite-result.is-generating { opacity: .6; }
+.rewrite-result .rewrite-placeholder { color: var(--chrome); font-family: var(--font-ui); font-size: var(--text-xs); }
+.rewrite-error { color: var(--danger); font-size: var(--text-xs); }
+.rewrite-panel > footer { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.rewrite-panel > footer button { height: 34px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 6px; background: transparent; cursor: pointer; }
+.rewrite-panel > footer button:disabled { opacity: .42; cursor: default; }
+.rewrite-panel > footer .rewrite-apply { border-color: var(--accent); background: var(--accent); color: #f4f7fa; }
+.rewrite-panel > footer .rewrite-undo { color: var(--accent-tint); }
+.rewrite-applied-text { color: inherit; }
+.rewrite-star-marker { margin-left: .42em; padding: 0; border: 0; display: inline; background: transparent; color: var(--accent); font-size: .7em; line-height: 1; vertical-align: .2em; cursor: pointer; }
+
+@media (max-width: 620px) {
+  .rewrite-panel { inset: 0; width: 100%; }
+}
 
 /* 设定集左侧条目右键菜单：更新生成 / 删除 */
 .profile-entry-menu { position: fixed; z-index: 60; min-width: 148px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface, #fcfaf4); box-shadow: 0 6px 20px rgba(0, 0, 0, .12); display: flex; flex-direction: column; }

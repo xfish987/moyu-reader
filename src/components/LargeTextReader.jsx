@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import TextReader, { truncateCompanionText } from './TextReader'
 
-const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry }, ref) {
+const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
   const readerRefs = useRef(new Map())
   const pageHintsRef = useRef(new Map([[source.start, savedProgress?.page || 0]]))
   const currentChunkRef = useRef(source)
@@ -252,7 +252,10 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
               notes={notes.filter((note) => note.chunkOffset === layer.start)}
               onLookupEntity={(selection, mode) => active && onLookupEntity?.({ ...selection, chunkOffset: layer.start, chunkEnd: layer.end, readPosition: Math.max(layer.start, Math.round(layer.start + selection.localTextFraction * (layer.end - layer.start))) }, mode)}
               onLookupDict={(selection) => active && onLookupDict?.({ ...selection, chunkOffset: layer.start })}
+              onRewrite={(selection) => active && onRewrite?.({ ...selection, chunkOffset: layer.start })}
               dictEntries={dictEntries.filter((entry) => entry.anchor?.chunkOffset === layer.start)}
+              rewrites={rewrites.filter((entry) => entry.anchor?.chunkOffset === layer.start)}
+              onOpenRewrite={onOpenRewrite}
               onOpenDictEntry={onOpenDictEntry}
               onCheckEntityProfile={onCheckEntityProfile}
               hasAnyProfile={hasAnyProfile}

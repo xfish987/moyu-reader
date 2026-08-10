@@ -6,6 +6,7 @@ import ReaderSettings from './ReaderSettings'
 import TextReader from './TextReader'
 import AISettingsModal from './AISettingsModal'
 import EntityIdentityModal from './EntityIdentityModal'
+import RewritePanel from './RewritePanel'
 import { searchVariants, useChineseConversionReady } from '../chineseConversion'
 import { isCorruptProfile } from '../entityProfiles'
 import { buildCoverageNote, selectPreviousSummaries } from '../storyline'
@@ -20,13 +21,16 @@ function pickRepresentative(items, limit = 400) {
   return [...first, ...sampled, ...last]
 }
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
-  const isMobile = Boolean(window.readerAPI?.isMobile)
+export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, rewrites = [], onSaveRewrite, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
   const wheelStateRef = useRef({ accumulated: 0, direction: 0, lockedUntil: 0 })
   const [panel, setPanel] = useState(null)
+  const [rewriteId, setRewriteId] = useState('')
+  const [rewriteDraft, setRewriteDraft] = useState({ requirement: '', targetLength: 300 })
+  const [rewriteBusy, setRewriteBusy] = useState(false)
+  const [rewriteError, setRewriteError] = useState('')
   const [chapters, setChapters] = useState([])
   const [progress, setProgress] = useState(savedProgress || { percent: 0, page: 0, pageCount: 1 })
   const [scrubProgress, setScrubProgress] = useState(null)
@@ -44,7 +48,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [linkAlias, setLinkAlias] = useState('')
   const toolbarRef = useRef(null)
   const overflowRef = useRef(null)
-  const [toolbarCompact, setToolbarCompact] = useState(() => isMobile || window.innerWidth < 760)
+  const [toolbarCompact, setToolbarCompact] = useState(false)
   const [overflowOpen, setOverflowOpen] = useState(false)
 
   // 窄窗只保留两个主操作和“更多”，总计三个图标。
@@ -57,7 +61,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [chromeZone, immersive, isMobile])
+  }, [])
 
   // 溢出菜单：点击外部或按 Esc 关闭。
   useEffect(() => {
@@ -191,41 +195,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const percent = Math.max(0, Math.min(100, Math.round((progress.percent || 0) * 100)))
   const displayedPercent = scrubProgress === null ? percent : Math.round(scrubProgress / 10)
   const activeChapter = activeChapterIndex >= 0 ? chapters[activeChapterIndex] : null
-  const mobileChromeVisible = isMobile && chromeZone === 'mobile'
-  const footerVisible = isMobile ? mobileChromeVisible : scrubProgress !== null || chromeZone === 'bottom'
-  const canShowPanels = !immersive || isMobile
-
-  const toggleMobileChrome = useCallback(() => {
-    if (!isMobile) return
-    setChromeZone((current) => current === 'mobile' ? null : 'mobile')
-  }, [isMobile])
-
-  const handleReadingStageClick = useCallback((event) => {
-    if (!isMobile) {
-      if (panel) setPanel(null)
-      return
-    }
-    if (event.target.closest('button, input, textarea, select, .selection-popup, .note-popup')) return
-    if (window.getSelection()?.toString().trim()) return
-    const rect = event.currentTarget.getBoundingClientRect()
-    const ratio = (event.clientX - rect.left) / Math.max(1, rect.width)
-    if (ratio >= 0.3 && ratio <= 0.7) toggleMobileChrome()
-  }, [isMobile, panel, toggleMobileChrome])
-
-  const handleEmbeddedTap = useCallback(({ ratio, hasSelection }) => {
-    if (!isMobile || hasSelection) return
-    if (ratio < 0.3) readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()
-    else if (ratio > 0.7) readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()
-    else toggleMobileChrome()
-  }, [isMobile, toggleMobileChrome])
-
-  useEffect(() => {
-    if (!isMobile) return undefined
-    return window.readerAPI?.onVolumeKey?.((event) => {
-      if (event?.direction === 'up') readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()
-      else if (event?.direction === 'down') readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()
-    })
-  }, [isMobile])
+  const footerVisible = scrubProgress !== null || chromeZone === 'bottom'
 
   const checkEntityProfile = useCallback((text) => entityProfiles.some((item) => item.name === text || item.aliases?.includes(text)), [entityProfiles])
 
@@ -490,6 +460,50 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   })
   const lightProfiles = useMemo(() => entityProfiles.map(({ name, aliases, type, summary }) => ({ name, aliases, type, summary })), [entityProfiles])
 
+  const activeRewrite = rewrites.find((item) => item.id === rewriteId) || null
+  const openRewrite = useCallback((selectionOrEntry) => {
+    const existing = selectionOrEntry?.id ? selectionOrEntry : rewrites.find((item) => item.anchorKey === selectionOrEntry?.anchorKey)
+    const entry = existing || {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      anchorKey: selectionOrEntry.anchorKey,
+      anchor: selectionOrEntry.anchor,
+      originalText: selectionOrEntry.text,
+      paragraph: selectionOrEntry.currentParagraph || selectionOrEntry.paragraph || selectionOrEntry.text,
+      chapterLabel: selectionOrEntry.chapterLabel || activeChapterRef.current?.label || '',
+      generatedText: '', requirement: '', targetLength: Math.max(100, selectionOrEntry.text.length), applied: false,
+      createdAt: Date.now(), updatedAt: Date.now(),
+    }
+    if (!existing) onSaveRewrite?.(entry)
+    setRewriteId(entry.id)
+    setRewriteDraft({ requirement: entry.requirement || '', targetLength: entry.targetLength || Math.max(100, entry.originalText.length) })
+    setRewriteError('')
+  }, [onSaveRewrite, rewrites])
+
+  const startRewrite = useCallback((selection) => {
+    const anchor = source.kind === 'epub'
+      ? { kind: 'epub', cfi: selection.cfi, href: selection.href, text: selection.text, paragraph: selection.paragraph }
+      : { kind: source.kind, paragraphIndex: selection.paragraphIndex, startOffset: selection.startOffset, endOffset: selection.endOffset, chunkOffset: selection.chunkOffset }
+    const anchorKey = anchor.kind === 'epub' ? `cfi:${anchor.cfi}` : `p:${anchor.chunkOffset ?? 0}:${anchor.paragraphIndex}:${anchor.startOffset}-${anchor.endOffset}`
+    openRewrite({ ...selection, anchor, anchorKey })
+  }, [openRewrite, source.kind])
+
+  const generateRewrite = useCallback(async () => {
+    if (!activeRewrite || !rewriteDraft.requirement.trim()) return
+    setRewriteBusy(true); setRewriteError('')
+    try {
+      const config = aiConfig || await window.readerAPI.getAiSettings()
+      setAiConfig(config)
+      const provider = config.providers.find((item) => item.id === config.activeProviderId) || config.providers[0]
+      if (!provider) throw new Error('请先设置并选择 AI 供应商')
+      const context = await readerRef.current?.getDictContext?.(activeRewrite.anchor)
+      const result = await window.readerAPI.rewriteText({ providerId: provider.id, model: provider.model || provider.models?.[0], bookTitle: book.title, author: book.author || '', chapterLabel: activeRewrite.chapterLabel, originalText: activeRewrite.originalText, paragraph: activeRewrite.paragraph, chapterText: context?.chapterText || [context?.contextBefore, activeRewrite.paragraph, context?.contextAfter].filter(Boolean).join('\n'), requirement: rewriteDraft.requirement, targetLength: rewriteDraft.targetLength })
+      if (!result?.ok) throw new Error(result?.error?.message || '改写失败')
+      onSaveRewrite?.({ ...activeRewrite, requirement: rewriteDraft.requirement.trim(), targetLength: Number(rewriteDraft.targetLength) || 300, generatedText: result.text, providerName: result.providerName, model: result.model, updatedAt: Date.now() })
+    } catch (error) { setRewriteError(error?.message || '改写失败') } finally { setRewriteBusy(false) }
+  }, [activeRewrite, aiConfig, book.author, book.title, onSaveRewrite, rewriteDraft])
+
+  const patchRewrite = (patch) => activeRewrite && onSaveRewrite?.({ ...activeRewrite, ...patch, updatedAt: Date.now() })
+
   const resolveDictProvider = async () => {
     const config = aiConfig || await window.readerAPI.getAiSettings()
     setAiConfig(config)
@@ -498,6 +512,13 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
   const freshDictContext = async (anchor) => {
     try { return await readerRef.current?.getDictContext?.(anchor) || null } catch { return null }
+  }
+
+  // 解说本身由 AI 生成；从首个有信息量的短句提炼会话标题，避免再发一次模型请求。
+  const dictionaryTitle = (answer, fallback) => {
+    const cleaned = String(answer || '').replace(/```[\s\S]*?```/g, '').replace(/[#>*_`\[\]]/g, '').replace(/^词解[:：]\s*/gm, '').trim()
+    const first = cleaned.split(/[。！？\n]/).map((part) => part.trim()).find((part) => part.length >= 4) || String(fallback || '').trim()
+    return Array.from(first).slice(0, 18).join('') || '新会话'
   }
 
   // 首次解说 / 重新生成：上下文尽量现取（读者可能又往后读了），取不到就用条目里存的段落。
@@ -530,7 +551,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         return
       }
       const latest = dictEntriesRef.current.find((item) => item.id === entry.id) || entry
-      onSaveDictEntry?.({ ...latest, explanation: result.text, providerName: result.providerName, model: result.model, updatedAt: Date.now() })
+      onSaveDictEntry?.({ ...latest, title: dictionaryTitle(result.text, latest.text), explanation: result.text, providerName: result.providerName, model: result.model, updatedAt: Date.now() })
       clearDictTransient(entry.id)
     } catch (reason) {
       patchDictTransient(entry.id, { generating: false, error: reason?.message || '解说失败' })
@@ -666,6 +687,10 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       // 字典窗口删除整条解释（含全部追问），同时清掉它的瞬时状态。
       onDeleteDictEntry?.(action.entryId)
       clearDictTransient(action.entryId)
+    } else if (action.type === 'delete-all') {
+      // 逐条走现有删除入口，保证与 App 的持久化结构保持一致。
+      dictEntriesRef.current.forEach((item) => onDeleteDictEntry?.(item.id))
+      setDictTransient({})
     } else if (action.type === 'jump-to-source') {
       // 字典窗口里点击引用块：跳转到书中原文位置（主进程同时会把阅读窗提到前台）。
       const entry = dictEntriesRef.current.find((item) => item.id === action.entryId)
@@ -1057,18 +1082,18 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     { id: 'notes', icon: NotebookPen, iconSize: 17, label: '摘录与笔记', active: panel === 'notes', onClick: () => setPanel(panel === 'notes' ? null : 'notes') },
     { id: 'profiles', icon: BookOpenCheck, iconSize: 17, label: '本书设定集', title: '本书设定集（打开/关闭独立窗口）', onClick: () => window.readerAPI.toggleProfilesWindow?.() },
     { id: 'dictionary', icon: BookOpenText, iconSize: 17, label: '字典百科', title: '字典百科（本书全部解释记录）', onClick: () => window.readerAPI.openDictionaryWindow?.('') },
-    { id: 'companion', icon: Sparkles, iconSize: 17, label: companionEnabled ? '停止 AI 陪读' : 'AI陪读', title: companionEnabled ? '停止 AI 陪读' : '开始 AI 陪读', active: companionEnabled, pinned: false, onClick: onToggleCompanion },
+    { id: 'companion', icon: Sparkles, iconSize: 17, label: 'AI陪读', title: 'AI陪读（F2 开始 / F3 停止）', active: companionEnabled, pinned: false, onClick: onToggleCompanion },
     { id: 'search', icon: Search, iconSize: 17, label: '全书搜索', active: panel === 'search', onClick: () => setPanel(panel === 'search' ? null : 'search') },
     { id: 'settings', icon: Settings2, iconSize: 18, label: '阅读设置', active: panel === 'settings', onClick: () => setPanel(panel === 'settings' ? null : 'settings') },
     { id: 'immersive', icon: Maximize, iconSize: 17, label: '沉浸阅读', title: '沉浸阅读 (F11)', pinned: true, onClick: onToggleImmersive },
-  ].filter((action) => !isMobile || action.id !== 'immersive')
+  ]
   const visibleActions = toolbarCompact ? toolbarActions.filter((action) => action.pinned) : toolbarActions
   const overflowActions = toolbarCompact ? toolbarActions.filter((action) => !action.pinned) : []
 
   return (
-    <main className={`reader-view theme-${settings.theme} ${immersive ? 'is-immersive' : ''} ${isMobile ? 'is-mobile-reader' : ''} ${mobileChromeVisible ? 'mobile-chrome-visible' : ''} ${!settings.showProgress ? 'without-progress' : ''}`} onMouseLeave={() => !isMobile && setChromeZone(null)}>
-      {(!immersive || (isMobile && mobileChromeVisible)) ? (
-        <header className={`reader-toolbar ${isMobile && immersive ? 'mobile-overlay-toolbar' : ''}`} ref={toolbarRef}>
+    <main className={`reader-view theme-${settings.theme} ${immersive ? 'is-immersive' : ''} ${!settings.showProgress ? 'without-progress' : ''}`} onMouseLeave={() => setChromeZone(null)}>
+      {!immersive ? (
+        <header className="reader-toolbar" ref={toolbarRef}>
           <button className="toolbar-button back" onClick={onBack} title="返回书架"><ArrowLeft size={18} /></button>
           <div className="book-heading">
             <strong>{book.title}</strong>
@@ -1099,21 +1124,22 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         </header>
       ) : null}
 
-      <section className="reading-stage" onClick={handleReadingStageClick} onWheel={handlePageWheel}>
+      <section className="reading-stage" onClick={() => panel && setPanel(null)} onWheel={handlePageWheel}>
         {source.kind === 'text' ? (
-          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} />
+          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
         ) : source.kind === 'text-large' ? (
-          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} />
+          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text-large')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
         ) : (
-          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} onDismissPanel={() => setPanel(null)} onTap={handleEmbeddedTap} />
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'epub')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onDismissPanel={() => setPanel(null)} />
         )}
 
-        <button className="page-zone previous" onClick={(event) => { event.stopPropagation(); readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev() }} aria-label="向左翻页"><ChevronLeft size={22} /></button>
-        <button className="page-zone next" onClick={(event) => { event.stopPropagation(); readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next() }} aria-label="向右翻页"><ChevronRight size={22} /></button>
+        <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
+        <button className="page-zone next" onClick={() => readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()} aria-label="向右翻页"><ChevronRight size={22} /></button>
       </section>
+      <RewritePanel entry={activeRewrite} requirement={rewriteDraft.requirement} targetLength={rewriteDraft.targetLength} busy={rewriteBusy} error={rewriteError} onRequirement={(requirement) => setRewriteDraft((current) => ({ ...current, requirement }))} onTargetLength={(targetLength) => setRewriteDraft((current) => ({ ...current, targetLength }))} onGenerate={generateRewrite} onApply={() => patchRewrite({ applied: true })} onUndo={() => patchRewrite({ applied: false })} onClose={() => setRewriteId('')} />
 
-      {immersive && !isMobile ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => setChromeZone('top')} aria-hidden="true" /> : null}
-      {!isMobile ? <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => setChromeZone('bottom')} aria-hidden="true" /> : null}
+      {immersive ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => setChromeZone('top')} aria-hidden="true" /> : null}
+      <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => setChromeZone('bottom')} aria-hidden="true" />
 
       {settings.showProgress ? (
         <footer
@@ -1153,7 +1179,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       ) : null}
 
       {companionEnabled && !companionBarSupported ? (
-        <div className={`companion-bar ${!isMobile || mobileChromeVisible ? 'is-visible' : ''}`}>
+        <div className="companion-bar">
           <span className="companion-status"><Sparkles size={13} /> {companionGenerating ? `AI 正在陪读 · 正在总结《${companionGenerating.label}》…` : 'AI 正在陪读'}{companionGenerating ? <span className="ai-thinking"><i /><i /><i /></span> : null}</span>
           <div className="companion-actions">
             <button onClick={() => window.readerAPI.openProfilesStoryline?.()}><span className="companion-action-full">查看剧情梳理</span><span className="companion-action-short">梳理</span></button>
@@ -1163,7 +1189,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         </div>
       ) : null}
 
-      {immersive && !isMobile ? (
+      {immersive ? (
         <div
           className={`immersive-topbar ${chromeZone === 'top' ? 'is-visible' : ''}`}
           onMouseDown={startChromeDrag}
@@ -1179,8 +1205,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           <button className="toolbar-button" onClick={onToggleImmersive} title="退出沉浸阅读 (F11)" aria-label="退出沉浸阅读"><Minimize2 size={17} /></button>
         </div>
       ) : null}
-      {panel === 'settings' && canShowPanels ? <ReaderSettings settings={settings} onChange={setSettings} encoding={source.kind.startsWith('text') ? source.encoding : null} onEncodingChange={onEncodingChange} epubFontOverride={source.kind === 'epub' ? epubFontOverride : undefined} onEpubFontOverrideChange={onEpubFontOverrideChange} /> : null}
-      {panel === 'toc' && canShowPanels ? (
+      {panel === 'settings' && !immersive ? <ReaderSettings settings={settings} onChange={setSettings} encoding={source.kind.startsWith('text') ? source.encoding : null} onEncodingChange={onEncodingChange} epubFontOverride={source.kind === 'epub' ? epubFontOverride : undefined} onEpubFontOverrideChange={onEpubFontOverrideChange} /> : null}
+      {panel === 'toc' && !immersive ? (
         <aside className="toc-panel">
           <div className="toc-title"><List size={16} /><strong>目录</strong><span>{percent}% · {chapters.length} 章</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
           <div className="toc-list">
@@ -1197,7 +1223,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
-      {panel === 'notes' && canShowPanels ? (
+      {panel === 'notes' && !immersive ? (
         <aside className="notes-panel">
           <div className="toc-title"><Bookmark size={16} /><strong>收藏笔记</strong><span>{notes.length} 条</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
           <div className="notes-list">
@@ -1214,7 +1240,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
-      {panel === 'bookmarks' && canShowPanels ? (
+      {panel === 'bookmarks' && !immersive ? (
         <aside className="notes-panel">
           <div className="toc-title"><Bookmark size={16} /><strong>书签</strong><span>{bookmarks.length} 条</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
           <div className="notes-list">
@@ -1224,7 +1250,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           </div>
         </aside>
       ) : null}
-      {panel === 'search' && canShowPanels ? (
+      {panel === 'search' && !immersive ? (
         <aside className="search-panel">
           <form className="book-search" onSubmit={runSearch}>
             <Search size={15} />

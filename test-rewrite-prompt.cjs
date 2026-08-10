@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict')
+const { buildRewriteMessages } = require('./electron/rewritePrompt.cjs')
+
+const messages = buildRewriteMessages({ bookTitle: '测试书', author: '原作者', chapterLabel: '第三章', originalText: '原始片段', paragraph: '完整原始段落', chapterText: '本章上下文', requirement: '增强压迫感', targetLength: 600 })
+const joined = messages.map((item) => item.content).join('\n')
+assert.match(joined, /original author’s voice/i)
+assert.match(joined, /connect seamlessly/i)
+assert.match(joined, /Never revise or reference a previous generated version/i)
+assert.match(joined, /原始片段/)
+assert.match(joined, /增强压迫感/)
+assert.doesNotMatch(joined, /previous generated result:/i)
+console.log('rewrite prompt tests passed')

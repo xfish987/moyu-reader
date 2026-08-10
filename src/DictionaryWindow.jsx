@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpenText, PanelLeftClose, PanelLeftOpen, RefreshCw, SendHorizonal, Trash2, X } from 'lucide-react'
+import { BookOpenText, RefreshCw, SendHorizonal, Trash2, X } from 'lucide-react'
 import ChatMessages, { MarkdownText } from './components/ChatMessages'
 
 // 字典百科独立窗口：吸附在阅读窗外上侧。
@@ -7,7 +7,7 @@ import ChatMessages, { MarkdownText } from './components/ChatMessages'
 // 右侧详情：引用块（点击跳转到书中原文位置）→ AI 初解释 → 追问对话 → 底部输入框。
 // 数据全部来自阅读窗口推送的快照；动作通过 dict:action 回传阅读窗口执行。
 // 注意：本应用的 Electron 页面 UA 默认样式不生效，所有元素必须显式类名 + CSS display。
-export default function DictionaryWindow({ onClose = () => window.close() }) {
+export default function DictionaryWindow() {
   const [snapshot, setSnapshot] = useState(null)
   const [selectedId, setSelectedId] = useState('')
   const [question, setQuestion] = useState('')
@@ -49,6 +49,13 @@ export default function DictionaryWindow({ onClose = () => window.close() }) {
 
   const send = (action) => window.readerAPI?.sendDictAction?.(action)
 
+  const clearHistory = () => {
+    if (entries.length && window.confirm(`删除《${snapshot?.bookTitle || '本书'}》的全部 ${entries.length} 条字典百科记录吗？此操作不可撤销。`)) {
+      send({ type: 'delete-all' })
+      setSelectedId('')
+    }
+  }
+
   const askFollowup = () => {
     const text = question.trim()
     if (!text || !entry || entry.followUpPending) return
@@ -61,19 +68,20 @@ export default function DictionaryWindow({ onClose = () => window.close() }) {
       <header className="dictionary-header">
         <div className="dictionary-title"><BookOpenText size={16} /><strong>{snapshot?.bookTitle ? `《${snapshot.bookTitle}》字典百科` : '字典百科'}</strong>{entries.length ? <span>{entries.length} 条</span> : null}</div>
         <div className="dictionary-nav">
-          <button onClick={onClose} title="关闭"><X size={15} /></button>
+          {entries.length ? <button className="dictionary-delete-all" onClick={clearHistory} title="删除全部提问历史" aria-label="删除全部提问历史"><Trash2 size={15} /></button> : null}
+          <button onClick={() => window.close()} title="关闭"><X size={15} /></button>
         </div>
       </header>
       {entries.length ? (
         <div className="dictionary-main">
           <nav className={`dictionary-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''}`}>
             <button className="dictionary-collapse" onClick={toggleSidebar} title={sidebarCollapsed ? '展开会话列表' : '收起会话列表'}>
-              {sidebarCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+              <span aria-hidden="true" />
             </button>
             {sidebarCollapsed ? null : [...entries].reverse().map((item) => (
               <div className="dictionary-entry" key={item.id}>
                 <button className={`dictionary-entry-open ${entry?.id === item.id ? 'active' : ''}`} onClick={() => setSelectedId(item.id)} title={item.text}>
-                  <strong>{item.text}</strong>
+                  <strong>{item.title || item.text}</strong>
                   <span>{item.chapterLabel || '未知章节'} · {Math.round((item.readPercent || 0) * 100)}%</span>
                 </button>
                 <button
