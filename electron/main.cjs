@@ -1842,13 +1842,17 @@ ipcMain.handle('ai:dictionary-chat', async (event, input) => {
   let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
   const requestedMaxTokens = Math.max(1024, Math.min(8192, Number(input?.maxTokens ?? provider.maxTokens) || 4096))
   try {
+    const requestId = String(input?.requestId || '').slice(0, 120)
+    const sendChunk = (text) => {
+      if (requestId && text && !event.sender.isDestroyed()) event.sender.send('ai:text-chunk', { requestId, text })
+    }
     let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
     const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
     }, 'dictionary', controller.signal,
-      null,
+      sendChunk,
       () => {
         // 首字节前 30 秒超时；流开始后每个 chunk 重置 60 秒心跳超时。
         if (timeout) clearTimeout(timeout)
@@ -1875,7 +1879,7 @@ ipcMain.handle('ai:dictionary-chat', async (event, input) => {
   } finally { if (timeout) clearTimeout(timeout) }
 })
 
-ipcMain.handle('ai:rewrite', async (_event, input) => {
+ipcMain.handle('ai:rewrite', async (event, input) => {
   const config = await loadAiConfig()
   const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId)) || config.providers[0]
   if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
@@ -1891,11 +1895,15 @@ ipcMain.handle('ai:rewrite', async (_event, input) => {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 90000)
   try {
+    const requestId = String(input?.requestId || '').slice(0, 120)
+    const sendChunk = (text) => {
+      if (requestId && text && !event.sender.isDestroyed()) event.sender.send('ai:rewrite-chunk', { requestId, text })
+    }
     const tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
     const response = await requestProviderStreaming(provider, 'chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, [tokenParameter]: Math.max(1024, Math.min(8192, Math.ceil(payload.targetLength * 2.2))), stream: true, messages: buildRewriteMessages(payload) }),
-    }, 'rewrite', controller.signal)
+    }, 'rewrite', controller.signal, sendChunk)
     const text = responseText(response?.choices?.[0]?.message).trim()
     if (!text) return { ok: false, error: { stage: 'rewrite', status: 200, code: 'EMPTY_RESPONSE', message: '供应商没有返回改写内容' } }
     return { ok: true, text: text.slice(0, 20000), providerId: provider.id, providerName: provider.name, model }
@@ -1992,7 +2000,7 @@ ipcMain.handle('ai:companion-summary', async (_event, input) => {
 })
 
 // AI 陪读：基于剧情梳理 + 设定集 + 对话历史回答读者提问，返回纯文本。
-ipcMain.handle('ai:companion-chat', async (_event, input) => {
+ipcMain.handle('ai:companion-chat', async (event, input) => {
   const config = await loadAiConfig()
   const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId)) || config.providers[0]
   if (!provider) return { ok: false, error: { stage: 'setup', status: 0, code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
@@ -2026,13 +2034,17 @@ ipcMain.handle('ai:companion-chat', async (_event, input) => {
   let timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
   const requestedMaxTokens = Math.max(1024, Math.min(8192, Number(input?.maxTokens ?? provider.maxTokens) || 4096))
   try {
+    const requestId = String(input?.requestId || '').slice(0, 120)
+    const sendChunk = (text) => {
+      if (requestId && text && !event.sender.isDestroyed()) event.sender.send('ai:text-chunk', { requestId, text })
+    }
     let tokenParameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
     const execute = (parameter) => requestProviderStreaming(provider, 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, [parameter]: requestedMaxTokens, stream: true, messages }),
     }, 'companion', controller.signal,
-      null,
+      sendChunk,
       () => {
         // 首字节前 30 秒超时；流开始后每个 chunk 重置 60 秒心跳超时。
         if (timeout) clearTimeout(timeout)

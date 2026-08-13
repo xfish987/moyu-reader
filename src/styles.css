@@ -1587,8 +1587,10 @@ mark.dict-highlight:hover { background: var(--accent-bg, rgba(127, 160, 137, .14
 .rewrite-length em { color: var(--chrome); font-size: var(--text-xs); font-style: normal; }
 .rewrite-result { min-height: 150px; padding-top: 14px; border-top: 1px solid var(--line); }
 .rewrite-result p { margin: 0; font-family: var(--reader-font, var(--font-serif)); font-size: var(--text-md); line-height: 1.9; white-space: pre-wrap; }
-.rewrite-result.is-generating { opacity: .6; }
 .rewrite-result .rewrite-placeholder { color: var(--chrome); font-family: var(--font-ui); font-size: var(--text-xs); }
+.rewrite-output { min-height: 150px; max-height: 360px; padding: 11px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); overflow-y: auto; background: color-mix(in srgb, var(--reader-bg) 88%, var(--paper-2)); }
+.rewrite-caret { width: 2px; height: 1.15em; margin-left: 2px; display: inline-block; background: var(--accent); vertical-align: -.2em; animation: rewrite-caret-blink .85s steps(1) infinite; }
+@keyframes rewrite-caret-blink { 50% { opacity: 0; } }
 .rewrite-error { color: var(--danger); font-size: var(--text-xs); }
 .rewrite-panel > footer { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .rewrite-panel > footer button { height: 34px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 6px; background: transparent; cursor: pointer; }

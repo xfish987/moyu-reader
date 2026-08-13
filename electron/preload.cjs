@@ -24,6 +24,16 @@ contextBridge.exposeInMainWorld('readerAPI', {
   summarizeEntity: (payload) => ipcRenderer.invoke('ai:summarize-entity', payload),
   dictionaryChat: (payload) => ipcRenderer.invoke('ai:dictionary-chat', payload),
   rewriteText: (payload) => ipcRenderer.invoke('ai:rewrite', payload),
+  onRewriteChunk: (listener) => {
+    const wrapped = (_event, payload) => listener(payload)
+    ipcRenderer.on('ai:rewrite-chunk', wrapped)
+    return () => ipcRenderer.removeListener('ai:rewrite-chunk', wrapped)
+  },
+  onAiTextChunk: (listener) => {
+    const wrapped = (_event, payload) => listener(payload)
+    ipcRenderer.on('ai:text-chunk', wrapped)
+    return () => ipcRenderer.removeListener('ai:text-chunk', wrapped)
+  },
   companionSummary: (payload) => ipcRenderer.invoke('ai:companion-summary', payload),
   companionChat: (payload) => ipcRenderer.invoke('ai:companion-chat', payload),
   openDictionaryWindow: (entryId) => ipcRenderer.invoke('dict:open', entryId || ''),

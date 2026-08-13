@@ -30,7 +30,7 @@ export default function DictionaryWindow() {
   // 追问问答对展开成聊天消息：q-/a- 前缀区分同一 followup 的问题与回答，回调里 slice(2) 还原 followupId。
   const followupMessages = useMemo(() => (entry?.followUps || []).flatMap((item) => [
     { id: `q-${item.id}`, role: 'user', content: item.question, createdAt: item.createdAt },
-    { id: `a-${item.id}`, role: 'assistant', content: item.answer, createdAt: item.createdAt, pending: Boolean(item.pending), error: item.error || null },
+    { id: `a-${item.id}`, role: 'assistant', content: item.content ?? item.answer, createdAt: item.createdAt, pending: Boolean(item.pending), error: item.error || null },
   ]), [entry])
 
   useEffect(() => {
@@ -99,12 +99,12 @@ export default function DictionaryWindow() {
                 <span className="quote-meta">{entry.chapterLabel || '未知章节'} · 读到 {Math.round((entry.readPercent || 0) * 100)}% 处 · 点击跳转原文</span>
               </button>
               <section className="dictionary-answer">
-                {entry.generating ? (
+                {entry.generating && !entry.streamText ? (
                   <div className="dictionary-pending"><span className="ai-thinking"><i /><i /><i /></span> AI 正在结合上下文解说…</div>
                 ) : entry.error ? (
                   <div className="dictionary-error"><span>解说失败：{entry.error}</span><button onClick={() => send({ type: 'regenerate', entryId: entry.id })}>重试</button></div>
                 ) : (
-                  <MarkdownText text={entry.explanation} />
+                  <><MarkdownText text={entry.streamText || entry.explanation} />{entry.generating ? <i className="rewrite-caret" aria-hidden="true" /> : null}</>
                 )}
                 <div className="dictionary-answer-actions">
                   <button disabled={Boolean(entry.generating)} onClick={() => send({ type: 'regenerate', entryId: entry.id })} title="重新让 AI 解释这段文字"><RefreshCw size={13} className={entry.generating ? 'spin' : ''} /> 重新生成</button>

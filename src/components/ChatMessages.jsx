@@ -86,7 +86,7 @@ export default function ChatMessages({ messages = [], onCopy, onEdit, onDelete, 
                 </div>
               ) : isUser ? (
                 <span className="chat-text">{message.content}</span>
-              ) : message.pending ? (
+              ) : message.pending && !message.content ? (
                 <span className="chat-pending">正在思考<span className="ai-thinking"><i /><i /><i /></span></span>
               ) : message.error ? (
                 <span className="chat-error">
@@ -94,7 +94,7 @@ export default function ChatMessages({ messages = [], onCopy, onEdit, onDelete, 
                   {onRetry ? <button onClick={() => onRetry(message)}>重试</button> : null}
                 </span>
               ) : (
-                <MarkdownText text={message.content} />
+                <><MarkdownText text={message.content} />{message.pending ? <i className="rewrite-caret" aria-hidden="true" /> : null}</>
               )}
             </div>
             {!isEditing && !message.pending ? (

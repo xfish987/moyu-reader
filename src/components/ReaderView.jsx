@@ -32,6 +32,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [rewriteDraft, setRewriteDraft] = useState({ requirement: '', targetLength: 300 })
   const [rewriteBusy, setRewriteBusy] = useState(false)
   const [rewriteError, setRewriteError] = useState('')
+  const [rewriteStreamText, setRewriteStreamText] = useState('')
   const [chapters, setChapters] = useState([])
   const [progress, setProgress] = useState(savedProgress || { percent: 0, page: 0, pageCount: 1 })
   const [scrubProgress, setScrubProgress] = useState(null)
@@ -454,13 +455,20 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   // ===== 字典百科：划选文字 → AI 结合上下文解说，独立窗口展示，支持重新生成与追问 =====
   const dictEntriesRef = useRef([])
   const [dictTransient, setDictTransient] = useState({})
+  const dictTransientRef = useRef({})
+  dictTransientRef.current = dictTransient
   dictEntriesRef.current = dictionaryEntries
 
-  const patchDictTransient = (entryId, patch) => setDictTransient((current) => ({ ...current, [entryId]: { ...current[entryId], ...patch } }))
+  const patchDictTransient = (entryId, patch) => setDictTransient((current) => {
+    const next = { ...current, [entryId]: { ...current[entryId], ...patch } }
+    dictTransientRef.current = next
+    return next
+  })
   const clearDictTransient = (entryId) => setDictTransient((current) => {
     if (!current[entryId]) return current
     const next = { ...current }
     delete next[entryId]
+    dictTransientRef.current = next
     return next
   })
   const lightProfiles = useMemo(() => entityProfiles.map(({ name, aliases, type, summary }) => ({ name, aliases, type, summary })), [entityProfiles])
@@ -482,6 +490,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     setRewriteId(entry.id)
     setRewriteDraft({ requirement: entry.requirement || '', targetLength: entry.targetLength || Math.max(100, entry.originalText.length) })
     setRewriteError('')
+    setRewriteStreamText('')
   }, [onSaveRewrite, rewrites])
 
   const startRewrite = useCallback((selection) => {
@@ -494,17 +503,22 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
   const generateRewrite = useCallback(async () => {
     if (!activeRewrite || !rewriteDraft.requirement.trim()) return
-    setRewriteBusy(true); setRewriteError('')
+    const requestId = `${activeRewrite.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    setRewriteBusy(true); setRewriteError(''); setRewriteStreamText('')
+    const unsubscribe = window.readerAPI.onRewriteChunk?.((chunk) => {
+      if (chunk?.requestId === requestId && chunk.text) setRewriteStreamText((current) => current + chunk.text)
+    })
     try {
       const config = aiConfig || await window.readerAPI.getAiSettings()
       setAiConfig(config)
       const provider = config.providers.find((item) => item.id === config.activeProviderId) || config.providers[0]
       if (!provider) throw new Error('请先设置并选择 AI 供应商')
       const context = await readerRef.current?.getDictContext?.(activeRewrite.anchor)
-      const result = await window.readerAPI.rewriteText({ providerId: provider.id, model: provider.model || provider.models?.[0], bookTitle: book.title, author: book.author || '', chapterLabel: activeRewrite.chapterLabel, originalText: activeRewrite.originalText, paragraph: activeRewrite.paragraph, chapterText: context?.chapterText || [context?.contextBefore, activeRewrite.paragraph, context?.contextAfter].filter(Boolean).join('\n'), requirement: rewriteDraft.requirement, targetLength: rewriteDraft.targetLength })
+      const result = await window.readerAPI.rewriteText({ requestId, providerId: provider.id, model: provider.model || provider.models?.[0], bookTitle: book.title, author: book.author || '', chapterLabel: activeRewrite.chapterLabel, originalText: activeRewrite.originalText, paragraph: activeRewrite.paragraph, chapterText: context?.chapterText || [context?.contextBefore, activeRewrite.paragraph, context?.contextAfter].filter(Boolean).join('\n'), requirement: rewriteDraft.requirement, targetLength: rewriteDraft.targetLength })
       if (!result?.ok) throw new Error(result?.error?.message || '改写失败')
       onSaveRewrite?.({ ...activeRewrite, requirement: rewriteDraft.requirement.trim(), targetLength: Number(rewriteDraft.targetLength) || 300, generatedText: result.text, providerName: result.providerName, model: result.model, updatedAt: Date.now() })
-    } catch (error) { setRewriteError(error?.message || '改写失败') } finally { setRewriteBusy(false) }
+      setRewriteStreamText(result.text)
+    } catch (error) { setRewriteError(error?.message || '改写失败') } finally { unsubscribe?.(); setRewriteBusy(false) }
   }, [activeRewrite, aiConfig, book.author, book.title, onSaveRewrite, rewriteDraft])
 
   const patchRewrite = (patch) => activeRewrite && onSaveRewrite?.({ ...activeRewrite, ...patch, updatedAt: Date.now() })
@@ -528,7 +542,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
   // 首次解说 / 重新生成：上下文尽量现取（读者可能又往后读了），取不到就用条目里存的段落。
   const runDictExplain = useCallback(async (entry) => {
-    patchDictTransient(entry.id, { generating: true, error: null })
+    const requestId = `dict-explain-${entry.id}-${Date.now()}`
+    patchDictTransient(entry.id, { generating: true, streamText: '', error: null })
+    const unsubscribe = window.readerAPI.onAiTextChunk?.((chunk) => {
+      if (chunk?.requestId === requestId && chunk.text) patchDictTransient(entry.id, { streamText: (dictTransientRef.current[entry.id]?.streamText || '') + chunk.text })
+    })
     try {
       const provider = await resolveDictProvider()
       if (!provider) {
@@ -538,6 +556,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       }
       const ctx = await freshDictContext(entry.anchor)
       const result = await window.readerAPI.dictionaryChat({
+        requestId,
         mode: 'explain',
         providerId: provider.id,
         model: provider.model || provider.models?.[0],
@@ -560,14 +579,18 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       clearDictTransient(entry.id)
     } catch (reason) {
       patchDictTransient(entry.id, { generating: false, error: reason?.message || '解说失败' })
-    }
+    } finally { unsubscribe?.() }
   }, [book.title, book.author, lightProfiles, onSaveDictEntry, aiConfig])
 
   // 追问：选中行 + 所在章节全文（约 2 万字符）+ 设定集一起发给 AI。
   const runDictFollowup = useCallback(async (entryId, followup) => {
     const entry = dictEntriesRef.current.find((item) => item.id === entryId)
     if (!entry || !followup) return
-    patchDictTransient(entryId, { pendingFollowupId: followup.id, followUpErrorId: null, followUpError: null })
+    const requestId = `dict-followup-${followup.id}-${Date.now()}`
+    patchDictTransient(entryId, { pendingFollowupId: followup.id, followUpStreamText: '', followUpErrorId: null, followUpError: null })
+    const unsubscribe = window.readerAPI.onAiTextChunk?.((chunk) => {
+      if (chunk?.requestId === requestId && chunk.text) patchDictTransient(entryId, { followUpStreamText: (dictTransientRef.current[entryId]?.followUpStreamText || '') + chunk.text })
+    })
     try {
       const provider = await resolveDictProvider()
       if (!provider) {
@@ -577,6 +600,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       }
       const ctx = await freshDictContext(entry.anchor)
       const result = await window.readerAPI.dictionaryChat({
+        requestId,
         mode: 'followup',
         providerId: provider.id,
         model: provider.model || provider.models?.[0],
@@ -599,7 +623,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       patchDictTransient(entryId, { pendingFollowupId: null, followUpErrorId: null, followUpError: null })
     } catch (reason) {
       patchDictTransient(entryId, { pendingFollowupId: null, followUpErrorId: followup.id, followUpError: reason?.message || '回答失败' })
-    }
+    } finally { unsubscribe?.() }
   }, [book.title, lightProfiles, onSaveDictEntry, aiConfig])
 
   // 右键"字典百科"：同一位置已解释过则直接开窗复看，否则新建条目并请求解说。
@@ -641,11 +665,13 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     return {
       ...item,
       generating: Boolean(transient.generating),
+      streamText: transient.streamText || '',
       error: transient.error || null,
       followUpPending: Boolean(transient.pendingFollowupId),
       followUps: (item.followUps || []).map((followup) => ({
         ...followup,
         pending: transient.pendingFollowupId === followup.id,
+        content: transient.pendingFollowupId === followup.id ? (transient.followUpStreamText || '') : followup.answer,
         error: transient.followUpErrorId === followup.id ? transient.followUpError : null,
       })),
     }
@@ -738,7 +764,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       if (messages[index].role === 'user' && String(messages[index].content || '').trim()) { userIndex = index; break }
     }
     if (userIndex < 0) return
-    patchCompanionChatTransient(sessionId, { pendingId: assistantId, errorId: null, error: null })
+    const requestId = `companion-${assistantId}-${Date.now()}`
+    patchCompanionChatTransient(sessionId, { pendingId: assistantId, streamText: '', errorId: null, error: null })
+    const unsubscribe = window.readerAPI.onAiTextChunk?.((chunk) => {
+      if (chunk?.requestId === requestId && chunk.text) setCompanionChatTransient((current) => ({ ...current, [sessionId]: { ...current[sessionId], streamText: (current[sessionId]?.streamText || '') + chunk.text } }))
+    })
     try {
       const provider = await resolveDictProvider()
       if (!provider) {
@@ -752,6 +782,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         .slice(-10)
         .map((item) => ({ role: item.role, content: item.content }))
       const result = await window.readerAPI.companionChat({
+        requestId,
         providerId: provider.id,
         model: provider.model || provider.models?.[0],
         maxTokens: Math.min(4000, provider.maxTokens || 2000),
@@ -774,7 +805,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       patchCompanionChatTransient(sessionId, { pendingId: null, errorId: null, error: null })
     } catch (reason) {
       patchCompanionChatTransient(sessionId, { pendingId: null, errorId: assistantId, error: reason?.message || '回答失败' })
-    }
+    } finally { unsubscribe?.() }
   }, [book.title, book.author, lightProfiles, aiConfig, saveCompanionSessions])
 
   // 快照：持久化会话 + 生成中/出错的瞬时状态，推给剧情提问窗口。
@@ -785,6 +816,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       messages: (session.messages || []).map((message) => ({
         ...message,
         pending: transient.pendingId === message.id,
+        content: transient.pendingId === message.id ? (transient.streamText || '') : message.content,
         error: transient.errorId === message.id ? transient.error : null,
       })),
     }
@@ -1141,7 +1173,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
         <button className="page-zone next" onClick={() => readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()} aria-label="向右翻页"><ChevronRight size={22} /></button>
       </section>
-      <RewritePanel entry={activeRewrite} requirement={rewriteDraft.requirement} targetLength={rewriteDraft.targetLength} busy={rewriteBusy} error={rewriteError} onRequirement={(requirement) => setRewriteDraft((current) => ({ ...current, requirement }))} onTargetLength={(targetLength) => setRewriteDraft((current) => ({ ...current, targetLength }))} onGenerate={generateRewrite} onApply={() => patchRewrite({ applied: true })} onUndo={() => patchRewrite({ applied: false })} onClose={() => setRewriteId('')} />
+      <RewritePanel entry={activeRewrite} streamText={rewriteStreamText} requirement={rewriteDraft.requirement} targetLength={rewriteDraft.targetLength} busy={rewriteBusy} error={rewriteError} onRequirement={(requirement) => setRewriteDraft((current) => ({ ...current, requirement }))} onTargetLength={(targetLength) => setRewriteDraft((current) => ({ ...current, targetLength }))} onGenerate={generateRewrite} onApply={() => patchRewrite({ applied: true })} onUndo={() => patchRewrite({ applied: false })} onClose={() => setRewriteId('')} />
 
       {immersive ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => setChromeZone('top')} aria-hidden="true" /> : null}
       <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => setChromeZone('bottom')} aria-hidden="true" />

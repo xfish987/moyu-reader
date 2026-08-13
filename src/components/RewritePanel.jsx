@@ -1,6 +1,6 @@
 import { RotateCcw, Sparkles, Undo2, X } from 'lucide-react'
 
-export default function RewritePanel({ entry, requirement, targetLength, busy, error, onRequirement, onTargetLength, onGenerate, onApply, onUndo, onClose }) {
+export default function RewritePanel({ entry, streamText, requirement, targetLength, busy, error, onRequirement, onTargetLength, onGenerate, onApply, onUndo, onClose }) {
   if (!entry) return null
   return (
     <aside className="rewrite-panel" aria-label="AI 改写">
@@ -10,9 +10,12 @@ export default function RewritePanel({ entry, requirement, targetLength, busy, e
         <label className="rewrite-requirement"><span>改写要求</span><textarea rows={3} value={requirement} onChange={(event) => onRequirement(event.target.value)} placeholder="例如：增强压迫感，保留第一人称和人物语气" /></label>
         <label className="rewrite-length"><span>目标字数</span><input type="number" min="50" max="5000" step="50" value={targetLength} onChange={(event) => onTargetLength(event.target.value)} /><em>字左右</em></label>
         {error ? <p className="rewrite-error">{error}</p> : null}
-        <section className={`rewrite-result ${busy ? 'is-generating' : ''}`}>
-          <span>{busy ? '正在结合本章上下文改写…' : '改写结果'}</span>
-          {entry.generatedText ? <p>{entry.generatedText}</p> : <p className="rewrite-placeholder">填写要求后生成；每次重新生成都以最初原文为底稿。</p>}
+        <section className={`rewrite-result ${busy ? 'is-generating' : ''}`} aria-live="polite">
+          <span>{busy ? 'AI 正在改写' : '改写结果'}</span>
+          <div className="rewrite-output" role="textbox" aria-readonly="true">
+            {streamText || entry.generatedText ? <p>{streamText || entry.generatedText}</p> : <p className="rewrite-placeholder">填写要求后生成；每次重新生成都以最初原文为底稿。</p>}
+            {busy ? <i className="rewrite-caret" aria-hidden="true" /> : null}
+          </div>
         </section>
       </div>
       <footer>
