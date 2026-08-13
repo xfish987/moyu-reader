@@ -105,6 +105,7 @@
 }
 .ui-b .app-shell { background: transparent; }
 .ui-b .window-bar { position: relative; z-index: 20; height: 44px; padding: 0 0 0 18px; display: grid; grid-template-columns: minmax(118px, 1fr) auto 132px; color: var(--b-ink-2); background: var(--b-shell); border-bottom: 1px solid var(--b-line); backdrop-filter: blur(22px) saturate(1.12); -webkit-backdrop-filter: blur(22px) saturate(1.12); }
+.ui-b.app-shell:not(.app-immersive) { display: grid; grid-template-rows: 44px minmax(0, 1fr); }
 .ui-b .brand-lockup { gap: 9px; color: var(--b-ink); font-size: 13px; letter-spacing: .01em; }
 .ui-b .brand-lockup svg { color: var(--b-accent); }
 .ui-b .brand-lockup small { padding: 2px 5px; border: 1px solid var(--b-line-strong); border-radius: 4px; color: var(--b-ink-3); font-size: 9px; font-weight: 600; letter-spacing: .08em; }
@@ -240,6 +241,7 @@
 /* 沉浸模式工具栏不渲染，阅读区必须占满唯一一行；
    否则会沿用上面的 54px 首行，正文被压成顶部一条矮条（全屏文字消失的病根）。 */
 .ui-b .reader-view.is-immersive { grid-template-rows: minmax(0, 1fr); }
+.ui-b .reader-view { min-width: 0; min-height: 0; height: 100%; }
 .ui-b .reader-view.theme-paper, .ui-b .reader-view.theme-sage, .ui-b .reader-view.theme-night { --reader-bg: transparent; background: transparent; }
 .ui-b .reader-toolbar { height: var(--reader-toolbar-height); min-height: var(--reader-toolbar-height); max-height: var(--reader-toolbar-height); grid-template-columns: minmax(0, 1fr) minmax(160px, 2fr) minmax(0, 1fr); padding: 0 18px; overflow: visible; flex-shrink: 0; border-bottom-color: var(--b-line); background: var(--b-shell); color: var(--b-ink-2); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
 .ui-b .book-heading strong { color: var(--b-ink); font: 650 13px/1.4 var(--font-ui); }
@@ -395,6 +397,7 @@
   .ui-b .category-create { width: min(220px, 70vw); margin-top: 6px; }
 }
 @media (max-width: 680px) {
+  .ui-b.app-shell:not(.app-immersive) { grid-template-rows: 44px minmax(0, 1fr); }
   .ui-b .shelf-view { display: block; overflow: auto; }
   /* 窄窗顶部导航改回静态横排，且纯图标：隐藏文字与计数，固定 40px 宽，
      4 个图标约 180px，360px 窗口全部摆下，不允许横向滚动。 */
@@ -418,9 +421,11 @@
   .ui-b .book-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 14px; }
   .ui-b .continue-reading { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; }
   .ui-b .continue-reading .continue-bar { display: none; }
-  .ui-b .reader-toolbar { grid-template-columns: auto minmax(0, 1fr) auto; padding-inline: 8px; }
-  .ui-b .book-heading { text-align: left; }
-  .ui-b .reader-actions { gap: 0; }
+  .ui-b .reader-toolbar { grid-template-columns: 32px minmax(0, 1fr) auto; padding-inline: 8px; min-width: 0; }
+  .ui-b .book-heading { min-width: 0; text-align: left; overflow: hidden; }
+  .ui-b .book-heading strong, .ui-b .book-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-b .reader-actions { min-width: 0; max-width: 132px; gap: 0; overflow: hidden; }
+  .ui-b .reader-actions > .toolbar-button, .ui-b .reader-actions > .toolbar-overflow { width: 30px; flex-basis: 30px; }
   .ui-b .text-viewport, .ui-b .epub-host { width: calc(100% - 20px); }
   .ui-b .text-columns { padding: 34px 22px; }
   .b-panel-backdrop { padding: 0; }
