@@ -1315,7 +1315,7 @@ button:focus-visible, input:focus-visible {
   .share-body { grid-template-columns: 190px minmax(0, 1fr); gap: 18px; }
   .share-preview { width: 190px; max-height: 420px; }
   .theme-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .reader-toolbar { grid-template-columns: 40px minmax(0, 1fr) 270px; padding-inline: 8px; }
+  .reader-toolbar { grid-template-columns: 40px minmax(0, 1fr) auto; padding-inline: 8px; }
   .reader-actions .toolbar-button { width: var(--reader-action-step); }
   .settings-panel, .toc-panel, .notes-panel, .search-panel { right: 10px; width: min(310px, calc(100% - 20px)); }
   .profile-collection-panel { right: 10px; width: calc(100% - 20px); }
