@@ -25,6 +25,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
+  const tocPanelRef = useRef(null)
   const wheelStateRef = useRef({ accumulated: 0, direction: 0, lockedUntil: 0 })
   const [panel, setPanel] = useState(null)
   const [rewriteId, setRewriteId] = useState('')
@@ -133,7 +134,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   useEffect(() => {
     if (panel !== 'toc' || activeChapterIndex < 0) return undefined
     const frame = requestAnimationFrame(() => {
-      activeChapterRef.current?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' })
+      const tocPanel = tocPanelRef.current
+      const activeChapter = activeChapterRef.current
+      if (!tocPanel || !activeChapter) return
+      const top = activeChapter.offsetTop - (tocPanel.clientHeight - activeChapter.offsetHeight) / 2
+      tocPanel.scrollTop = Math.max(0, top)
     })
     return () => cancelAnimationFrame(frame)
   }, [activeChapterIndex, panel])
@@ -1207,7 +1212,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       ) : null}
       {panel === 'settings' && !immersive ? <ReaderSettings settings={settings} onChange={setSettings} encoding={source.kind.startsWith('text') ? source.encoding : null} onEncodingChange={onEncodingChange} epubFontOverride={source.kind === 'epub' ? epubFontOverride : undefined} onEpubFontOverrideChange={onEpubFontOverrideChange} /> : null}
       {panel === 'toc' && !immersive ? (
-        <aside className="toc-panel">
+        <aside className="toc-panel" ref={tocPanelRef}>
           <div className="toc-title"><List size={16} /><strong>目录</strong><span>{percent}% · {chapters.length} 章</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
           <div className="toc-list">
             {chapters.length ? chapters.map((chapter, index) => (

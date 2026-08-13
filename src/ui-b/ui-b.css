@@ -424,7 +424,7 @@
   .ui-b .reader-toolbar { grid-template-columns: 32px minmax(0, 1fr) auto; padding-inline: 8px; min-width: 0; }
   .ui-b .book-heading { min-width: 0; text-align: left; overflow: hidden; }
   .ui-b .book-heading strong, .ui-b .book-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ui-b .reader-actions { min-width: 0; max-width: 132px; gap: 0; overflow: hidden; }
+  .ui-b .reader-actions { min-width: 0; max-width: 132px; gap: 0; overflow: visible; }
   .ui-b .reader-actions > .toolbar-button, .ui-b .reader-actions > .toolbar-overflow { width: 30px; flex-basis: 30px; }
   .ui-b .text-viewport, .ui-b .epub-host { width: calc(100% - 20px); }
   .ui-b .text-columns { padding: 34px 22px; }
