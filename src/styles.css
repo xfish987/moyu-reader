@@ -1762,3 +1762,63 @@ mark.dict-highlight:hover { background: var(--accent-bg, rgba(127, 160, 137, .14
   --reader-ink: 232, 236, 239;
   --chrome: #94a2bf;
 }
+
+/* ===== 起点模式：主窗口内嵌起点阅读器 ===== */
+.window-actions .qidian-mode-toggle .qidian-mode-mark { font: 700 13px/1 var(--font-ui); letter-spacing: 0; }
+.window-actions .qidian-mode-toggle.active { background: var(--accent-bg); color: var(--accent); }
+.ui-b.has-designed-titlebar .window-actions .qidian-mode-toggle.active { background: rgba(232, 236, 239, .18); color: #fff; }
+
+.qidian-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--paper); }
+.qidian-toolbar {
+  flex: 0 0 auto;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+}
+.qidian-toolbar::-webkit-scrollbar { display: none; }
+.qidian-toolbar button {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-sm, 4px);
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.qidian-toolbar button:hover { background: var(--paper-2); color: var(--ink); }
+.qidian-toolbar button:disabled { opacity: .35; cursor: default; }
+.qidian-toolbar button:disabled:hover { background: transparent; color: inherit; }
+.qidian-toolbar-sep { flex: 0 0 auto; width: 1px; height: 16px; margin: 0 5px; background: var(--line); }
+.qidian-toolbar-spacer { flex: 1 0 auto; }
+.qidian-stage { position: relative; flex: 1; min-height: 0; }
+/* webview 默认只有 150px 高（类似 iframe），必须用绝对定位撑满容器，访客视口才会跟随。 */
+.qidian-stage webview { position: absolute; inset: 0; width: 100%; height: 100%; }
+.qidian-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: clamp(26px, 6vw, 64px);
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+}
+.qidian-edge.is-left { left: 0; }
+.qidian-edge.is-right { right: 0; }
+.qidian-edge:hover { color: var(--ink-3); }
+.qidian-edge.is-left:hover { background: linear-gradient(90deg, rgba(1, 22, 43, .07), transparent); }
+.qidian-edge.is-right:hover { background: linear-gradient(270deg, rgba(1, 22, 43, .07), transparent); }
+:root[data-moyu-theme="night"] .qidian-edge.is-left:hover { background: linear-gradient(90deg, rgba(232, 236, 239, .08), transparent); }
+:root[data-moyu-theme="night"] .qidian-edge.is-right:hover { background: linear-gradient(270deg, rgba(232, 236, 239, .08), transparent); }

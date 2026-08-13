@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld('readerAPI', {
     return () => ipcRenderer.removeListener('companion:action', listener)
   },
   openProfilesStoryline: () => ipcRenderer.send('profiles:open-storyline'),
+  // 起点模式：系统浏览器打开 https 链接
+  openExternalUrl: (url) => ipcRenderer.invoke('shell:open-external', url),
   // AI 陪读状态栏（阅读窗底部外侧的独立小窗口）
   setCompanionBarVisible: (visible) => ipcRenderer.send('companion-bar:toggle', Boolean(visible)),
   sendCompanionBarSync: (snapshot) => ipcRenderer.send('companion-bar:sync', snapshot),

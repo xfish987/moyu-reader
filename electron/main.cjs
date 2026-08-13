@@ -16,8 +16,10 @@ const { buildChapterSummaryMessages, buildCompanionChatMessages } = require('./c
 const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
 // Keep the legacy profile directory so existing UI B users retain all local data.
+// MOYU_USER_DATA / MOYU_ALLOW_MULTI_INSTANCE 仅用于本地验证：独立数据目录 + 并行实例，
+// 避免测试实例与正在运行的正式实例抢单例锁、互相覆盖阅读数据。
 app.setName('墨读阅读器')
-app.setPath('userData', path.join(app.getPath('appData'), 'MoyuReaderUIB'))
+app.setPath('userData', process.env.MOYU_USER_DATA || path.join(app.getPath('appData'), 'MoyuReaderUIB'))
 
 let mainWindow
 let profilesWindow = null
@@ -32,7 +34,7 @@ let windowPinned = false
 let pendingExternalFiles = []
 let windowBoundsTimer = null
 let closingWindow = false
-const hasSingleInstanceLock = app.requestSingleInstanceLock()
+const hasSingleInstanceLock = process.env.MOYU_ALLOW_MULTI_INSTANCE ? true : app.requestSingleInstanceLock()
 const largeTextCache = new Map()
 const epubMetadataCache = new Map()
 
@@ -94,6 +96,7 @@ const STORE_KEYS = new Set([
   'reader:recent-books',
   'reader:shelf-book-order',
   'reader:epub-font-overrides',
+  'reader:qidian-state',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -668,6 +671,8 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // 起点模式在主窗口内嵌 <webview> 加载起点官方页面，仅此窗口开启。
+      webviewTag: true,
     },
   })
 
@@ -1190,6 +1195,14 @@ ipcMain.on('companion-bar:sync', (_event, snapshot) => {
 // 底栏 → 阅读窗口：按钮动作（open-storyline / open-companion / stop）。
 ipcMain.on('companion-bar:action', (_event, action) => {
   mainWindow?.webContents.send('companion-bar:action', action)
+})
+
+// 起点模式工具条用：只允许 https 链接交给系统浏览器。
+ipcMain.handle('shell:open-external', async (_event, url) => {
+  const value = String(url || '').slice(0, 500)
+  if (!/^https:\/\//i.test(value)) return false
+  await shell.openExternal(value)
+  return true
 })
 
 function supportedBookPaths(values = []) {

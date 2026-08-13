@@ -11,6 +11,7 @@ import AppearancePanel from './ui-b/AppearancePanel'
 import BackgroundLayer from './ui-b/BackgroundLayer'
 import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
 import VirtualBookshelfHome from './ui-b/VirtualBookshelfHome'
+import QidianMode from './QidianMode'
 import { moveBeforeOrAfter } from './ui-b/shelfLayout'
 
 const DEFAULT_SETTINGS = {
@@ -57,6 +58,7 @@ export default function App() {
   const [epubFontOverrides, setEpubFontOverrides] = useStoredState('reader:epub-font-overrides', {})
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false)
+  const [qidianMode, setQidianMode] = useState(false)
   const [homeView, setHomeView] = useState('virtual')
   const [libraryView, setLibraryView] = useState('shelf')
   const [libraryTarget, setLibraryTarget] = useState(null)
@@ -370,6 +372,8 @@ export default function App() {
       setImmersive(false)
       return
     }
+    // 起点模式下 A/D、方向键等全部让位给起点翻页阅读器。
+    if (qidianMode) return
     const pressed = normalizeKey(event)
     if (!pressed) return
     const target = event.target
@@ -403,7 +407,7 @@ export default function App() {
       event.preventDefault()
       setSettings((current) => ({ ...current, opacity: Math.max(0.15, +(current.opacity - 0.05).toFixed(2)) }))
     }
-  }, [activeBook, immersive, setCompanionMap, setSettings, shortcuts, toggleImmersive])
+  }, [activeBook, immersive, qidianMode, setCompanionMap, setSettings, shortcuts, toggleImmersive])
 
   useEffect(() => {
     window.addEventListener('keydown', shortcut)
@@ -512,11 +516,13 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${qidianMode ? 'is-qidian' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
-      {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} /> : null}
-      {activeBook && source ? (
+      {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} qidianMode={qidianMode} onToggleQidian={() => setQidianMode((current) => !current)} /> : null}
+      {qidianMode ? (
+        <QidianMode />
+      ) : activeBook && source ? (
         <ReaderView
           book={activeBook}
           source={source}
