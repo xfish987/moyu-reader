@@ -6,7 +6,7 @@ import minimizeIcon from '../ui-b/assets/dark-shelf/minimize.svg'
 import maximizeIcon from '../ui-b/assets/dark-shelf/maximize.svg'
 import closeIcon from '../ui-b/assets/dark-shelf/close.svg'
 
-export default function WindowBar({ onOpenShortcuts, appearanceTheme = 'mist', onToggleTheme, qidianMode = false, onToggleQidian }) {
+export default function WindowBar({ onOpenShortcuts, appearanceTheme = 'mist', onToggleTheme }) {
   const [maximized, setMaximized] = useState(false)
   useEffect(() => window.readerAPI?.onMaximized?.(setMaximized), [])
   const icon = (source, className = '') => <span className={`window-action-icon ${className}`} style={{ '--window-icon': `url("${source}")` }} aria-hidden="true" />
@@ -19,7 +19,6 @@ export default function WindowBar({ onOpenShortcuts, appearanceTheme = 'mist', o
             {icon(appearanceTheme === 'night' ? moonIcon : sunIcon, 'is-theme')}
           </button>
         ) : null}
-        <button className={`qidian-mode-toggle ${qidianMode ? 'active' : ''}`} title={qidianMode ? '返回墨读本地书架' : '切换到起点阅读器'} aria-label={qidianMode ? '返回墨读本地书架' : '切换到起点阅读器'} aria-pressed={qidianMode} onClick={onToggleQidian}><span className="qidian-mode-mark" aria-hidden="true">起</span></button>
         <button className="keyboard-indicator" title="快捷键设置" aria-label="打开快捷键设置" onClick={onOpenShortcuts}>{icon(keyboardIcon, 'is-keyboard')}</button>
         <button aria-label="最小化" title="最小化" onClick={() => window.readerAPI.minimize()}>{icon(minimizeIcon)}</button>
         <button aria-label={maximized ? '还原窗口' : '最大化'} title={maximized ? '还原窗口' : '最大化'} onClick={() => window.readerAPI.maximize()}>{icon(maximizeIcon)}</button>
