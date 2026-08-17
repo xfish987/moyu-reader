@@ -7,6 +7,7 @@ import TextReader from './TextReader'
 import AISettingsModal from './AISettingsModal'
 import EntityIdentityModal from './EntityIdentityModal'
 import RewritePanel from './RewritePanel'
+import DictionaryQuestionModal from './DictionaryQuestionModal'
 import { searchVariants, useChineseConversionReady } from '../chineseConversion'
 import { isCorruptProfile } from '../entityProfiles'
 import { buildCoverageNote, selectPreviousSummaries } from '../storyline'
@@ -19,6 +20,27 @@ function pickRepresentative(items, limit = 400) {
   const slots = limit - first.length - last.length
   const sampled = Array.from({ length: slots }, (_, index) => middle[Math.floor(index * middle.length / slots)]).filter(Boolean)
   return [...first, ...sampled, ...last]
+}
+
+function selectDictionaryEvidence(excerpts, question, selectedText, limit = 20) {
+  const query = `${question || ''}${selectedText || ''}`.replace(/\s+/g, '')
+  const grams = new Set(Array.from({ length: Math.max(0, query.length - 1) }, (_, index) => query.slice(index, index + 2)).filter((item) => !/[，。！？、；：]/.test(item)))
+  const scored = (excerpts || []).map((item, index) => {
+    const text = String(item.text || '').replace(/\s+/g, ' ').trim()
+    let score = 0
+    grams.forEach((gram) => { if (text.includes(gram)) score += 1 })
+    return { ...item, text: text.slice(0, 180), score, index }
+  }).filter((item) => item.text).sort((a, b) => b.score - a.score || b.index - a.index)
+  const chapterCounts = new Map()
+  const selected = []
+  for (const item of scored) {
+    const chapter = item.chapter || '此前内容'
+    if ((chapterCounts.get(chapter) || 0) >= 2) continue
+    selected.push({ chapter, text: item.text })
+    chapterCounts.set(chapter, (chapterCounts.get(chapter) || 0) + 1)
+    if (selected.length >= limit) break
+  }
+  return selected
 }
 
 export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, rewrites = [], onSaveRewrite, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
@@ -455,6 +477,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   // ===== 字典百科：划选文字 → AI 结合上下文解说，独立窗口展示，支持重新生成与追问 =====
   const dictEntriesRef = useRef([])
   const [dictTransient, setDictTransient] = useState({})
+  const [dictQuestionSelection, setDictQuestionSelection] = useState(null)
   const dictTransientRef = useRef({})
   dictTransientRef.current = dictTransient
   dictEntriesRef.current = dictionaryEntries
@@ -472,6 +495,16 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     return next
   })
   const lightProfiles = useMemo(() => entityProfiles.map(({ name, aliases, type, summary }) => ({ name, aliases, type, summary })), [entityProfiles])
+
+  const loadDictionaryEvidence = async (entry, terms, question) => {
+    const names = [...new Set((terms || []).map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 5)
+    if (!names.length) return []
+    const selection = { ...(entry.lookupSelection || {}), ...(entry.anchor || {}), text: entry.text, currentExcerpt: entry.paragraph, chapterLabel: entry.chapterLabel }
+    try {
+      const context = await loadEntityContext(selection, names)
+      return selectDictionaryEvidence(context?.excerpts, question, entry.text)
+    } catch { return [] }
+  }
 
   const activeRewrite = rewrites.find((item) => item.id === rewriteId) || null
   const openRewrite = useCallback((selectionOrEntry) => {
@@ -543,9 +576,9 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   // 首次解说 / 重新生成：上下文尽量现取（读者可能又往后读了），取不到就用条目里存的段落。
   const runDictExplain = useCallback(async (entry) => {
     const requestId = `dict-explain-${entry.id}-${Date.now()}`
-    patchDictTransient(entry.id, { generating: true, streamText: '', error: null })
+    patchDictTransient(entry.id, { generating: true, retrieving: Boolean(entry.referenceTerms?.length), streamText: '', error: null })
     const unsubscribe = window.readerAPI.onAiTextChunk?.((chunk) => {
-      if (chunk?.requestId === requestId && chunk.text) patchDictTransient(entry.id, { streamText: (dictTransientRef.current[entry.id]?.streamText || '') + chunk.text })
+      if (chunk?.requestId === requestId && chunk.text) patchDictTransient(entry.id, { retrieving: false, streamText: (dictTransientRef.current[entry.id]?.streamText || '') + chunk.text })
     })
     try {
       const provider = await resolveDictProvider()
@@ -555,6 +588,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         return
       }
       const ctx = await freshDictContext(entry.anchor)
+      const relatedEvidence = await loadDictionaryEvidence(entry, entry.referenceTerms, entry.initialQuestion)
+      patchDictTransient(entry.id, { retrieving: false })
       const result = await window.readerAPI.dictionaryChat({
         requestId,
         mode: 'explain',
@@ -569,6 +604,9 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         contextBefore: ctx?.contextBefore || '',
         contextAfter: ctx?.contextAfter || '',
         entityProfiles: lightProfiles,
+        question: entry.initialQuestion || '请结合上下文解释这段选中文字。',
+        referenceTerms: entry.referenceTerms || [],
+        relatedEvidence,
       })
       if (!result?.ok) {
         patchDictTransient(entry.id, { generating: false, error: result?.error?.message || '解说失败' })
@@ -583,13 +621,13 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   }, [book.title, book.author, lightProfiles, onSaveDictEntry, aiConfig])
 
   // 追问：选中行 + 所在章节全文（约 2 万字符）+ 设定集一起发给 AI。
-  const runDictFollowup = useCallback(async (entryId, followup) => {
-    const entry = dictEntriesRef.current.find((item) => item.id === entryId)
+  const runDictFollowup = useCallback(async (entryId, followup, entryOverride = null) => {
+    const entry = entryOverride || dictEntriesRef.current.find((item) => item.id === entryId)
     if (!entry || !followup) return
     const requestId = `dict-followup-${followup.id}-${Date.now()}`
-    patchDictTransient(entryId, { pendingFollowupId: followup.id, followUpStreamText: '', followUpErrorId: null, followUpError: null })
+    patchDictTransient(entryId, { pendingFollowupId: followup.id, retrieving: Boolean(followup.referenceTerms?.length), followUpStreamText: '', followUpErrorId: null, followUpError: null })
     const unsubscribe = window.readerAPI.onAiTextChunk?.((chunk) => {
-      if (chunk?.requestId === requestId && chunk.text) patchDictTransient(entryId, { followUpStreamText: (dictTransientRef.current[entryId]?.followUpStreamText || '') + chunk.text })
+      if (chunk?.requestId === requestId && chunk.text) patchDictTransient(entryId, { retrieving: false, followUpStreamText: (dictTransientRef.current[entryId]?.followUpStreamText || '') + chunk.text })
     })
     try {
       const provider = await resolveDictProvider()
@@ -599,6 +637,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         return
       }
       const ctx = await freshDictContext(entry.anchor)
+      const relatedEvidence = await loadDictionaryEvidence(entry, followup.referenceTerms, followup.question)
+      patchDictTransient(entryId, { retrieving: false })
       const result = await window.readerAPI.dictionaryChat({
         requestId,
         mode: 'followup',
@@ -613,6 +653,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         followUps: (entry.followUps || []).filter((item) => item.answer && item.id !== followup.id),
         question: followup.question,
         entityProfiles: lightProfiles,
+        referenceTerms: followup.referenceTerms || [],
+        relatedEvidence,
       })
       if (!result?.ok) {
         patchDictTransient(entryId, { pendingFollowupId: null, followUpErrorId: followup.id, followUpError: result?.error?.message || '回答失败' })
@@ -626,20 +668,41 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     } finally { unsubscribe?.() }
   }, [book.title, lightProfiles, onSaveDictEntry, aiConfig])
 
-  // 右键"字典百科"：同一位置已解释过则直接开窗复看，否则新建条目并请求解说。
+  // 右键"字典百科"先保留选区并收集读者的具体问题，提交后才创建会话和请求 AI。
   const openDictionary = useCallback((selection) => {
     const text = String(selection?.text || '').trim()
     if (!text) return
+    setDictQuestionSelection({ ...selection, text })
+  }, [])
+
+  const askDictionary = useCallback(({ question, referenceTerms = [] } = {}) => {
+    const selection = dictQuestionSelection
+    const text = String(selection?.text || '').trim()
+    const normalizedQuestion = String(question || '').trim().slice(0, 500)
+    if (!text || !normalizedQuestion) return
     const anchor = source.kind === 'epub'
       ? { kind: 'epub', cfi: selection.cfi, href: selection.href, text: text.slice(0, 500), paragraph: String(selection.paragraph || '').slice(0, 4000) }
       : { kind: source.kind, paragraphIndex: selection.paragraphIndex, startOffset: selection.startOffset, endOffset: selection.endOffset, chunkOffset: selection.chunkOffset }
     const anchorKey = anchor.kind === 'epub' ? `cfi:${anchor.cfi}` : `p:${anchor.chunkOffset ?? 0}:${anchor.paragraphIndex}:${anchor.startOffset}-${anchor.endOffset}`
     const existing = dictEntriesRef.current.find((item) => item.anchorKey === anchorKey)
-    if (existing?.explanation) {
+    const lookupSelection = {
+      paragraphIndex: selection.paragraphIndex,
+      endOffset: selection.endOffset,
+      chunkOffset: selection.chunkOffset,
+      spineIndex: selection.spineIndex,
+      href: selection.href,
+      readPosition: source.kind === 'text-large' ? (Number(selection.readPosition) || Number(progress.absolutePosition) || 0) : undefined,
+    }
+    setDictQuestionSelection(null)
+    if (existing) {
       window.readerAPI.openDictionaryWindow?.(existing.id)
+      const followup = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, question: normalizedQuestion, referenceTerms, answer: '', createdAt: Date.now() }
+      const updatedEntry = { ...existing, lookupSelection, followUps: [...(existing.followUps || []), followup], updatedAt: Date.now() }
+      onSaveDictEntry?.(updatedEntry)
+      runDictFollowup(existing.id, followup, updatedEntry)
       return
     }
-    const entry = existing || {
+    const entry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       anchorKey,
       anchor,
@@ -648,14 +711,17 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       chapterLabel: selection.chapterLabel || activeChapter?.label || '',
       readPercent: Number(selection.readPercent ?? progress.percent) || 0,
       explanation: '',
+      initialQuestion: normalizedQuestion,
+      referenceTerms,
+      lookupSelection,
       followUps: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    if (!existing) onSaveDictEntry?.(entry)
+    onSaveDictEntry?.(entry)
     window.readerAPI.openDictionaryWindow?.(entry.id)
-    if (!existing?.explanation) runDictExplain(entry)
-  }, [activeChapter?.label, onSaveDictEntry, progress.percent, runDictExplain, source.kind])
+    runDictExplain(entry)
+  }, [activeChapter?.label, dictQuestionSelection, onSaveDictEntry, progress.percent, runDictExplain, runDictFollowup, source.kind])
 
   const openDictEntry = useCallback((entry) => { if (entry) window.readerAPI.openDictionaryWindow?.(entry.id) }, [])
 
@@ -665,12 +731,14 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     return {
       ...item,
       generating: Boolean(transient.generating),
+      retrieving: Boolean(transient.retrieving),
       streamText: transient.streamText || '',
       error: transient.error || null,
       followUpPending: Boolean(transient.pendingFollowupId),
       followUps: (item.followUps || []).map((followup) => ({
         ...followup,
         pending: transient.pendingFollowupId === followup.id,
+        pendingLabel: transient.pendingFollowupId === followup.id && transient.retrieving ? '正在检索相关人物 / 地点' : '正在思考',
         content: transient.pendingFollowupId === followup.id ? (transient.followUpStreamText || '') : followup.answer,
         error: transient.followUpErrorId === followup.id ? transient.followUpError : null,
       })),
@@ -1174,6 +1242,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         <button className="page-zone next" onClick={() => readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()} aria-label="向右翻页"><ChevronRight size={22} /></button>
       </section>
       <RewritePanel entry={activeRewrite} streamText={rewriteStreamText} requirement={rewriteDraft.requirement} targetLength={rewriteDraft.targetLength} busy={rewriteBusy} error={rewriteError} onRequirement={(requirement) => setRewriteDraft((current) => ({ ...current, requirement }))} onTargetLength={(targetLength) => setRewriteDraft((current) => ({ ...current, targetLength }))} onGenerate={generateRewrite} onApply={() => patchRewrite({ applied: true })} onUndo={() => patchRewrite({ applied: false })} onClose={() => setRewriteId('')} />
+      <DictionaryQuestionModal selection={dictQuestionSelection} onClose={() => setDictQuestionSelection(null)} onSubmit={askDictionary} />
 
       {immersive ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => setChromeZone('top')} aria-hidden="true" /> : null}
       <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => setChromeZone('bottom')} aria-hidden="true" />

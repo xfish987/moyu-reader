@@ -27,10 +27,14 @@ export default function DictionaryWindow() {
 
   const entries = useMemo(() => snapshot?.entries || [], [snapshot])
   const entry = entries.find((item) => item.id === selectedId) || entries[entries.length - 1] || null
+  const initialMessages = useMemo(() => entry?.initialQuestion ? [
+    { id: `initial-q-${entry.id}`, role: 'user', content: entry.initialQuestion, createdAt: entry.createdAt },
+    { id: `initial-a-${entry.id}`, role: 'assistant', content: entry.streamText || entry.explanation, createdAt: entry.createdAt, pending: Boolean(entry.generating && !entry.streamText), pendingLabel: entry.retrieving ? '正在检索相关人物 / 地点' : '正在思考', error: entry.error || null },
+  ] : [], [entry])
   // 追问问答对展开成聊天消息：q-/a- 前缀区分同一 followup 的问题与回答，回调里 slice(2) 还原 followupId。
   const followupMessages = useMemo(() => (entry?.followUps || []).flatMap((item) => [
     { id: `q-${item.id}`, role: 'user', content: item.question, createdAt: item.createdAt },
-    { id: `a-${item.id}`, role: 'assistant', content: item.content ?? item.answer, createdAt: item.createdAt, pending: Boolean(item.pending), error: item.error || null },
+    { id: `a-${item.id}`, role: 'assistant', content: item.content ?? item.answer, createdAt: item.createdAt, pending: Boolean(item.pending), pendingLabel: item.pendingLabel, error: item.error || null },
   ]), [entry])
 
   useEffect(() => {
@@ -98,7 +102,13 @@ export default function DictionaryWindow() {
                 <span className="quote-text">{entry.text}</span>
                 <span className="quote-meta">{entry.chapterLabel || '未知章节'} · 读到 {Math.round((entry.readPercent || 0) * 100)}% 处 · 点击跳转原文</span>
               </button>
-              <section className="dictionary-answer">
+              {entry.initialQuestion ? (
+                <div className="dictionary-followups dictionary-initial-chat">
+                  <ChatMessages messages={initialMessages} onRegenerate={(message) => message.role === 'assistant' && send({ type: 'regenerate', entryId: entry.id })} onRetry={() => send({ type: 'regenerate', entryId: entry.id })} />
+                  {entry.generating && entry.streamText ? <i className="rewrite-caret" aria-hidden="true" /> : null}
+                  {entry.providerName ? <span className="dictionary-meta">{entry.providerName} / {entry.model}</span> : null}
+                </div>
+              ) : <section className="dictionary-answer">
                 {entry.generating && !entry.streamText ? (
                   <div className="dictionary-pending"><span className="ai-thinking"><i /><i /><i /></span> AI 正在结合上下文解说…</div>
                 ) : entry.error ? (
@@ -110,7 +120,7 @@ export default function DictionaryWindow() {
                   <button disabled={Boolean(entry.generating)} onClick={() => send({ type: 'regenerate', entryId: entry.id })} title="重新让 AI 解释这段文字"><RefreshCw size={13} className={entry.generating ? 'spin' : ''} /> 重新生成</button>
                   {entry.providerName ? <span className="dictionary-meta">{entry.providerName} / {entry.model}</span> : null}
                 </div>
-              </section>
+              </section>}
               {followupMessages.length ? (
                 <div className="dictionary-followups">
                   <ChatMessages

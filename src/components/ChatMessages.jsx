@@ -87,7 +87,7 @@ export default function ChatMessages({ messages = [], onCopy, onEdit, onDelete, 
               ) : isUser ? (
                 <span className="chat-text">{message.content}</span>
               ) : message.pending && !message.content ? (
-                <span className="chat-pending">正在思考<span className="ai-thinking"><i /><i /><i /></span></span>
+                <span className="chat-pending">{message.pendingLabel || '正在思考'}<span className="ai-thinking"><i /><i /><i /></span></span>
               ) : message.error ? (
                 <span className="chat-error">
                   <span>回答失败：{message.error}</span>

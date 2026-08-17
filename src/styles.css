@@ -1185,6 +1185,35 @@ button:focus-visible, input:focus-visible {
 
 /* 本地 AI 与防剧透资料卡 */
 .modal-backdrop { position: fixed; inset: 0; z-index: 120; padding: 28px; display: grid; place-items: center; background: rgba(18, 24, 22, .48); backdrop-filter: blur(5px); }
+.dictionary-question-backdrop { z-index: 180; }
+.dictionary-question-modal { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); border: 1px solid var(--line-strong); border-radius: var(--r-lg); overflow: auto; background: var(--surface); color: rgb(var(--reader-ink)); box-shadow: 0 22px 60px rgba(18, 24, 22, .28); }
+.dictionary-question-modal > header { min-height: 54px; padding: 0 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.dictionary-question-modal > header > div { display: flex; align-items: center; gap: 9px; }
+.dictionary-question-modal > header svg { color: var(--accent); }
+.dictionary-question-modal > header button { width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--ink-3); cursor: pointer; }
+.dictionary-question-modal > header button:hover { background: rgba(var(--reader-ink), .07); color: rgb(var(--reader-ink)); }
+.dictionary-question-modal blockquote { max-height: 112px; margin: 18px 20px 0; padding: 10px 12px; border-left: 3px solid var(--accent); overflow: auto; background: rgba(var(--reader-ink), .04); color: var(--ink-2); font-family: var(--font-reading); font-size: var(--text-sm); line-height: 1.75; white-space: pre-wrap; }
+.dictionary-reference-control { margin: 14px 20px 0; padding-bottom: 14px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
+.dictionary-reference-toggle { padding: 0; display: flex; align-items: center; gap: 8px; color: rgb(var(--reader-ink)); font-size: var(--text-sm); cursor: pointer; }
+.dictionary-reference-toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.dictionary-reference-fields { display: grid; gap: 8px; }
+.dictionary-reference-fields small { color: var(--ink-3); font-size: var(--text-xs); }
+.dictionary-reference-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dictionary-reference-chips > span { min-height: 26px; padding: 0 4px 0 9px; border: 1px solid var(--line); border-radius: var(--r-md); display: inline-flex; align-items: center; gap: 4px; background: rgba(var(--reader-ink), .04); color: var(--ink-2); font-size: var(--text-xs); }
+.dictionary-reference-chips button { width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--ink-3); cursor: pointer; }
+.dictionary-reference-chips button:hover { background: rgba(var(--reader-ink), .08); color: rgb(var(--reader-ink)); }
+.dictionary-reference-input { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 6px; }
+.dictionary-reference-input input { min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md); outline: 0; background: var(--surface); color: rgb(var(--reader-ink)); font: inherit; font-size: var(--text-sm); }
+.dictionary-reference-input input:focus { border-color: var(--accent); }
+.dictionary-reference-input button { width: 34px; height: 34px; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--r-md); display: grid; place-items: center; background: transparent; color: var(--accent); cursor: pointer; }
+.dictionary-reference-input button:hover:not(:disabled) { background: rgba(var(--reader-ink), .06); }
+.dictionary-reference-input button:disabled { opacity: .4; cursor: default; }
+.dictionary-question-modal label { padding: 16px 20px 0; display: grid; gap: 8px; color: var(--ink-2); font-size: var(--text-xs); }
+.dictionary-question-modal textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-md); outline: 0; resize: vertical; background: var(--surface); color: rgb(var(--reader-ink)); font: inherit; font-size: var(--text-sm); line-height: 1.65; }
+.dictionary-question-modal textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent); }
+.dictionary-question-modal > footer { padding: 14px 20px 18px; display: flex; align-items: center; justify-content: space-between; }
+.dictionary-question-modal > footer > span { color: var(--ink-3); font-size: var(--text-xs); }
+.dictionary-question-modal > footer > div { display: flex; gap: 8px; }
 .ai-settings-modal { width: min(920px, 100%); max-height: min(760px, calc(100vh - 56px)); border: 1px solid rgba(65, 84, 77, .22); border-radius: var(--r-lg); overflow: hidden; display: flex; flex-direction: column; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-3); }
 .ai-modal-header { min-height: 66px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 18px; background: var(--paper-2); }
 .ai-modal-header > div:first-child { display: flex; align-items: center; gap: 11px; min-width: 0; color: var(--accent-tint); }

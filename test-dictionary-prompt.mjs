@@ -13,6 +13,9 @@ const base = {
   paragraph: '他终究没有拔剑，只是笑了笑。',
   contextBefore: '前文……',
   contextAfter: '后文……',
+  question: '他为什么没有拔剑？',
+  referenceTerms: ['方运', '圣院'],
+  relatedEvidence: [{ chapter: '第三章', text: '方运此前曾在圣院立誓。' }],
   entityProfiles: [{ name: '方运', type: '人物', aliases: ['方大'], summary: '主角', relations: [{ targetName: 'x'.repeat(500) }] }],
 }
 
@@ -34,10 +37,12 @@ assert.ok(explain[1].content.includes('他终究没有拔剑'))
 assert.ok(explain[1].content.includes('方运'))
 assert.ok(explain[1].content.includes('前文……'))
 assert.ok(explain[1].content.includes('后文……'))
+assert.ok(explain[1].content.includes('SUPPLEMENTARY PERSON / PLACE EVIDENCE'))
+assert.ok(explain[1].content.includes('[第三章] 方运此前曾在圣院立誓。'))
 assert.ok(!explain[1].content.includes('x'.repeat(500)), '设定集不应包含超长的 relations 等字段')
 assert.ok(explain[2].content.includes('reader who has entered this library'))
 assert.ok(explain[3].content.includes('assigned professional duty'))
-assert.ok(explain[4].content.includes('explain the selected text'))
+assert.equal(explain[4].content, '他为什么没有拔剑？')
 
 const follow = buildFollowupMessages({
   ...base,
@@ -56,6 +61,7 @@ assert.equal(follow.at(-3).role, 'user')
 assert.equal(follow.at(-2).role, 'assistant')
 assert.equal(follow.at(-1).role, 'user')
 assert.ok(follow[1].content.includes('章节全文……'))
+assert.ok(follow[1].content.includes('索引词：方运、圣院'))
 assert.ok(follow.some((item) => item.role === 'assistant' && item.content === '之前的解释'))
 assert.ok(follow.some((item) => item.role === 'user' && item.content === 'q1'))
 assert.ok(follow.some((item) => item.role === 'assistant' && item.content === 'a1'))

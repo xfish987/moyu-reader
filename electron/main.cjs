@@ -1832,10 +1832,12 @@ ipcMain.handle('ai:dictionary-chat', async (event, input) => {
     explanation: textOf(input?.explanation, 4000),
     followUps: (Array.isArray(input?.followUps) ? input.followUps : []).slice(-8).map((item) => ({ question: textOf(item?.question, 500), answer: textOf(item?.answer, 4000) })),
     question: textOf(input?.question, 500),
+    referenceTerms: (Array.isArray(input?.referenceTerms) ? input.referenceTerms : []).slice(0, 5).map((item) => textOf(item, 20)).filter(Boolean),
+    relatedEvidence: (Array.isArray(input?.relatedEvidence) ? input.relatedEvidence : []).slice(0, 20).map((item) => ({ chapter: textOf(item?.chapter, 120), text: textOf(item?.text, 180) })).filter((item) => item.text),
     entityProfiles,
   }
   if (!payload.selectedText) return { ok: false, error: { stage: 'dictionary', status: 0, code: 'EMPTY_SELECTION', message: '选中的文字为空' } }
-  if (mode === 'followup' && !payload.question) return { ok: false, error: { stage: 'dictionary', status: 0, code: 'EMPTY_QUESTION', message: '追问内容为空' } }
+  if (!payload.question) return { ok: false, error: { stage: 'dictionary', status: 0, code: 'EMPTY_QUESTION', message: mode === 'followup' ? '追问内容为空' : '提问内容为空' } }
   const messages = mode === 'followup' ? buildFollowupMessages(payload) : buildDictionaryMessages(payload)
   const controller = new AbortController()
   let timedOut = false
