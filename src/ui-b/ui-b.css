@@ -570,15 +570,18 @@
 .ui-b-theme-mist .library-design-view .continue-reading { background: linear-gradient(90deg, #94a2bf 0 56%, rgba(148, 162, 191, .08) 100%); }
 .ui-b-theme-mist .library-design-view .continue-reading strong { color: #e8ecef; }
 .ui-b-theme-mist .library-design-view .empty-shelf > button { border-color: #1c2b48; background: #396081; color: #e8ecef; }
-.ui-b-theme-mist .library-design-view .notes-source-sidebar > span,
-.ui-b-theme-mist .library-design-view .note-book-group > header span:last-child,
-.ui-b-theme-mist .library-design-view .notes-library-empty span { color: #5c7fa2; }
-.ui-b-theme-mist .library-design-view .notes-source-sidebar button,
-.ui-b-theme-mist .library-design-view .note-book-group > header strong,
-.ui-b-theme-mist .library-design-view .quote-card blockquote,
-.ui-b-theme-mist .library-design-view .notes-library-empty strong { color: #1c2b48; }
-.ui-b-theme-mist .library-design-view .notes-source-sidebar button.active { background: rgba(106, 144, 180, .25); color: #1c2b48; }
-.ui-b-theme-mist .library-design-view .quote-card { border-color: rgba(28, 43, 72, .24); background: rgba(232, 236, 239, .74); color: #1c2b48; }
+.ui-b.ui-b-theme-mist .library-design-view .notes-source-sidebar > span,
+.ui-b.ui-b-theme-mist .library-design-view .note-book-group > header span:last-child,
+.ui-b.ui-b-theme-mist .library-design-view .notes-library-empty span { color: #5c7fa2; }
+.ui-b.ui-b-theme-mist .library-design-view .notes-source-sidebar button,
+.ui-b.ui-b-theme-mist .library-design-view .note-book-group > header strong,
+.ui-b.ui-b-theme-mist .library-design-view .quote-card blockquote,
+.ui-b.ui-b-theme-mist .library-design-view .notes-library-empty strong { color: #1c2b48; }
+.ui-b.ui-b-theme-mist .library-design-view .notes-source-sidebar button.active { background: rgba(106, 144, 180, .25); color: #1c2b48; }
+.ui-b.ui-b-theme-mist .library-design-view .quote-card { border-color: rgba(28, 43, 72, .24); background: rgba(232, 236, 239, .74); color: #1c2b48; }
+.ui-b.ui-b-theme-mist .library-design-view .quote-comment { border-left-color: #5c7fa2; background: rgba(106, 144, 180, .16); color: #396081; }
+.ui-b.ui-b-theme-mist .library-design-view .note-book-group > header { border-bottom-color: rgba(28, 43, 72, .24); }
+.ui-b.ui-b-theme-mist .library-design-view .quote-card footer { border-top-color: rgba(28, 43, 72, .18); }
 
 @media (max-width: 760px) {
   .ui-b-theme-mist .v-home::before,
