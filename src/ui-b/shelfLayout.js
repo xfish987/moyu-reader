@@ -30,6 +30,12 @@ export function shortSpineTitle(title) {
   return Array.from(String(title || '').trim()).slice(0, 9).join('')
 }
 
+// 分类标签（管理视图标签条 / 书脊视图排标题）横排展示：超过 4 个字时只露出前 4 个字加省略号。
+export function shortCategoryLabel(name) {
+  const chars = Array.from(String(name || '').trim())
+  return chars.length > 4 ? `${chars.slice(0, 4).join('')}…` : chars.join('')
+}
+
 export function coverWidthForShelf(width) {
   const available = Math.max(0, Number(width) || 0)
   const progress = Math.min(1, Math.max(0, (available - 620) / 536))

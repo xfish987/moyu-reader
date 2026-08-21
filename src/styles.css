@@ -348,6 +348,8 @@ button:focus-visible, input:focus-visible {
 .category-sidebar nav > button:hover, .category-row:hover { background: var(--paper-2); }
 .category-sidebar nav > button.active, .category-row.active { background: var(--accent-bg); color: var(--accent-tint); font-weight: 600; }
 .category-sidebar nav small { color: var(--ink-3); font-size: var(--text-xs); font-weight: 400; }
+.category-sidebar nav > button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.category-rename-input { min-width: 0; width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); outline: none; background: var(--surface); color: var(--ink); font-size: var(--text-sm); }
 .category-row { position: relative; border-radius: var(--r-sm); }
 .category-row > button:first-child { padding-right: 30px; }
 .delete-category { position: absolute; right: 4px; top: 4px; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r-sm); display: none; place-items: center; background: transparent; color: var(--ink-3); cursor: pointer; }
@@ -476,7 +478,7 @@ button:focus-visible, input:focus-visible {
 }
 .book-item:hover .cover-edit, .cover-edit:focus-visible { opacity: 1; }
 .cover-edit:hover { background: var(--surface); color: var(--accent); }
-.book-tag { position: absolute; left: 3px; bottom: -17px; color: var(--accent-tint); font-size: var(--text-xs); }
+.book-tag { position: absolute; left: 3px; bottom: -17px; max-width: calc(100% - 6px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent-tint); font-size: var(--text-xs); }
 .empty-filter { max-width: 1120px; margin: 70px auto; color: var(--ink-3); font: 300 var(--text-sm)/1.6 var(--font-ui); text-align: center; }
 
 .notes-library-layout { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 36px; align-items: start; }

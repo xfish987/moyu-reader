@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Plus, RefreshCw, Rows3, ServerCog, Settings, Tags, Trash2, X } from 'lucide-react'
+import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Pencil, Plus, RefreshCw, Rows3, ServerCog, Settings, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
-import { ALL_BOOKS_ORDER_KEY, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst } from '../ui-b/shelfLayout'
+import { ALL_BOOKS_ORDER_KEY, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst, shortCategoryLabel } from '../ui-b/shelfLayout'
 import CoverEditor from './CoverEditor'
 import NotesLibrary from './NotesLibrary'
 import AISettingsModal from './AISettingsModal'
@@ -103,9 +103,11 @@ function BookManager({ book, categories, selectedCategory, onAssign, onRemove, o
   )
 }
 
-function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDelete, onReorder }) {
+function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDelete, onReorder, onRename }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
+  const [renaming, setRenaming] = useState('')
+  const [renameText, setRenameText] = useState('')
   const [dragging, setDragging] = useState('')
   const [dropState, setDropState] = useState(null)
   const [contextMenu, setContextMenu] = useState(null)
@@ -134,6 +136,12 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
     onCreate(value)
     setName('')
     setCreating(false)
+  }
+  const startRename = (category) => { setContextMenu(null); setRenaming(category); setRenameText(category) }
+  const submitRename = () => {
+    const value = renameText.trim().slice(0, 12)
+    if (value && value !== renaming) onRename?.(renaming, value)
+    setRenaming('')
   }
 
   const dragOver = (event, target) => {
@@ -171,7 +179,26 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
         {categories.map((category) => (
           <div className={`category-row ${active === category ? 'active' : ''} ${dragging === category ? 'is-dragging' : ''} ${dropState?.target === category ? `is-drop-${dropState.position}` : ''}`} key={category} onContextMenu={(event) => { event.preventDefault(); setContextMenu({ category, x: event.clientX, y: event.clientY }) }} onDragOverCapture={(event) => dragOver(event, category)} onDropCapture={(event) => drop(event, category)} onPointerMove={(event) => { if (dragging) setDropState({ target: category, position: pointerPosition(event) }) }} onPointerUp={(event) => { if (dragging) onReorder(dragging, category, pointerPosition(event)); setDragging(''); setDropState(null) }}>
             <span className="category-drag-handle" tabIndex={0} role="button" aria-label={`拖动调整分类 ${category} 的顺序`} title="拖动调整书架顺序" onPointerDown={(event) => { event.preventDefault(); setDragging(category) }} onKeyDown={(event) => { if (!event.altKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return; event.preventDefault(); const index = categories.indexOf(category); const delta = ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1; const target = categories[index + delta]; if (target) onReorder(category, target, delta < 0 ? 'before' : 'after') }}><GripVertical size={12} /></span>
-            <button onClick={() => onSelect(category)}><span>{category}</span><small>{counts[category] || 0}</small></button>
+            {renaming === category ? (
+              <input
+                className="category-rename-input"
+                autoFocus
+                value={renameText}
+                maxLength={12}
+                aria-label={`重命名分类 ${category}`}
+                onChange={(event) => setRenameText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent?.isComposing) return
+                  if (event.key === 'Enter') submitRename()
+                  if (event.key === 'Escape') setRenaming('')
+                }}
+                onBlur={() => setRenaming('')}
+                onClick={(event) => event.stopPropagation()}
+                onDoubleClick={(event) => event.stopPropagation()}
+              />
+            ) : (
+              <button onClick={() => onSelect(category)} onDoubleClick={() => startRename(category)} title={`${category}（双击重命名）`}><span>{shortCategoryLabel(category)}</span><small>{counts[category] || 0}</small></button>
+            )}
           </div>
         ))}
         {creating ? (
@@ -182,7 +209,7 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
           </div>
         ) : null}
       </nav>
-      {contextMenu ? <div className="category-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }}><button role="menuitem" onClick={() => { onDelete(contextMenu.category); setContextMenu(null) }}><Trash2 size={13} />删除分类</button></div> : null}
+      {contextMenu ? <div className="category-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }}><button role="menuitem" onClick={() => startRename(contextMenu.category)}><Pencil size={13} />重命名分类</button><button role="menuitem" onClick={() => { onDelete(contextMenu.category); setContextMenu(null) }}><Trash2 size={13} />删除分类</button></div> : null}
     </aside>
   )
 }
@@ -319,6 +346,21 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     if (activeCategory === category) setActiveCategory('全部书籍')
   }
 
+  // 重命名分类：同步更新分类列表、书籍归类和该分类下的自定义排序。
+  const renameCategory = (category, nextName) => {
+    if (!nextName || nextName === category || categories.includes(nextName)) return
+    setCategories((current) => current.map((item) => item === category ? nextName : item))
+    setTagsMap((current) => Object.fromEntries(Object.entries(current).map(([id, values]) => [id, values.map((item) => item === category ? nextName : item)])))
+    setCategoryBookOrder?.((current) => {
+      if (!(category in current)) return current
+      const next = { ...current }
+      next[nextName] = next[category]
+      delete next[category]
+      return next
+    })
+    if (activeCategory === category) setActiveCategory(nextName)
+  }
+
   const selectCategory = (category) => {
     setReorderMode(false)
     setActiveCategory(category)
@@ -421,7 +463,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
 
       {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onUpdateNote={onUpdateNote} onExportNotes={onExportNotes} /> : books.length ? (
         <div className="library-catalog">
-          <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} />
+          <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} onRename={renameCategory} />
           <section className="category-books">
             <div className="category-heading">
               <img src={managerChevronsIcon} alt="" />

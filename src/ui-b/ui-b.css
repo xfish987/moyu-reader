@@ -427,7 +427,10 @@
   .ui-b .reader-actions { min-width: 0; max-width: 132px; gap: 0; overflow: visible; }
   .ui-b .reader-actions > .toolbar-button, .ui-b .reader-actions > .toolbar-overflow { width: 30px; flex-basis: 30px; }
   .ui-b .text-viewport, .ui-b .epub-host { width: calc(100% - 20px); }
-  .ui-b .text-columns { padding: 34px 22px; }
+  /* 横向内边距必须跟随 JS 算出的 --page-padding：列宽 = 视口宽 - 2×pagePadding，
+     列间距 = 2×pagePadding，翻页步长 = 视口宽。这里写死会导致列距与步长不一致，
+     每翻一页错位 2×(pagePadding-22)px。 */
+  .ui-b .text-columns { padding: 34px var(--page-padding, 22px); }
   .b-panel-backdrop { padding: 0; }
   .b-appearance-panel { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; grid-template-rows: 62px minmax(0, 1fr) 62px; }
   .b-appearance-panel > header, .b-appearance-panel > footer, .b-appearance-body { padding-inline: 17px; }
@@ -564,6 +567,10 @@
 .ui-b-theme-mist .library-design-view .category-sidebar nav > button::after,
 .ui-b-theme-mist .library-design-view .category-row::after,
 .ui-b-theme-mist .library-design-view .book-info::after { background: rgba(28, 43, 72, .34); }
+/* 选中态标签是深→浅渐变底，浅色主题下也要保持白字，否则文字压在深色端看不见。
+   注意需要用 .ui-b.ui-b-theme-mist 双类前缀压过文件后方同优先级的深色文字覆盖。 */
+.ui-b.ui-b-theme-mist .library-design-view .category-sidebar nav > button.active,
+.ui-b.ui-b-theme-mist .library-design-view .category-row.active > button:first-of-type { color: #fff; }
 .ui-b-theme-mist .library-design-view .book-info small,
 .ui-b-theme-mist .library-design-view .book-info > span,
 .ui-b-theme-mist .library-design-view .book-manage { color: #5c7fa2; }
@@ -985,12 +992,17 @@
 .ui-b .library-design-view .category-sidebar nav { min-width: 0; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: none; }
 .ui-b .library-design-view .category-sidebar nav::-webkit-scrollbar { display: none; }
 .ui-b .library-design-view .category-sidebar nav > button, .ui-b .library-design-view .category-row { position: relative; min-width: 0; width: auto; height: 24px; flex: 0 0 auto; border-radius: 0; background: transparent; }
-.ui-b .library-design-view .category-sidebar nav > button, .ui-b .library-design-view .category-row > button:first-of-type { height: 24px; padding: 0 12px; border: 0; border-radius: 0; gap: 6px; color: #e8ecef; font: 500 8px/1 var(--font-ui); }
+.ui-b .library-design-view .category-sidebar nav > button, .ui-b .library-design-view .category-row > button:first-of-type { width: auto; height: 24px; padding: 0 12px; border: 0; border-radius: 0; gap: 6px; color: #e8ecef; font: 500 8px/1 var(--font-ui); }
 .ui-b .library-design-view .category-sidebar nav > button::after, .ui-b .library-design-view .category-row::after { content: ''; position: absolute; top: 6px; right: 0; bottom: 6px; width: 1px; background: rgba(232,236,239,.5); }
 .ui-b .library-design-view .category-sidebar nav > button.active, .ui-b .library-design-view .category-row.active { border-radius: 11px; background: linear-gradient(90deg, #1f4b6e, rgba(204,212,231,.7)); color: #fff; }
 .ui-b .library-design-view .category-sidebar nav > button.active::after, .ui-b .library-design-view .category-row.active::after { display: none; }
 .ui-b .library-design-view .category-sidebar nav small { display: none; }
-.ui-b .library-design-view .category-drag-handle { width: 13px; height: 24px; color: #95a5c3; opacity: 0; }
+/* 分类标签只横排显示、文字超出隐藏（显示层在 JSX 里截断为前 4 字 + 省略号），完整名字放在 title 提示里。 */
+.ui-b .library-design-view .category-sidebar nav > button > span,
+.ui-b .library-design-view .category-row > button:first-of-type > span { min-width: 0; overflow: hidden; white-space: nowrap; }
+.ui-b .library-design-view .category-rename-input { box-sizing: border-box; width: 110px; height: 100%; padding: 0 8px; border: 1px solid #1c2b48; border-radius: 11px; outline: none; background: rgba(232,236,239,.92); color: #1c2b48; font: 500 10px/1 var(--font-ui); }
+/* 拖拽手柄悬浮覆盖在标签左缘（ hover 才显现），不占布局宽度，避免把标签文字向右挤。 */
+.ui-b .library-design-view .category-drag-handle { position: absolute; top: 3px; left: 0; width: 13px; height: 24px; flex: none; color: #95a5c3; opacity: 0; }
 .ui-b .library-design-view .category-row:hover .category-drag-handle, .ui-b .library-design-view .category-row:focus-within .category-drag-handle { opacity: .8; }
 .ui-b .library-design-view .delete-category { top: 0; right: 0; width: 20px; height: 24px; }
 .ui-b .library-design-view .category-create { position: absolute; z-index: 20; top: 62px; left: clamp(42px, 4.2vw, 64px); width: 180px; }

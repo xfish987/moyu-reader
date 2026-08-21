@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MoonStar } from 'lucide-react'
 import AISettingsModal from '../components/AISettingsModal'
-import { ALL_BOOKS_ORDER_KEY, countSpinesHiddenForExpansion, layoutShelfBooks, orderBooksByIds, orderBooksWithNewFirst, hashSeed } from './shelfLayout'
+import { ALL_BOOKS_ORDER_KEY, countSpinesHiddenForExpansion, layoutShelfBooks, orderBooksByIds, orderBooksWithNewFirst, hashSeed, shortCategoryLabel } from './shelfLayout'
 import libraryIcon from './assets/dark-shelf/library.svg'
 import importIcon from './assets/dark-shelf/import.svg'
 import notesIcon from './assets/dark-shelf/notes.svg'
@@ -180,8 +180,8 @@ function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingC
             event.preventDefault()
             onMoveByKeyboard(row.key, event.key === 'ArrowUp' ? -1 : 1)
           } : undefined}
-          title={canDrag ? '拖动调整书架顺序' : undefined}
-        >{row.label}</strong>
+          title={row.label !== shortCategoryLabel(row.label) ? row.label : (canDrag ? '拖动调整书架顺序' : undefined)}
+        >{shortCategoryLabel(row.label)}</strong>
         <button onClick={() => onOpenCategory(row)}>{`全部 ${row.totalCount ?? row.books.length} 本`}<span aria-hidden="true">›</span></button>
       </header>
       <div ref={booksRef} className="v-shelf-books">
