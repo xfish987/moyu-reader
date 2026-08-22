@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import ePub from 'epubjs'
-import { NotePopup, SelectionPopup } from './NotePopups'
+import { NotePopup } from './NotePopups'
 import { truncateCompanionText } from './TextReader'
 import { convertChinese, searchVariants } from '../chineseConversion'
 import { inspectEpubPageDirection, resolveEpubReadingDirection } from '../epubDirection'
@@ -221,7 +221,7 @@ function hasReadableContent(document) {
   return Boolean(visibleBodyText(body))
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollect, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollectIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -454,7 +454,11 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
           const canLookupEntity = payload.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(payload.text)
           const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(payload.text))
           const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
-          if (action === 'note') setSelPopup({ ...payload, editing: true })
+          if (action === 'note') {
+            // 收藏改为由 ReaderView 弹出 CollectNoteModal（高亮编辑 + 备注 + 标签）。
+            onCollectIntent?.(payload)
+            closeSelectionPopup()
+          }
           else if (action === 'dictionary') onLookupDict?.(payload)
           else if (action === 'rewrite') onRewrite?.(payload)
           else if (action === 'lookup-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'generate')
@@ -675,21 +679,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     setSelPopup(null)
   }
 
-  const saveSelectionPopup = (comment, color) => {
-    if (selPopup) {
-      onCollect?.({
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        text: selPopup.text,
-        comment,
-        color,
-        cfi: selPopup.cfi,
-        href: selPopup.href,
-        createdAt: Date.now(),
-      })
-    }
-    closeSelectionPopup()
-  }
-
   useImperativeHandle(ref, () => {
     // Ignore page turns that arrive while a previous one is still settling,
     // so fast key repeats / wheel bursts cannot skip several pages at once.
@@ -896,7 +885,6 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
 
   return (
     <div className="epub-host" ref={hostRef} style={{ '--page-margin': `${settings.pageMargin}px` }}>
-      {selPopup?.editing ? <SelectionPopup text={selPopup.text} left={selPopup.left} top={selPopup.top} below={selPopup.below} onSave={saveSelectionPopup} onCancel={closeSelectionPopup} /> : null}
       {notePopup ? <NotePopup notes={notePopup.notes || []} left={notePopup.left} top={notePopup.top} below={notePopup.below} onClose={() => setNotePopup(null)} /> : null}
     </div>
   )

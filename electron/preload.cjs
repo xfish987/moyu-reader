@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld('readerAPI', {
   setStoredValue: (key, value) => ipcRenderer.invoke('storage:set', key, value),
   exportReaderData: () => ipcRenderer.invoke('storage:export'),
   importReaderData: () => ipcRenderer.invoke('storage:import'),
+  exportUserDataFolder: () => ipcRenderer.invoke('user-data:export-folder'),
   chooseBackground: (scope) => ipcRenderer.invoke('ui:choose-background', scope),
   readBackground: (assetPath) => ipcRenderer.invoke('ui:read-background', assetPath),
   deleteBackground: (assetPath) => ipcRenderer.invoke('ui:delete-background', assetPath),

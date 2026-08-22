@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ImagePlus, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react'
+import { Check, FolderOutput, ImagePlus, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react'
 import { DEFAULT_APPEARANCE, normalizeAppearance } from './appearance'
 
 const THEMES = [
@@ -78,6 +78,23 @@ export default function AppearancePanel({ appearance, onChange, onClose }) {
   const [thumbs, setThumbs] = useState({})
   const [selectedSchemeId, setSelectedSchemeId] = useState(appearance.activeSchemeId || '')
   const [schemeDirty, setSchemeDirty] = useState(!appearance.activeSchemeId)
+  const [exporting, setExporting] = useState(false)
+  const [exportResult, setExportResult] = useState('')
+
+  // 导出用户数据：数据目录 + 便携 exe 打成一个文件夹，方便拷到新电脑。
+  const exportUserData = async () => {
+    if (exporting) return
+    setExporting(true)
+    setExportResult('')
+    try {
+      const result = await window.readerAPI?.exportUserDataFolder?.()
+      if (result?.folder) setExportResult(result.folder)
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('reader-error', { detail: `导出用户数据失败：${error?.message || '请检查目标文件夹权限'}` }))
+    } finally {
+      setExporting(false)
+    }
+  }
   const custom = useMemo(() => (Array.isArray(appearance.custom) ? appearance.custom : []), [appearance.custom])
   const schemes = useMemo(() => (Array.isArray(appearance.schemes) ? appearance.schemes : []), [appearance.schemes])
   const scopePreference = appearance[scope]
@@ -234,6 +251,12 @@ export default function AppearancePanel({ appearance, onChange, onClose }) {
       <section className="b-appearance-panel is-compact" role="dialog" aria-modal="true" aria-label="外观设置">
         <header><div><span>外观</span><strong>主题与背景</strong></div><button className="b-icon-button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
         <div className="b-appearance-body">
+          <section className="b-export-section">
+            <div className="b-section-heading"><div><h2>导出用户数据</h2><p>把全部阅读数据（和便携版程序）打成一个文件夹，拷到新电脑即可继续使用</p></div></div>
+            <button className="b-secondary-button" disabled={exporting} onClick={exportUserData}><FolderOutput size={15} />{exporting ? '正在导出…' : '选择位置并导出'}</button>
+            {exportResult ? <p className="b-export-result" title={exportResult}>已导出到 {exportResult}</p> : null}
+          </section>
+
           <section className="b-schemes-section">
             <div className="b-section-heading"><div><h2>外观方案</h2><p>{schemeDirty ? '当前效果尚未保存到方案' : '切换时会应用整套背景、遮罩与界面配色'}</p></div><button className="b-secondary-button" onClick={createScheme}><Plus size={15} />新建方案</button></div>
             <div className="b-scheme-list" aria-label="外观方案">

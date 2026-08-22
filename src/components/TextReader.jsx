@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NotePopup, SelectionPopup } from './NotePopups'
+import { NotePopup } from './NotePopups'
 import { convertChinese } from '../chineseConversion'
 import { getNearestReaderFontWeight, getReaderFontStack, normalizeReaderFontFamily } from '../readerFonts'
 
@@ -13,7 +13,7 @@ export function truncateCompanionText(text) {
   return `${value.slice(0, 14400)}\n……（中间内容省略）……\n${value.slice(-9600)}`
 }
 
-const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollect, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
+const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollectIntent, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
   const viewportRef = useRef(null)
   const shellRef = useRef(null)
   const contentRef = useRef(null)
@@ -296,20 +296,23 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const buildSelection = (selected) => {
     if (!selected?.rangeCount) return null
     const range = selected.getRangeAt(0)
-    const element = (range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement)?.closest?.('[data-paragraph]')
-    const textElement = element?.querySelector?.('.paragraph-text')
-    if (!element || !textElement || !textElement.contains(range.startContainer) || !textElement.contains(range.endContainer)) return null
+    // 支持跨段落划选：起点/终点分别定位各自的 [data-paragraph]，锚点记在起始段。
+    const startElement = (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement)?.closest?.('[data-paragraph]')
+    const endElement = (range.endContainer.nodeType === Node.ELEMENT_NODE ? range.endContainer : range.endContainer.parentElement)?.closest?.('[data-paragraph]')
+    const startTextElement = startElement?.querySelector?.('.paragraph-text')
+    const endTextElement = endElement?.querySelector?.('.paragraph-text')
+    if (!startTextElement || !endTextElement || !startTextElement.contains(range.startContainer) || !endTextElement.contains(range.endContainer)) return null
     const rawText = range.toString()
     const text = rawText.trim()
     if (!text || text.length < 2) return null
     const prefixRange = range.cloneRange()
-    prefixRange.selectNodeContents(textElement)
+    prefixRange.selectNodeContents(startTextElement)
     prefixRange.setEnd(range.startContainer, range.startOffset)
     const leading = rawText.length - rawText.trimStart().length
-    const paragraphIndex = Number(element.dataset.paragraph)
+    const paragraphIndex = Number(startElement.dataset.paragraph)
     const startOffset = prefixRange.toString().length + leading
     const endOffset = startOffset + text.length
-    const currentParagraph = paragraphs[paragraphIndex] || textElement.textContent || ''
+    const currentParagraph = paragraphs[paragraphIndex] || startTextElement.textContent || ''
     const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= paragraphIndex ? index : match, -1)
     const chapterStart = chapterIndex >= 0 ? chapters[chapterIndex].index : 0
     const rect = range.getBoundingClientRect()
@@ -353,23 +356,17 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     const canLookupEntity = nextSelection.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(nextSelection.text)
     const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(nextSelection.text))
     const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
-    if (action === 'note') setSelection({ ...nextSelection, editing: true })
+    if (action === 'note') {
+      // 收藏改为由 ReaderView 弹出 CollectNoteModal（高亮编辑 + 备注 + 标签）。
+      onCollectIntent?.(nextSelection)
+      window.getSelection()?.removeAllRanges()
+      setSelection(null)
+    }
     else if (action === 'dictionary') onLookupDict?.(nextSelection)
     else if (action === 'rewrite') onRewrite?.(nextSelection)
     else if (action === 'lookup-entity') onLookupEntity?.(nextSelection, 'generate')
     else if (action === 'view-entity') onLookupEntity?.(nextSelection, 'view')
     else if (action === 'link-entity') onLookupEntity?.(nextSelection, 'link')
-  }
-
-  const collectSelection = (comment, color) => {
-    onCollect?.({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: selection.text.slice(0, 500), paragraphIndex: selection.paragraphIndex, comment, color, createdAt: Date.now() })
-    window.getSelection()?.removeAllRanges()
-    setSelection(null)
-  }
-
-  const cancelSelection = () => {
-    window.getSelection()?.removeAllRanges()
-    setSelection(null)
   }
 
   const openMarker = (event, index) => {
@@ -445,7 +442,6 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
               : <p key={index} data-paragraph={index}>{paragraphContent}{noteMarker}{rewriteMarker}</p>
           })}
         </article>
-        {selection?.editing ? <SelectionPopup text={selection.text} left={selection.left} top={selection.top} below={selection.below} onSave={collectSelection} onCancel={cancelSelection} /> : null}
         {marker ? <NotePopup notes={notesByParagraph.get(marker.index) || []} left={marker.left} top={marker.top} below={marker.below} onClose={() => setMarker(null)} /> : null}
       </div>
     </div>

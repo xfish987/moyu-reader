@@ -7,6 +7,7 @@ import { useStoredState } from './hooks'
 import { DEFAULT_SHORTCUTS, normalizeKey } from './shortcuts'
 import { mergeEntityProfiles as mergeProfiles, removeEntityProfile, setEntityIdentity, splitEntityAlias as splitAlias, upsertEntityProfile } from './entityProfiles'
 import { removeStorylineEntry, upsertStorylineEntry } from './storyline'
+import { stripLegacyNoteFields } from './noteMigration'
 import AppearancePanel from './ui-b/AppearancePanel'
 import BackgroundLayer from './ui-b/BackgroundLayer'
 import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
@@ -37,7 +38,7 @@ export default function App() {
   const [hiddenBooks, setHiddenBooks] = useStoredState('reader:hidden-books', [])
   const [tagsMap, setTagsMap] = useStoredState('reader:tags', {})
   const [categories, setCategories] = useStoredState('reader:categories', [])
-  const [notesMap, setNotesMap] = useStoredState('reader:notes', {})
+  const [notesMap, setNotesMap, notesReady] = useStoredState('reader:notes', {})
   const [coversMap, setCoversMap, coversReady] = useStoredState('reader:covers', {})
   const [pinned, setPinned] = useStoredState('reader:pinned', false)
   const [shortcuts, setShortcuts] = useStoredState('reader:shortcuts', DEFAULT_SHORTCUTS)
@@ -168,6 +169,15 @@ export default function App() {
       setManualBooks((current) => current.map((book) => byPath.get(book.path) || book))
     }).catch(() => {})
   }, [manualBooks, setManualBooks])
+
+  // 旧笔记迁移：评论功能已并入收藏，一次性剥掉历史 comment/color 字段。
+  useEffect(() => {
+    if (!notesReady) return
+    setNotesMap((current) => {
+      const { notesMap: stripped, changed } = stripLegacyNoteFields(current)
+      return changed ? stripped : current
+    })
+  }, [notesReady, setNotesMap])
 
   useEffect(() => {
     if (!books.length) return
@@ -614,7 +624,14 @@ export default function App() {
           onImportData={importReaderData}
           statusMap={statusMap}
           setStatusMap={setStatusMap}
-          onUpdateNote={(bookId, noteId, comment) => setNotesMap((current) => ({ ...current, [bookId]: (current[bookId] || []).map((note) => note.id === noteId ? { ...note, comment, updatedAt: Date.now() } : note) }))}
+          onAddNote={(bookId, note) => setNotesMap((current) => ({ ...current, [bookId]: [...(current[bookId] || []), note] }))}
+          onUpdateNote={(bookId, nextNote) => setNotesMap((current) => ({ ...current, [bookId]: (current[bookId] || []).map((note) => note.id === nextNote.id ? nextNote : note) }))}
+          onDeleteNote={(bookId, noteId) => setNotesMap((current) => ({ ...current, [bookId]: (current[bookId] || []).filter((note) => note.id !== noteId) }))}
+          onCreateNoteGroup={(name) => {
+            const id = `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`
+            setBookMetadata((current) => ({ ...current, [id]: { id, title: name, customGroup: true } }))
+            setNotesMap((current) => ({ ...current, [id]: current[id] || [] }))
+          }}
           onExportNotes={async (book, notes) => {
             try {
               const filePath = await window.readerAPI.exportNotes({ title: book?.title || '全部阅读笔记', notes })

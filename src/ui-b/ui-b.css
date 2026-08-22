@@ -1254,6 +1254,9 @@
 .b-section-heading > div { min-width: 0; }
 .b-section-heading h2 { margin: 0; color: var(--b-ink); font-size: 12px; }
 .b-section-heading p { margin: 4px 0 0; color: var(--b-ink-3); font-size: 10px; line-height: 1.5; }
+.b-export-section { padding-bottom: 20px; border-bottom: 1px solid var(--b-line); display: grid; justify-items: start; gap: 10px; }
+.b-export-section .b-section-heading { margin-bottom: 0; }
+.b-export-result { margin: 0; max-width: 100%; overflow: hidden; color: var(--b-accent); font-size: 10px; line-height: 1.6; text-overflow: ellipsis; white-space: nowrap; }
 .b-overlay-controls { display: grid; gap: 12px; }
 .b-overlay-controls label { min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr) 34px; align-items: center; gap: 10px; color: var(--b-ink-2); font-size: 10px; }
 .b-overlay-controls label > span { display: flex; align-items: center; gap: 7px; }

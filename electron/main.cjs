@@ -1499,6 +1499,45 @@ ipcMain.handle('storage:import', async () => {
   return { importedAt: storeCache.updatedAt, keyCount: Object.keys(storeCache.data).length }
 })
 
+// 导出用户数据：把整个数据目录打包成一个文件夹（便携版运行时连 exe 一起复制），
+// 方便用户把整个文件夹拷到新电脑继续使用。
+ipcMain.handle('user-data:export-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '选择导出位置',
+    buttonLabel: '导出到这里',
+    properties: ['openDirectory', 'createDirectory'],
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  await storeWriteQueue
+  const target = path.join(result.filePaths[0], `墨读便携数据-${new Date().toISOString().slice(0, 10)}`)
+  await fs.mkdir(target, { recursive: true })
+  await fs.cp(storeDirectory(), path.join(target, 'data'), { recursive: true })
+  // 便携版运行时 electron-builder 会设置 PORTABLE_EXECUTABLE_FILE 指向原始 exe。
+  const portableExe = process.env.PORTABLE_EXECUTABLE_FILE
+  let exeCopied = false
+  if (portableExe && fsSync.existsSync(portableExe)) {
+    await fs.copyFile(portableExe, path.join(target, path.basename(portableExe)))
+    exeCopied = true
+  }
+  const guide = [
+    '墨读阅读器 - 便携数据文件夹',
+    '',
+    '文件夹内容：',
+    '  data/          全部阅读数据（书架、进度、笔记、设置等）',
+    exeCopied ? `  ${path.basename(portableExe)}  便携版程序` : '  （未附带程序：请把便携版 exe 放到本文件夹一起携带）',
+    '',
+    '带到新电脑的使用方法：',
+    '  1. 把整个文件夹拷到新电脑。',
+    '  2. 运行一次便携版 exe，然后退出。',
+    '  3. 按 Win+R，输入 %APPDATA%\\MoyuReaderUIB 并回车，',
+    '     用本文件夹里的 data 目录替换掉里面的 data 目录。',
+    '  4. 重新打开墨读阅读器，书架、阅读记录和笔记都会恢复。',
+    '',
+  ].join('\r\n')
+  await fs.writeFile(path.join(target, '使用说明.txt'), guide, 'utf8')
+  return { folder: target, exeCopied }
+})
+
 ipcMain.handle('ui:choose-background', async (_event, scope) => {
   if (!['home', 'reader'].includes(scope)) throw new Error('背景类型无效')
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -1545,7 +1584,9 @@ ipcMain.handle('books:delete-source', async (_event, filePath) => {
 ipcMain.handle('notes:save-share', async (_event, { dataUrl, bookPath, quote }) => {
   if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,')) throw new Error('无效的分享图片')
   const safeQuote = String(quote || '摘录').replace(/[<>:"/\\|?*\x00-\x1F]/g, '').slice(0, 18) || '摘录'
-  const defaultPath = path.join(path.dirname(bookPath), `${safeQuote}-墨读分享.png`)
+  // 手动摘录可能不属于任何本地书籍（无 bookPath），退回到文档目录。
+  const baseDirectory = bookPath ? path.dirname(bookPath) : app.getPath('documents')
+  const defaultPath = path.join(baseDirectory, `${safeQuote}-墨读分享.png`)
   const result = await dialog.showSaveDialog(mainWindow, {
     title: '保存分享图片',
     defaultPath,
@@ -1566,7 +1607,9 @@ ipcMain.handle('notes:export-markdown', async (_event, { title, notes }) => {
   if (result.canceled || !result.filePath) return null
   const body = [`# ${safeTitle}`, '', ...(Array.isArray(notes) ? notes : []).flatMap((note) => [
     `> ${String(note.text || '').replace(/\r?\n/g, '\n> ')}`,
-    note.comment ? `\n${note.comment}` : '',
+    note.title ? `\n**${note.title}**` : '',
+    note.source ? `\n出处：${note.source}` : '',
+    Array.isArray(note.tags) && note.tags.length ? `\n标签：${note.tags.join('、')}` : '',
     `\n_${new Date(note.createdAt || Date.now()).toLocaleDateString('zh-CN')}_`, '',
   ])].join('\n')
   await fs.writeFile(result.filePath, body, 'utf8')
@@ -2134,7 +2177,7 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
     template.push(
       { label: '复制', role: 'copy', click: () => finish('copy') },
       { type: 'separator' },
-      { label: '添加笔记 / 评论', click: () => finish('note') },
+      { label: '收藏句子', click: () => finish('note') },
       { label: '字典百科（AI 解说这段文字）', click: () => finish('dictionary') },
       { label: '改写（按要求重写这段文字）', click: () => finish('rewrite') },
     )

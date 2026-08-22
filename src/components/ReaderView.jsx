@@ -3,6 +3,7 @@ import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, BookOpenT
 import EpubReader from './EpubReader'
 import LargeTextReader from './LargeTextReader'
 import ReaderSettings from './ReaderSettings'
+import CollectNoteModal from './CollectNoteModal'
 import TextReader from './TextReader'
 import AISettingsModal from './AISettingsModal'
 import EntityIdentityModal from './EntityIdentityModal'
@@ -50,6 +51,9 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const tocPanelRef = useRef(null)
   const wheelStateRef = useRef({ accumulated: 0, direction: 0, lockedUntil: 0 })
   const [panel, setPanel] = useState(null)
+  const [collectDraft, setCollectDraft] = useState(null)
+  // 统一换行为 \n，保证高亮偏移与正文一致。
+  const openCollectDraft = (draft) => setCollectDraft(draft ? { ...draft, text: String(draft.text || '').replace(/\r\n/g, '\n') } : draft)
   const [rewriteId, setRewriteId] = useState('')
   const [rewriteDraft, setRewriteDraft] = useState({ requirement: '', targetLength: 300 })
   const [rewriteBusy, setRewriteBusy] = useState(false)
@@ -1231,11 +1235,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
       <section className="reading-stage" onClick={() => panel && setPanel(null)} onWheel={handlePageWheel}>
         {source.kind === 'text' ? (
-          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
+          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
         ) : source.kind === 'text-large' ? (
-          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text-large')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
+          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text-large')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
         ) : (
-          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollect={onAddNote} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'epub')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onDismissPanel={() => setPanel(null)} />
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollectIntent={openCollectDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'epub')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onDismissPanel={() => setPanel(null)} />
         )}
 
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
@@ -1243,6 +1247,24 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       </section>
       <RewritePanel entry={activeRewrite} streamText={rewriteStreamText} requirement={rewriteDraft.requirement} targetLength={rewriteDraft.targetLength} busy={rewriteBusy} error={rewriteError} onRequirement={(requirement) => setRewriteDraft((current) => ({ ...current, requirement }))} onTargetLength={(targetLength) => setRewriteDraft((current) => ({ ...current, targetLength }))} onGenerate={generateRewrite} onApply={() => patchRewrite({ applied: true })} onUndo={() => patchRewrite({ applied: false })} onClose={() => setRewriteId('')} />
       <DictionaryQuestionModal selection={dictQuestionSelection} onClose={() => setDictQuestionSelection(null)} onSubmit={askDictionary} />
+      {collectDraft ? (
+        <CollectNoteModal
+          text={collectDraft.text}
+          onCancel={() => setCollectDraft(null)}
+          onSave={({ title, tags, highlights }) => {
+            const note = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: collectDraft.text, createdAt: Date.now() }
+            if (title) note.title = title
+            if (tags?.length) note.tags = tags
+            if (highlights?.length) note.highlights = highlights
+            if (collectDraft.paragraphIndex !== undefined) note.paragraphIndex = collectDraft.paragraphIndex
+            if (collectDraft.cfi) note.cfi = collectDraft.cfi
+            if (collectDraft.href) note.href = collectDraft.href
+            if (collectDraft.chunkOffset !== undefined) note.chunkOffset = collectDraft.chunkOffset
+            onAddNote(note)
+            setCollectDraft(null)
+          }}
+        />
+      ) : null}
 
       {immersive ? <div className="chrome-edge-trigger is-top" onMouseEnter={() => setChromeZone('top')} aria-hidden="true" /> : null}
       <div className="chrome-edge-trigger is-bottom" onMouseEnter={() => setChromeZone('bottom')} aria-hidden="true" />
@@ -1337,12 +1359,12 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
               <div className="note-item" key={note.id}>
                 <button onClick={() => { readerRef.current?.goToNote ? readerRef.current.goToNote(note) : readerRef.current?.goToParagraph(note.paragraphIndex); setPanel(null) }}>
                   <p>{note.text}</p>
-                  {note.comment ? <em className="note-comment">{note.comment}</em> : null}
+                  {note.title ? <em className="note-comment">{note.title}</em> : null}
                   <span>{new Date(note.createdAt).toLocaleDateString('zh-CN')}</span>
                 </button>
                 <button className="delete-note" onClick={() => onDeleteNote(note.id)} title="删除笔记"><Trash2 size={13} /></button>
               </div>
-            )) : <p className="notes-empty">选中正文中的文字即可收藏并评论</p>}
+            )) : <p className="notes-empty">选中正文中的文字，右键即可收藏</p>}
           </div>
         </aside>
       ) : null}

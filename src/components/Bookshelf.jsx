@@ -231,7 +231,7 @@ function LibraryBottomDock({ onOpenVirtualHome, onAddBooks, onToggleTheme, onNot
   )
 }
 
-export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onUpdateNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, onOpenAppearance, onToggleTheme, appearanceTheme, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
+export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onAddNote, onUpdateNote, onDeleteNote, onCreateNoteGroup, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, onOpenAppearance, onToggleTheme, appearanceTheme, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
   const [view, setView] = useState(initialView)
   const rootRef = useRef(null)
 
@@ -461,7 +461,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         </button>
       ) : null}
 
-      {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onUpdateNote={onUpdateNote} onExportNotes={onExportNotes} /> : books.length ? (
+      {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onAddNote={onAddNote} onUpdateNote={onUpdateNote} onDeleteNote={onDeleteNote} onCreateGroup={onCreateNoteGroup} onExportNotes={onExportNotes} /> : books.length ? (
         <div className="library-catalog">
           <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} onRename={renameCategory} />
           <section className="category-books">
