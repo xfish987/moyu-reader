@@ -3,10 +3,11 @@ import { Bookmark, X } from 'lucide-react'
 import { normalizeHighlights } from '../noteHighlights'
 import HighlightTextEditor from './HighlightTextEditor'
 import TagEditor from './TagEditor'
+import SourceEditor from './SourceEditor'
 
 // 收藏/编辑摘录弹窗：排版面内划选右键「高亮」标记核心句子（可撤销）；
 // 底部写备注（卡片标题）与标签。onSave({ title, tags, highlights })，由调用方合并锚点字段。
-export default function CollectNoteModal({ text, initialTitle = '', initialSource = '', initialTags = [], availableTags = [], initialHighlights = [], heading = '收藏摘录', onSave, onCancel }) {
+export default function CollectNoteModal({ text, initialTitle = '', initialSource = '', initialTags = [], availableTags = [], availableSources = [], onSaveSourcePreset, initialHighlights = [], heading = '收藏摘录', onSave, onCancel }) {
   const [title, setTitle] = useState(initialTitle)
   const [source, setSource] = useState(initialSource)
   const [tags, setTags] = useState(initialTags)
@@ -28,7 +29,7 @@ export default function CollectNoteModal({ text, initialTitle = '', initialSourc
         <HighlightTextEditor text={text} highlights={highlights} onChange={setHighlights} />
         <div className="collect-fields">
           <label>备注<input value={title} maxLength={60} placeholder="可留空，将成为卡片标题，如：小哥初见" onChange={(event) => setTitle(event.target.value)} /></label>
-          <label>出处<input value={source} maxLength={80} placeholder="如：《书名》 · 第三章" onChange={(event) => setSource(event.target.value)} /></label>
+          <label>出处<SourceEditor value={source} availableSources={availableSources} onSavePreset={onSaveSourcePreset} onChange={setSource} /></label>
           <label>标签<TagEditor tags={tags} availableTags={availableTags} onChange={setTags} /></label>
         </div>
         <footer>

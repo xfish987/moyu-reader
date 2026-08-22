@@ -236,21 +236,12 @@ try {
   const tagAdded = await page.evaluate(`Boolean([...document.querySelectorAll('.quote-card')].find((c) => c.textContent.includes('旧时代的收藏'))?.textContent.includes('考古'))`)
   check('标签保存并显示在卡片上', tagAdded)
 
-  // 分享图：书房卡片 + 手机长图
+  // 分享图：只保留手机长图
   await page.evaluate(`[...document.querySelectorAll('.quote-card')].find((c) => c.textContent.includes('小哥初见'))?.querySelector('button[title="生成分享图"]')?.click()`)
   let shareReady = false
   for (let i = 0; i < 25 && !shareReady; i++) {
     await sleep(400)
     shareReady = await page.evaluate(`Boolean(document.querySelector('.share-preview img')?.naturalWidth)`)
-  }
-  const cardImage = await page.evaluate(`(() => { const img = document.querySelector('.share-preview img'); return img ? { w: img.naturalWidth, h: img.naturalHeight } : null })()`)
-  check('书房卡片分享图生成（1200 宽）', cardImage?.w === 1200, JSON.stringify(cardImage))
-  await page.screenshot(`${output}/notes-v2-share-card.png`)
-  await page.evaluate(`[...document.querySelectorAll('.format-picker button')].find((b) => b.textContent.includes('手机长图'))?.click()`)
-  shareReady = false
-  for (let i = 0; i < 25 && !shareReady; i++) {
-    await sleep(400)
-    shareReady = await page.evaluate(`(() => { const img = document.querySelector('.share-preview img'); return Boolean(img && img.naturalWidth === 750) })()`)
   }
   const mobileImage = await page.evaluate(`(() => { const img = document.querySelector('.share-preview img'); return img ? { w: img.naturalWidth, h: img.naturalHeight } : null })()`)
   check('手机长图生成（750 宽，高度随内容伸长）', mobileImage?.w === 750 && mobileImage?.h > 750, JSON.stringify(mobileImage))

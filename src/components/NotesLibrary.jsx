@@ -38,7 +38,7 @@ function QuoteExcerpt({ note }) {
   )
 }
 
-export default function NotesLibrary({ books, bookMetadata, notesMap, appearanceTheme, onOpenNote, onAddNote, onUpdateNote, onDeleteNote, onCreateGroup, onMoveNote, onExportNotes }) {
+export default function NotesLibrary({ books, bookMetadata, notesMap, sourcePresetsMap, onSaveSourcePreset, appearanceTheme, onOpenNote, onAddNote, onUpdateNote, onDeleteNote, onCreateGroup, onMoveNote, onExportNotes }) {
   const [selectedBook, setSelectedBook] = useState('all')
   const [activeTag, setActiveTag] = useState(null)
   const [viewMode, setViewModeState] = useState(readViewMode)
@@ -82,6 +82,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
   }, [visibleGroups])
   const filteredNotes = (notes) => activeTag ? notes.filter((note) => note.tags?.includes(activeTag)) : notes
   const tagsForBook = (bookId) => [...new Set((notesMap[bookId] || []).flatMap((note) => note.tags || []))].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  const sourcesForBook = (book) => [...new Set([`《${book.title}》`, ...(sourcePresetsMap[book.id] || []), ...(notesMap[book.id] || []).map((note) => note.source).filter(Boolean)])]
 
   const selectBook = (id) => { setSelectedBook(id); setActiveTag(null) }
 
@@ -282,6 +283,8 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
           initialSource={editTarget.note.source || `《${editTarget.book.title}》`}
           initialTags={editTarget.note.tags || []}
           availableTags={tagsForBook(editTarget.book.id)}
+          availableSources={sourcesForBook(editTarget.book)}
+          onSaveSourcePreset={(source) => onSaveSourcePreset(editTarget.book.id, source)}
           initialHighlights={editTarget.note.highlights || []}
           onCancel={() => setEditTarget(null)}
           onSave={({ title, source, tags, highlights }) => {
@@ -294,6 +297,8 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
         <AddCustomNoteModal
           book={addTarget}
           availableTags={tagsForBook(addTarget.id)}
+          availableSources={sourcesForBook(addTarget)}
+          onSavePreset={(source) => onSaveSourcePreset(addTarget.id, source)}
           onCancel={() => setAddTarget(null)}
           onSave={({ text, title, source, tags, highlights }) => {
             const note = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text, custom: true, createdAt: Date.now() }

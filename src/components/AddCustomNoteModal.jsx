@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Bookmark, X } from 'lucide-react'
 import HighlightTextEditor from './HighlightTextEditor'
 import TagEditor from './TagEditor'
+import SourceEditor from './SourceEditor'
 
 // 手动新增摘录：不依赖本地书籍。第一步写正文（可自由分段）/标题/出处/标签，
 // 第二步在排版面上划选右键「高亮」核心句子。
-export default function AddCustomNoteModal({ book, availableTags = [], onSave, onCancel }) {
+export default function AddCustomNoteModal({ book, availableTags = [], availableSources = [], onSavePreset, onSave, onCancel }) {
   const [step, setStep] = useState(1)
   const [text, setText] = useState('')
   const [title, setTitle] = useState('')
@@ -30,7 +31,7 @@ export default function AddCustomNoteModal({ book, availableTags = [], onSave, o
           <div className="add-custom-fields">
             <label>摘录正文<textarea autoFocus rows={7} placeholder="粘贴或写下你想留存的段落，可自由分段" value={text} onChange={(event) => changeText(event.target.value)} /></label>
             <label>标题（可留空）<input value={title} maxLength={60} placeholder="如：小哥初见" onChange={(event) => setTitle(event.target.value)} /></label>
-            <label>出处<input value={source} maxLength={60} placeholder="如：《钓王》" onChange={(event) => setSource(event.target.value)} /></label>
+            <label>出处<SourceEditor value={source} availableSources={availableSources} onSavePreset={onSavePreset} maxLength={60} placeholder="如：《钓王》" onChange={setSource} /></label>
             <label>标签<TagEditor tags={tags} availableTags={availableTags} onChange={setTags} /></label>
           </div>
         ) : (

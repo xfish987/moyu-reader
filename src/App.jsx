@@ -39,6 +39,7 @@ export default function App() {
   const [tagsMap, setTagsMap] = useStoredState('reader:tags', {})
   const [categories, setCategories] = useStoredState('reader:categories', [])
   const [notesMap, setNotesMap, notesReady] = useStoredState('reader:notes', {})
+  const [noteSourcePresetsMap, setNoteSourcePresetsMap] = useStoredState('reader:note-source-presets', {})
   const [coversMap, setCoversMap, coversReady] = useStoredState('reader:covers', {})
   const [pinned, setPinned] = useStoredState('reader:pinned', false)
   const [shortcuts, setShortcuts] = useStoredState('reader:shortcuts', DEFAULT_SHORTCUTS)
@@ -195,7 +196,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-    ;[setProgressMap, setTagsMap, setNotesMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap, setRewritesMap, setCompanionMap, setCompanionChatsMap, setStorylineMap].forEach(migrateMap)
+    ;[setProgressMap, setTagsMap, setNotesMap, setNoteSourcePresetsMap, setCoversMap, setStatusMap, setBookmarksMap, setBookMetadata, setEntityProfilesMap, setDictionaryMap, setRewritesMap, setCompanionMap, setCompanionChatsMap, setStorylineMap].forEach(migrateMap)
     const currentBook = books.find((book) => (book.legacyId || book.path) === lastBookId)
     if (currentBook && currentBook.id !== lastBookId) setLastBookId(currentBook.id)
     const migrateId = (id) => books.find((book) => book.id === id || (book.legacyId || book.path) === id)?.id || id
@@ -221,7 +222,7 @@ export default function App() {
       })
       return changed ? next : current
     })
-  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCategoryBookOrder, setCompanionChatsMap, setCompanionMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNotesMap, setProgressMap, setRecentBookIds, setRewritesMap, setStatusMap, setStorylineMap, setTagsMap])
+  }, [books, lastBookId, setBookMetadata, setBookmarksMap, setCategoryBookOrder, setCompanionChatsMap, setCompanionMap, setCoversMap, setDictionaryMap, setEntityProfilesMap, setLastBookId, setNoteSourcePresetsMap, setNotesMap, setProgressMap, setRecentBookIds, setRewritesMap, setStatusMap, setStorylineMap, setTagsMap])
 
   useEffect(() => {
     if (!recentBooksReady || loading || recentSeededRef.current) return
@@ -361,6 +362,7 @@ export default function App() {
     setProgressMap({})
     setStatusMap({})
     setNotesMap({})
+    setNoteSourcePresetsMap({})
     setBookmarksMap({})
     setBookMetadata({})
     setCoversMap({})
@@ -619,6 +621,8 @@ export default function App() {
           categories={categories}
           setCategories={setCategories}
           notesMap={notesMap}
+          sourcePresetsMap={noteSourcePresetsMap}
+          onSaveSourcePreset={(bookId, source) => setNoteSourcePresetsMap((current) => ({ ...current, [bookId]: [...new Set([...(current[bookId] || []), source])].filter(Boolean) }))}
           onOpenNote={openBookAtNote}
           coversMap={coversMap}
           setCoversMap={setCoversMap}

@@ -27,17 +27,13 @@ const CARD_THEMES = [
   },
 ]
 
-const CARD_WIDTH = 1200
-const BASE_CARD_HEIGHT = 1600
-const CONTENT_X = 150
-const CONTENT_WIDTH = 900
 const SERIF = '"Moyu UI Song", "DFSongGB", "Songti SC", SimSun, serif'
 const DISPLAY = SERIF
 // Adobe CJK/JIS 严格避头尾：闭标点不得顶格，开标点不得落在行尾。
 const PROHIBITED_LINE_START = new Set([...`、。，．！？：；）〕］｝〉》」』】〙〗〟’”ァィゥェォッャュョヮヵヶぁぃぅぇぉっゃゅょゎ々ー〜…‥`])
 const PROHIBITED_LINE_END = new Set([...`（〔［｛〈《「『【〘〖〝‘“`])
 
-function drawGrain(context, height, color, width = CARD_WIDTH) {
+function drawGrain(context, height, color, width) {
   let seed = 47
   for (let index = 0; index < Math.round(height * 1.25); index += 1) {
     seed = (seed * 9301 + 49297) % 233280
@@ -49,118 +45,10 @@ function drawGrain(context, height, color, width = CARD_WIDTH) {
   }
 }
 
-function drawBookMark(context, theme) {
-  const widths = [18, 13, 22]
-  const heights = [68, 51, 82]
-  let x = 951
-  widths.forEach((width, index) => {
-    context.fillStyle = index === 1 ? theme.muted : theme.accent
-    context.fillRect(x, 103 + 82 - heights[index], width, heights[index])
-    x += width + 9
-  })
-  context.fillStyle = theme.ink
-  context.globalAlpha = .5
-  context.fillRect(941, 192, 109, 2)
-  context.globalAlpha = 1
-}
-
-function drawCardBackground(context, theme, height) {
-  context.fillStyle = theme.background
-  context.fillRect(0, 0, CARD_WIDTH, height)
-
-  context.fillStyle = theme.surface
-  context.fillRect(0, 0, 28, height)
-  context.fillRect(28, 0, 5, height)
-
-  const topRule = context.createLinearGradient(CONTENT_X, 0, CARD_WIDTH - CONTENT_X, 0)
-  topRule.addColorStop(0, theme.accent)
-  topRule.addColorStop(1, theme.accentEnd)
-  context.fillStyle = topRule
-  context.fillRect(CONTENT_X, 238, CONTENT_WIDTH, 8)
-
-  context.fillStyle = theme.accent
-  context.fillRect(CONTENT_X, height - 122, CONTENT_WIDTH, 5)
-  context.fillStyle = theme.surface
-  context.fillRect(CONTENT_X, height - 117, CONTENT_WIDTH, 2)
-
-  drawGrain(context, height, theme.grain)
-  drawBookMark(context, theme)
-}
-
 function formatDate(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleDateString('zh-CN').replaceAll('/', '.')
-}
-
-function createShareImage(note, book, author, theme) {
-  const canvas = document.createElement('canvas')
-  canvas.width = CARD_WIDTH
-  canvas.height = 1
-  let context = canvas.getContext('2d')
-  const quote = note.text?.trim() || ' '
-  const paragraphs = layoutRichText(context, quote, note.highlights, CONTENT_WIDTH, CARD_TYPE)
-  const title = note.title ? (note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title) : ''
-  const contentTop = 238 + 118 + (title ? 72 : 0)
-  const textBottom = contentTop + richTextHeight(paragraphs, CARD_TYPE)
-  const canvasHeight = Math.max(BASE_CARD_HEIGHT, textBottom + 430)
-  canvas.height = canvasHeight
-  context = canvas.getContext('2d')
-
-  drawCardBackground(context, theme, canvasHeight)
-
-  context.fillStyle = theme.ink
-  context.font = `700 36px ${SERIF}`
-  context.textAlign = 'left'
-  context.fillText('墨读', CONTENT_X, 135)
-  context.fillStyle = theme.muted
-  context.font = `500 22px ${DISPLAY}`
-  context.fillText('READING NOTE', CONTENT_X, 184)
-
-  const quoteTop = contentTop
-  context.fillStyle = theme.accent
-  context.globalAlpha = theme.id === 'dark' ? .52 : .38
-  context.font = `700 178px ${SERIF}`
-  context.fillText('“', 86, quoteTop + 40)
-  context.globalAlpha = 1
-
-  // 备注标题（若有）绘制在摘录上方小字。
-  if (title) {
-    context.fillStyle = theme.muted
-    context.font = `500 23px ${DISPLAY}`
-    context.fillText(title, CONTENT_X, 238 + 86)
-  }
-
-  // 正文版心与顶部横线完全同宽：首行缩进两字、非末行两端对齐、段距 1.5 行。
-  drawRichText(context, paragraphs, CONTENT_X, quoteTop, CONTENT_WIDTH, theme.ink, CARD_TYPE)
-
-  const metaY = canvasHeight - 296
-  context.fillStyle = theme.muted
-  context.font = `500 20px ${DISPLAY}`
-  context.fillText('FROM', CONTENT_X, metaY - 35)
-
-  // 出处：手动摘录用自填出处（如《钓王》），否则用书书名；有章节名时附上。
-  const sourceTitle = sourceLine(note, book)
-  context.fillStyle = theme.ink
-  context.font = `700 36px ${SERIF}`
-  context.fillText(sourceTitle, CONTENT_X, metaY + 25)
-
-  // 自填出处已包含来源信息时，作者行省略，避免“佚名”误导。
-  const authorLine = note.source ? '' : (author || '佚名')
-  context.fillStyle = theme.muted
-  context.font = `400 24px ${SERIF}`
-  if (authorLine) context.fillText(authorLine, CONTENT_X, metaY + 78)
-  context.textAlign = 'right'
-  context.font = `500 21px ${DISPLAY}`
-  context.fillText(formatDate(note.createdAt), CARD_WIDTH - CONTENT_X, metaY + 78)
-
-  context.textAlign = 'left'
-  context.fillStyle = theme.muted
-  context.font = `500 17px ${DISPLAY}`
-  context.fillText('MOYU READER', CONTENT_X, canvasHeight - 70)
-  context.textAlign = 'right'
-  context.fillText('摘录 · 阅读 · 留存', CARD_WIDTH - CONTENT_X, canvasHeight - 70)
-  return canvas.toDataURL('image/png')
 }
 
 // ===== 手机长图：750px 宽（主流手机满宽查看时正文≈15pt），高度随文字自动伸长 =====
@@ -183,14 +71,6 @@ const MOBILE_TYPE = {
   paragraphGap: MOBILE_PARAGRAPH_GAP,
   lightFont: MOBILE_LIGHT_FONT,
   boldFont: MOBILE_BOLD_FONT,
-}
-const CARD_FONT_SIZE = 52
-const CARD_TYPE = {
-  fontSize: CARD_FONT_SIZE,
-  lineHeight: 84,
-  paragraphGap: 42,
-  lightFont: `300 ${CARD_FONT_SIZE}px ${SERIF}`,
-  boldFont: `700 ${CARD_FONT_SIZE}px ${SERIF}`,
 }
 
 // 把文本按高亮分段后排版成行：首行缩进两字符，逐字测宽（带缓存）。
@@ -389,7 +269,6 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
   const preferredTheme = appearanceTheme === 'night' ? 'dark' : 'light'
   const [author, setAuthor] = useState(book.author || '佚名')
   const [themeId, setThemeId] = useState(preferredTheme)
-  const [format, setFormat] = useState(isMulti ? 'mobile' : 'card')
   const [imageUrl, setImageUrl] = useState('')
   const [savedPath, setSavedPath] = useState('')
   const theme = useMemo(() => CARD_THEMES.find((item) => item.id === themeId) || CARD_THEMES[0], [themeId])
@@ -401,8 +280,6 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
         await Promise.all([
           document.fonts.load(`500 64px ${SERIF}`),
           document.fonts.load(`500 22px ${DISPLAY}`),
-          document.fonts.load(CARD_TYPE.lightFont),
-          document.fonts.load(CARD_TYPE.boldFont),
           document.fonts.load(MOBILE_LIGHT_FONT),
           document.fonts.load(MOBILE_BOLD_FONT),
         ])
@@ -410,14 +287,12 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
       if (!cancelled) {
         setImageUrl(isMulti
           ? createMobileMultiShareImage(items, theme)
-          : format === 'mobile'
-            ? createMobileShareImage(note, book, author.trim() || '佚名', theme)
-            : createShareImage(note, book, author.trim() || '佚名', theme))
+          : createMobileShareImage(note, book, author.trim() || '佚名', theme))
       }
     }
     render()
     return () => { cancelled = true }
-  }, [author, book, format, isMulti, items, note, theme])
+  }, [author, book, isMulti, items, note, theme])
 
   useEffect(() => {
     const handleKeyDown = (event) => { if (event.key === 'Escape') onClose() }
@@ -436,7 +311,6 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
   }
 
   const selectTheme = (id) => { setSavedPath(''); setThemeId(id) }
-  const selectFormat = (id) => { setSavedPath(''); setFormat(id) }
 
   return (
     <div className="manager-backdrop share-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -445,12 +319,7 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
         <div className="share-body">
           <div className="share-preview">{imageUrl ? <img src={imageUrl} alt={`${theme.name}阅读笔记分享卡片预览`} /> : <span>正在生成预览...</span>}</div>
           <div className="share-fields">
-            {isMulti ? <p className="multi-share-hint">已选 {items.length} 条摘录，合并为手机长图，每条注明出处</p> : (
-              <div className="format-picker" role="group" aria-label="分享图格式">
-                <button className={format === 'card' ? 'active' : ''} onClick={() => selectFormat('card')} aria-pressed={format === 'card'}>书房卡片<span>1200×1600 方图</span></button>
-                <button className={format === 'mobile' ? 'active' : ''} onClick={() => selectFormat('mobile')} aria-pressed={format === 'mobile'}>手机长图<span>750 宽 · 高度自适应</span></button>
-              </div>
-            )}
+            {isMulti ? <p className="multi-share-hint">已选 {items.length} 条摘录，合并为手机长图，每条注明出处</p> : null}
             <div className="theme-picker" role="group" aria-label="分享卡片主题">
               {CARD_THEMES.map((item) => (
                 <button key={item.id} className={themeId === item.id ? 'active' : ''} onClick={() => selectTheme(item.id)} aria-pressed={themeId === item.id}>
