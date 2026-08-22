@@ -19,13 +19,6 @@ import spineIce from './assets/dark-shelf/spine-ice.svg'
 
 const SPINES = [spineNavy, spineBlueShort, spineBlueTall, spineIce]
 
-function getStatus(book, progressMap, statusMap) {
-  const explicit = statusMap[book.id]
-  if (explicit === 'finished') return 'finished'
-  if (explicit === 'reading' || progressMap[book.id]?.percent > 0) return 'reading'
-  return 'unread'
-}
-
 function useBookCover(book, customCover, defaultCover) {
   const ref = useRef(null)
   const [visible, setVisible] = useState(false)
@@ -253,16 +246,13 @@ export default function VirtualBookshelfHome({ books, progressMap, statusMap, co
     if (recent.length) result.push({ key: 'recent', label: '最近在读', managementKey: 'recent', books: recent, totalCount: recent.length })
     const all = orderBooksWithNewFirst(books, categoryBookOrder[ALL_BOOKS_ORDER_KEY]).filter(matches)
     if (all.length) result.push({ key: 'all', label: '全部', managementKey: 'all', books: all, totalCount: books.length })
-    const unreadAll = books.filter((book) => getStatus(book, progressMap, statusMap) === 'unread')
-    const unread = unreadAll.filter(matches)
-    if (unread.length) result.push({ key: 'unread', label: '未读', managementKey: 'unread', books: unread, totalCount: unreadAll.length })
     for (const category of categories) {
       const members = books.filter((book) => tagsMap[book.id]?.[0] === category)
       const visible = orderBooksByIds(members, categoryBookOrder[category]).filter(matches)
       if (visible.length || !needle) result.push({ key: category, label: category, managementKey: 'category', books: visible, totalCount: members.length, reorderable: true })
     }
     return result
-  }, [books, categories, categoryBookOrder, progressMap, query, recentBookIds, statusMap, tagsMap])
+  }, [books, categories, categoryBookOrder, query, recentBookIds, tagsMap])
 
   const visibleCategoryKeys = rows.filter((row) => row.reorderable).map((row) => row.key)
   const handleDragStart = (event, category) => {

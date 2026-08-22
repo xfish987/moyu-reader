@@ -1081,10 +1081,13 @@
   .ui-b .library-design-view .category-create { top: 72px; left: 27px; }
   .ui-b .library-design-view .category-books .book-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 15px; }
   .ui-b .library-design-view .book-info strong { font-size: 10px; }
-  .ui-b .library-design-view .notes-library-layout { grid-template-columns: 1fr; gap: 18px; }
-  .ui-b .library-design-view .notes-source-sidebar { display: flex; overflow-x: auto; }
-  .ui-b .library-design-view .notes-source-sidebar button { flex: 0 0 118px; }
-  .ui-b .library-design-view .quote-grid { grid-template-columns: 1fr; }
+  .ui-b .library-design-view .notes-library-layout { width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 18px; overflow: hidden; }
+  .ui-b .library-design-view .notes-source-sidebar { width: 100%; min-width: 0; display: flex; overflow: visible; }
+  .ui-b .library-design-view .notes-source-sidebar button { width: auto; min-width: 0; flex: 0 0 auto; }
+  .ui-b .library-design-view .notes-groups,
+  .ui-b .library-design-view .note-book-group,
+  .ui-b .library-design-view .quote-grid { width: 100%; min-width: 0; }
+  .ui-b .library-design-view .quote-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (min-width: 1000px) {

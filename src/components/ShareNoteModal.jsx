@@ -33,6 +33,9 @@ const CONTENT_X = 150
 const CONTENT_WIDTH = 900
 const SERIF = '"Moyu UI Song", "DFSongGB", "Songti SC", SimSun, serif'
 const DISPLAY = SERIF
+// Adobe CJK/JIS 严格避头尾：闭标点不得顶格，开标点不得落在行尾。
+const PROHIBITED_LINE_START = new Set([...`、。，．！？：；）〕］｝〉》」』】〙〗〟’”ァィゥェォッャュョヮヵヶぁぃぅぇぉっゃゅょゎ々ー〜…‥`])
+const PROHIBITED_LINE_END = new Set([...`（〔［｛〈《「『【〘〖〝‘“`])
 
 function wrapText(context, text, maxWidth) {
   const lines = []
@@ -44,9 +47,14 @@ function wrapText(context, text, maxWidth) {
       continue
     }
     const candidate = line + character
-    if (context.measureText(candidate).width > maxWidth && line) {
-      lines.push(line)
-      line = character
+    if (context.measureText(candidate).width > maxWidth && line && !PROHIBITED_LINE_START.has(character)) {
+      let carry = ''
+      while (line && PROHIBITED_LINE_END.has(line.at(-1))) {
+        carry = line.at(-1) + carry
+        line = line.slice(0, -1)
+      }
+      if (line) lines.push(line)
+      line = carry + character
     } else line = candidate
   }
   if (line || !lines.length) lines.push(line)
@@ -234,10 +242,13 @@ function layoutRichText(context, text, highlights, width) {
     let lineWidth = 0
     let available = width - MOBILE_FONT_SIZE * 2
     for (const item of items) {
-      if (lineWidth + item.width > available && line.length) {
-        lines.push({ items: line, width: lineWidth })
-        line = []
-        lineWidth = 0
+      if (lineWidth + item.width > available && line.length && !PROHIBITED_LINE_START.has(item.character)) {
+        const carry = []
+        while (line.length && PROHIBITED_LINE_END.has(line.at(-1).character)) carry.unshift(line.pop())
+        const keptWidth = line.reduce((sum, entry) => sum + entry.width, 0)
+        if (line.length) lines.push({ items: line, width: keptWidth })
+        line = carry
+        lineWidth = carry.reduce((sum, entry) => sum + entry.width, 0)
         available = width
       }
       line.push(item)

@@ -154,9 +154,7 @@ function splitHref(value = '') {
 const EPUB_NOTE_MARKER_STYLE_ID = 'moyu-epub-note-marker-style'
 function epubNoteMarkerCss(pageBackground) {
   return `
-.epub-note-marker{position:relative;margin-left:.45em;padding:0 .38em;min-width:1.7em;height:1.5em;box-sizing:border-box;border:1px solid color-mix(in srgb,currentColor 32%,transparent);border-radius:.32em;display:inline-flex;align-items:center;justify-content:center;vertical-align:-.18em;background:${pageBackground};color:inherit;opacity:.6;cursor:pointer;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:clamp(10px,.55em,14px);font-weight:600;line-height:1;-webkit-user-select:none;user-select:none}
-.epub-note-marker::before{content:'';position:absolute;left:-.31em;top:50%;width:.5em;height:.5em;border-left:1px solid color-mix(in srgb,currentColor 32%,transparent);border-bottom:1px solid color-mix(in srgb,currentColor 32%,transparent);background:${pageBackground};transform:translateY(-50%) rotate(45deg)}
-.epub-note-marker:hover{opacity:.95}
+.epub-collected-text{font-family:"Moyu DF Song","DFSongGB","Songti SC",SimSun,serif!important;font-weight:700!important}
 `
 }
 
@@ -576,65 +574,47 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     applyRenditionSettings(rendition, settings, fontOverride)
   }, [fontOverride, settings])
 
-  // 段末评论气泡：把当前可见节里带 CFI 的笔记按所在段落分组，
-  // 在段落末尾注入计数气泡（起点阅读风格），点击弹出该段全部评论。
-  // 正文不再画高亮/下划线；翻到包含笔记的节时由 'rendered' 事件触发重挂。
+  // 收藏过的原文直接以华康宋体粗体呈现；不再显示旧评论气泡。
   const injectNoteMarkers = useCallback(() => {
     const rendition = renditionRef.current
     if (!rendition) return
     const contentsList = rendition.getContents?.() || []
     for (const contents of contentsList) {
-      try { contents.document?.querySelectorAll('.epub-note-marker').forEach((node) => node.remove()) } catch {}
+      try {
+        contents.document?.querySelectorAll('.epub-collected-text').forEach((node) => node.replaceWith(...node.childNodes))
+        contents.document?.body?.normalize()
+      } catch {}
     }
-    const groups = new Map()
     for (const note of notesRef.current || []) {
       if (!note.cfi) continue
       let range = null
       try { range = rendition.getRange(note.cfi) } catch { range = null }
       if (!range?.startContainer) continue
-      const container = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement
-      const block = container?.closest?.('p, li, blockquote, h1, h2, h3, h4, h5, h6')
-        || container?.closest?.('div, section')
-        || range.startContainer.ownerDocument?.body
-      if (!block) continue
-      groups.set(block, [...(groups.get(block) || []), note])
-    }
-    if (!groups.size) return
-    const pageBackground = (hostRef.current ? getComputedStyle(hostRef.current).getPropertyValue('--reader-bg') : '').trim()
-      || (settingsRef.current?.theme === 'night' ? '#01162b' : '#e8ecef')
-    for (const [block, blockNotes] of groups) {
-      const document = block.ownerDocument
+      const document = range.startContainer.ownerDocument
       if (document?.head && !document.getElementById(EPUB_NOTE_MARKER_STYLE_ID)) {
         const style = document.createElement('style')
         style.id = EPUB_NOTE_MARKER_STYLE_ID
-        style.textContent = epubNoteMarkerCss(pageBackground)
+        style.textContent = epubNoteMarkerCss()
         document.head.appendChild(style)
       }
-      const bubble = document.createElement('span')
-      bubble.className = 'epub-note-marker'
-      bubble.setAttribute('role', 'button')
-      bubble.title = `查看评论（${blockNotes.length}）`
-      bubble.textContent = String(blockNotes.length)
-      bubble.addEventListener('mousedown', (event) => event.stopPropagation())
-      bubble.addEventListener('mouseup', (event) => event.stopPropagation())
-      bubble.addEventListener('click', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const frame = document.defaultView?.frameElement
-        const hostRect = hostRef.current?.getBoundingClientRect()
-        if (!frame || !hostRect) return
-        const frameRect = frame.getBoundingClientRect()
-        const rect = bubble.getBoundingClientRect()
-        const above = frameRect.top - hostRect.top + rect.top
-        setSelPopup(null)
-        setNotePopup({
-          notes: blockNotes,
-          left: Math.max(150, Math.min(hostRect.width - 150, frameRect.left - hostRect.left + rect.left + rect.width / 2)),
-          below: above < 230,
-          top: above < 230 ? above + rect.height + 10 : Math.max(10, above - 12),
-        })
+      const root = range.commonAncestorContainer.nodeType === 3 ? range.commonAncestorContainer.parentElement : range.commonAncestorContainer
+      const walker = document.createTreeWalker(root, document.defaultView.NodeFilter.SHOW_TEXT)
+      const nodes = []
+      while (walker.nextNode()) {
+        const node = walker.currentNode
+        try { if (range.intersectsNode(node)) nodes.push(node) } catch {}
+      }
+      nodes.reverse().forEach((node) => {
+        const start = node === range.startContainer ? range.startOffset : 0
+        const end = node === range.endContainer ? range.endOffset : node.data.length
+        if (end <= start) return
+        const selected = start ? node.splitText(start) : node
+        if (end - start < selected.data.length) selected.splitText(end - start)
+        const mark = document.createElement('span')
+        mark.className = 'epub-collected-text'
+        selected.replaceWith(mark)
+        mark.appendChild(selected)
       })
-      block.appendChild(bubble)
     }
   }, [])
   injectNoteMarkersRef.current = injectNoteMarkers

@@ -526,33 +526,36 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
             const line = paragraph.replace(/[\u3000\t]+/g, ' ').trim()
             const isChapter = line.length <= 80 && CHAPTER_PATTERN.test(line)
             const paragraphNotes = notesByParagraph.get(index)
-            const noteMarker = paragraphNotes ? (
-              <button
-                className="text-note-marker"
-                title={`查看评论（${paragraphNotes.length}）`}
-                onMouseDown={(event) => event.stopPropagation()}
-                onMouseUp={(event) => event.stopPropagation()}
-                onClick={(event) => openMarker(event, index)}
-              ><em>{paragraphNotes.length}</em></button>
-            ) : null
+            const noteRanges = (paragraphNotes || []).map((note) => {
+              const start = Number.isFinite(note.startOffset) ? note.startOffset : paragraph.indexOf(note.text || '')
+              const end = Number.isFinite(note.endOffset) ? note.endOffset : start + (note.text?.length || 0)
+              return start < 0 ? null : { start: Math.max(0, start), end: Math.min(paragraph.length, end) }
+            }).filter((range) => range && range.end > range.start)
+            const renderSlice = (start, end, key) => {
+              const boundaries = [...new Set([start, end, ...noteRanges.flatMap((range) => [Math.max(start, range.start), Math.min(end, range.end)])])].filter((value) => value >= start && value <= end).sort((a, b) => a - b)
+              return boundaries.slice(0, -1).map((from, partIndex) => {
+                const to = boundaries[partIndex + 1]
+                const collected = noteRanges.some((range) => range.start < to && range.end > from)
+                return <span className={collected ? 'reader-collected-text' : undefined} key={`${key}-${partIndex}`}>{paragraph.slice(from, to)}</span>
+              })
+            }
             const paragraphRewrites = rewrites.filter((item) => item.anchor?.paragraphIndex === index)
             const applied = paragraphRewrites.filter((item) => item.applied && item.generatedText).sort((a, b) => a.anchor.startOffset - b.anchor.startOffset)
             const parts = []
             let cursor = 0
             applied.forEach((item) => {
               if (item.anchor.startOffset < cursor) return
-              parts.push(paragraph.slice(cursor, item.anchor.startOffset), <span className="rewrite-applied-text" key={item.id}>{item.generatedText}</span>)
+              parts.push(...renderSlice(cursor, item.anchor.startOffset, `before-${item.id}`), <span className="rewrite-applied-text" key={item.id}>{item.generatedText}</span>)
               cursor = item.anchor.endOffset
             })
-            parts.push(paragraph.slice(cursor))
+            parts.push(...renderSlice(cursor, paragraph.length, 'tail'))
             const rewriteMarker = paragraphRewrites.length ? <button className="rewrite-star-marker" title="查看改写" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onOpenRewrite?.(paragraphRewrites[paragraphRewrites.length - 1]) }}>✦</button> : null
             const paragraphContent = <span className="paragraph-text">{parts}</span>
             return isChapter
-              ? <h2 key={index} data-paragraph={index}>{paragraphContent}{noteMarker}{rewriteMarker}</h2>
-              : <p key={index} data-paragraph={index}>{paragraphContent}{noteMarker}{rewriteMarker}</p>
+              ? <h2 key={index} data-paragraph={index}>{paragraphContent}{rewriteMarker}</h2>
+              : <p key={index} data-paragraph={index}>{paragraphContent}{rewriteMarker}</p>
           })}
         </article>
-        {marker ? <NotePopup notes={notesByParagraph.get(marker.index) || []} left={marker.left} top={marker.top} below={marker.below} onClose={() => setMarker(null)} /> : null}
       </div>
     </div>
   )

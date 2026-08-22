@@ -15,6 +15,7 @@ import managerAiIcon from '../ui-b/assets/dark-shelf/manager-ai.svg'
 import managerTrashIcon from '../ui-b/assets/dark-shelf/manager-trash.svg'
 import managerChevronsIcon from '../ui-b/assets/dark-shelf/manager-chevrons.svg'
 import searchIcon from '../ui-b/assets/dark-shelf/search.svg'
+import { useMarqueeSelection } from '../useMarqueeSelection'
 
 const COVER_COLORS = ['#315c57', '#935746', '#354d6b', '#786844', '#624c63', '#41616d']
 const RECENT_CATEGORY = '__recent__'
@@ -38,7 +39,7 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
   const sizeLabel = Number.isFinite(book.size) && book.size > 0 ? formatBytes(book.size) : book.format
 
   return (
-    <div className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''} ${highlighted ? 'is-selected' : ''}`} onContextMenu={(event) => { event.preventDefault(); onManage(book) }} onPointerDown={reordering ? (event) => onPointerDownStart(event, book.id) : undefined} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
+    <div data-book-id={book.id} className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''} ${highlighted ? 'is-selected' : ''}`} onContextMenu={(event) => { event.preventDefault(); onManage(book) }} onPointerDown={reordering ? (event) => onPointerDownStart(event, book.id) : undefined} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
       {selecting ? <button className={`book-select ${selected ? 'selected' : ''}`} onClick={() => onToggle(book.id)} aria-label={selected ? `取消选择 ${book.title}` : `选择 ${book.title}`}><Check size={13} /></button> : null}
       <button className="book-open" onClick={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); onToggleSelect?.(book.id); return } onOpen(book) }}>
         <span className={`book-cover ${coverSource ? 'has-image' : ''} ${!displayCover && defaultCover ? 'is-default' : ''}`} style={{ '--cover': COVER_COLORS[index % COVER_COLORS.length] }}>
@@ -175,7 +176,6 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
       <nav>
         <button className={active === '全部书籍' ? 'active' : ''} onClick={() => onSelect('全部书籍')}><span>全部书籍</span><small>{counts.all}</small></button>
         <button className={active === RECENT_CATEGORY ? 'active' : ''} onClick={() => onSelect(RECENT_CATEGORY)}><span>最近在读</span><small>{counts.recent}</small></button>
-        <button className={active === '未读' ? 'active' : ''} onClick={() => onSelect('未读')}><span>未读</span><small>{counts.unread}</small></button>
         {categories.map((category) => (
           <div className={`category-row ${active === category ? 'active' : ''} ${dragging === category ? 'is-dragging' : ''} ${dropState?.target === category ? `is-drop-${dropState.position}` : ''}`} key={category} onContextMenu={(event) => { event.preventDefault(); setContextMenu({ category, x: event.clientX, y: event.clientY }) }} onDragOverCapture={(event) => dragOver(event, category)} onDropCapture={(event) => drop(event, category)} onPointerMove={(event) => { if (dragging) setDropState({ target: category, position: pointerPosition(event) }) }} onPointerUp={(event) => { if (dragging) onReorder(dragging, category, pointerPosition(event)); setDragging(''); setDropState(null) }}>
             <span className="category-drag-handle" tabIndex={0} role="button" aria-label={`拖动调整分类 ${category} 的顺序`} title="拖动调整书架顺序" onPointerDown={(event) => { event.preventDefault(); setDragging(category) }} onKeyDown={(event) => { if (!event.altKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return; event.preventDefault(); const index = categories.indexOf(category); const delta = ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1; const target = categories[index + delta]; if (target) onReorder(category, target, delta < 0 ? 'before' : 'after') }}><GripVertical size={12} /></span>
@@ -263,6 +263,10 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [draggingBook, setDraggingBook] = useState('')
   const [bookDropState, setBookDropState] = useState(null)
+  const bookMarquee = useMarqueeSelection({
+    itemSelector: '.book-item[data-book-id]', idAttribute: 'data-book-id', selectedIds,
+    onChange: (ids) => setSelectedIds([...ids]), disabled: view !== 'shelf',
+  })
   // 整卡拖拽排序：pointerdown 先记候选，移动超过阈值才升级为拖拽，避免抢点击。
   const dragCandidateRef = useRef(null)
   const dragSuppressRef = useRef(false)
@@ -286,10 +290,6 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     setView('shelf')
     if (navigationTarget.kind === 'recent') {
       setActiveCategory(RECENT_CATEGORY)
-      setSortBy('recent')
-      setStatusFilter('all')
-    } else if (navigationTarget.kind === 'unread') {
-      setActiveCategory('未读')
       setSortBy('recent')
       setStatusFilter('all')
     } else if (navigationTarget.kind === 'category' && categories.includes(navigationTarget.category)) {
@@ -319,13 +319,13 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const isCustomCategory = categories.includes(activeCategory)
   const isAllBooks = activeCategory === '全部书籍'
   const isReorderableCategory = isAllBooks || isCustomCategory
-  // 「全部书籍」与自定义分类支持直接拖拽排序；最近在读/未读是计算出的顺序，不可拖。
+  // 「全部书籍」与自定义分类支持直接拖拽排序；最近在读是计算出的顺序，不可拖。
   const dragReorderEnabled = !selecting && sortBy === 'custom' && isReorderableCategory
   const bookOrderKey = isAllBooks ? ALL_BOOKS_ORDER_KEY : activeCategory
   const filteredBooks = books.filter((book) => {
     const category = tagsMap[book.id]?.[0]
     const status = statusMap[book.id] || (progressMap[book.id]?.percent > 0 ? 'reading' : 'unread')
-    const matchesCategory = activeCategory === '全部书籍' || (activeCategory === RECENT_CATEGORY ? recentSet.has(book.id) : activeCategory === '未读' ? status === 'unread' : category === activeCategory)
+    const matchesCategory = activeCategory === '全部书籍' || (activeCategory === RECENT_CATEGORY ? recentSet.has(book.id) : category === activeCategory)
     const needle = query.trim().toLocaleLowerCase('zh-CN')
     const matchesQuery = !needle || `${book.title} ${book.author || ''} ${book.path}`.toLocaleLowerCase('zh-CN').includes(needle)
     return matchesCategory && matchesQuery && (statusFilter === 'all' || status === statusFilter)
@@ -398,23 +398,36 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     const startX = event.clientX
     const startY = event.clientY
     dragCandidateRef.current = id
+    let active = false
+    let target = id
+    let position = 'after'
     const move = (moveEvent) => {
-      if (!dragCandidateRef.current) return
-      if (Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) > 7) {
+      if (!active && Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) > 7) {
         dragSuppressRef.current = true
-        setDraggingBook(dragCandidateRef.current)
+        active = true
+        setDraggingBook(id)
         dragCandidateRef.current = null
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', up)
       }
+      if (!active) return
+      const item = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest?.('.book-item[data-book-id]')
+      if (!item) return
+      target = item.dataset.bookId
+      const rect = item.getBoundingClientRect()
+      position = layout === 'list' ? (moveEvent.clientY < rect.top + rect.height / 2 ? 'before' : 'after') : (moveEvent.clientX < rect.left + rect.width / 2 ? 'before' : 'after')
+      setBookDropState({ target, position })
     }
     const up = () => {
+      if (active && target !== id) reorderBook(id, target, position)
       dragCandidateRef.current = null
+      setDraggingBook('')
+      setBookDropState(null)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
   const selectedBooks = books.filter((book) => selectedIds.includes(book.id))
   const setSelectedStatus = (status) => setStatusMap((current) => ({ ...current, ...Object.fromEntries(selectedIds.map((id) => [id, status])) }))
@@ -495,9 +508,10 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
       ) : null}
 
       {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onAddNote={onAddNote} onUpdateNote={onUpdateNote} onDeleteNote={onDeleteNote} onCreateGroup={onCreateNoteGroup} onMoveNote={onMoveNote} onExportNotes={onExportNotes} /> : books.length ? (
-        <div className="library-catalog">
+        <div className="library-catalog" onPointerDown={bookMarquee.onPointerDown}>
           <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} onRename={renameCategory} />
           <section className="category-books">
+            {selectedIds.length ? <div className="selection-count" role="status">已选 {selectedIds.length} 本书</div> : null}
             <div className="category-heading">
               <img src={managerChevronsIcon} alt="" />
               <strong>{visibleBooks.length}</strong><span>本</span>
@@ -514,6 +528,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         <div className="empty-shelf"><strong>{loading ? '正在整理书架...' : '书架还是空的'}</strong><button onClick={onAddBooks}>导入书籍</button></div>
       )}
       </section>
+      {bookMarquee.box ? <div className="selection-marquee" style={bookMarquee.box} /> : null}
 
       <LibraryBottomDock onOpenVirtualHome={onOpenVirtualHome} onAddBooks={onAddBooks} onToggleTheme={onToggleTheme} onNotes={() => changeView('notes')} onOpenAppearance={onOpenAppearance} />
 

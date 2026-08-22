@@ -5,7 +5,7 @@ import TagEditor from './TagEditor'
 
 // 手动新增摘录：不依赖本地书籍。第一步写正文（可自由分段）/标题/出处/标签，
 // 第二步在排版面上划选右键「高亮」核心句子。
-export default function AddCustomNoteModal({ book, onSave, onCancel }) {
+export default function AddCustomNoteModal({ book, availableTags = [], onSave, onCancel }) {
   const [step, setStep] = useState(1)
   const [text, setText] = useState('')
   const [title, setTitle] = useState('')
@@ -31,7 +31,7 @@ export default function AddCustomNoteModal({ book, onSave, onCancel }) {
             <label>摘录正文<textarea autoFocus rows={7} placeholder="粘贴或写下你想留存的段落，可自由分段" value={text} onChange={(event) => changeText(event.target.value)} /></label>
             <label>标题（可留空）<input value={title} maxLength={60} placeholder="如：小哥初见" onChange={(event) => setTitle(event.target.value)} /></label>
             <label>出处<input value={source} maxLength={60} placeholder="如：《钓王》" onChange={(event) => setSource(event.target.value)} /></label>
-            <label>标签<TagEditor tags={tags} onChange={setTags} /></label>
+            <label>标签<TagEditor tags={tags} availableTags={availableTags} onChange={setTags} /></label>
           </div>
         ) : (
           <HighlightTextEditor text={text.trim()} highlights={highlights} onChange={setHighlights} />

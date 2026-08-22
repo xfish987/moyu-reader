@@ -1,17 +1,19 @@
-import { useMemo, useState } from 'react'
-import { ArrowUpRight, Bookmark, Download, LayoutGrid, List, Plus, Share2, Tag, X } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { ArrowUpRight, Bookmark, Download, LayoutGrid, List, Pencil, Plus, Share2, Tag, Trash2, X } from 'lucide-react'
 import ShareNoteModal from './ShareNoteModal'
 import CollectNoteModal from './CollectNoteModal'
 import AddCustomNoteModal from './AddCustomNoteModal'
 import NoteDetailModal from './NoteDetailModal'
 import TagEditor from './TagEditor'
 import { excerptWindow, normalizeHighlights, segmentByHighlights } from '../noteHighlights'
+import { useMarqueeSelection } from '../useMarqueeSelection'
 
 const VIEW_STORAGE_KEY = 'moyu:notes-view'
 
 const readViewMode = () => {
   try { return localStorage.getItem(VIEW_STORAGE_KEY) === 'list' ? 'list' : 'grid' } catch { return 'grid' }
 }
+const orderNotes = (notes) => [...notes].sort((a, b) => Number.isFinite(a.noteOrder) && Number.isFinite(b.noteOrder) ? a.noteOrder - b.noteOrder : b.createdAt - a.createdAt)
 
 // 卡片摘录：有高亮时三段式呈现——上一行灰文（单行截断）、高亮块（独立成行，截断）、
 // 下一行灰文（单行截断）；无高亮时从头显示，交给 CSS line-clamp 截断。
@@ -48,6 +50,11 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
   const [cardMenu, setCardMenu] = useState(null)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [groupName, setGroupName] = useState(null)
+  const noteDragSuppressRef = useRef(false)
+  const marquee = useMarqueeSelection({
+    itemSelector: '.quote-card[data-note-id]', idAttribute: 'data-note-id', selectedIds,
+    onChange: (ids) => setSelectedIds(new Set(ids)),
+  })
 
   const setViewMode = (mode) => {
     setViewModeState(mode)
@@ -74,6 +81,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
     return [...counts.entries()].sort((a, b) => b[1] - a[1])
   }, [visibleGroups])
   const filteredNotes = (notes) => activeTag ? notes.filter((note) => note.tags?.includes(activeTag)) : notes
+  const tagsForBook = (bookId) => [...new Set((notesMap[bookId] || []).flatMap((note) => note.tags || []))].sort((a, b) => a.localeCompare(b, 'zh-CN'))
 
   const selectBook = (id) => { setSelectedBook(id); setActiveTag(null) }
 
@@ -81,6 +89,55 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
     const name = (groupName || '').trim()
     if (name) onCreateGroup(name)
     setGroupName(null)
+  }
+
+  const deleteNotes = (items) => {
+    const targets = items?.length ? items : []
+    if (!targets.length) return
+    const label = targets.length === 1 ? '这条笔记' : `选中的 ${targets.length} 条笔记`
+    if (!window.confirm(`确定删除${label}吗？此操作无法撤销。`)) return
+    targets.forEach(({ book, note }) => onDeleteNote(book.id, note.id))
+    setSelectedIds(new Set())
+    setCardMenu(null)
+  }
+
+  const startNoteDrag = (event, book, note) => {
+    if (event.button !== 0 || event.target.closest('button')) return
+    const card = event.currentTarget
+    const startX = event.clientX
+    const startY = event.clientY
+    let active = false
+    let targetId = note.id
+    const move = (moveEvent) => {
+      if (!active && Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) >= 5) {
+        active = true
+        noteDragSuppressRef.current = true
+        card.classList.add('is-dragging')
+      }
+      if (!active) return
+      const target = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest?.(`.quote-card[data-book-id="${CSS.escape(book.id)}"]`)
+      document.querySelectorAll('.quote-card.is-drop-target').forEach((node) => node.classList.remove('is-drop-target'))
+      if (target) { targetId = target.dataset.noteId; target.classList.add('is-drop-target') }
+    }
+    const up = () => {
+      card.classList.remove('is-dragging')
+      document.querySelectorAll('.quote-card.is-drop-target').forEach((node) => node.classList.remove('is-drop-target'))
+      if (active && targetId !== note.id) {
+        const arranged = orderNotes(notesMap[book.id] || [])
+        const from = arranged.findIndex((item) => item.id === note.id)
+        const to = arranged.findIndex((item) => item.id === targetId)
+        const [moved] = arranged.splice(from, 1)
+        arranged.splice(to, 0, moved)
+        arranged.forEach((item, index) => onUpdateNote(book.id, { ...item, noteOrder: index, updatedAt: item.updatedAt || Date.now() }))
+      }
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      setTimeout(() => { noteDragSuppressRef.current = false }, 0)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
 
   if (!groups.length) {
@@ -101,7 +158,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
   }
 
   return (
-    <div className="notes-library-layout">
+    <div className="notes-library-layout" onPointerDown={marquee.onPointerDown}>
       <aside className="notes-source-sidebar">
         <div className="notes-sidebar-head"><span>笔记分类</span><button className="add-note-group" onClick={() => setGroupName('')} title="新增分类" aria-label="新增分类"><Plus size={13} /></button></div>
         {groupName !== null ? (
@@ -123,6 +180,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
         ) : null}
       </aside>
       <div className="notes-groups">
+        {selectedIds.size ? <div className="selection-count" role="status">已选 {selectedIds.size} 条笔记</div> : null}
         {visibleGroups.map(({ book, notes }, groupIndex) => {
           const visible = filteredNotes(notes)
           return (
@@ -141,11 +199,15 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
               </header>
               {visible.length ? (
                 <div className={`quote-grid ${viewMode === 'list' ? 'is-list' : ''}`}>
-                  {[...visible].sort((a, b) => b.createdAt - a.createdAt).map((note) => (
+                  {orderNotes(visible).map((note) => (
                     <article
+                      data-note-id={note.id}
+                      data-book-id={book.id}
                       className={`quote-card ${selectedIds.has(note.id) ? 'is-selected' : ''}`}
                       key={note.id}
+                      onPointerDown={(event) => startNoteDrag(event, book, note)}
                       onClick={(event) => {
+                        if (noteDragSuppressRef.current) return
                         if (event.ctrlKey || event.metaKey) {
                           setSelectedIds((current) => {
                             const next = new Set(current)
@@ -160,7 +222,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
                       onContextMenu={(event) => {
                         event.preventDefault()
                         const multi = selectedIds.has(note.id) && selectedIds.size > 1
-                          ? groups.flatMap((group) => group.notes.map((item) => ({ note: item, book: group.book }))).filter((item) => selectedIds.has(item.note.id))
+                          ? groups.flatMap((group) => orderNotes(group.notes).map((item) => ({ note: item, book: group.book }))).filter((item) => selectedIds.has(item.note.id))
                           : null
                         setCardMenu({ note, book, multi, x: Math.min(event.clientX, window.innerWidth - 200), y: Math.min(event.clientY, window.innerHeight - 260) })
                       }}
@@ -188,6 +250,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
           )
         })}
       </div>
+      {marquee.box ? <div className="selection-marquee" style={marquee.box} /> : null}
       {shareTarget ? <ShareNoteModal note={shareTarget.note} book={shareTarget.book} items={shareTarget.items} appearanceTheme={appearanceTheme} onClose={() => setShareTarget(null)} /> : null}
       {detailTarget ? (
         <NoteDetailModal
@@ -203,6 +266,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
       {tagTarget ? (
         <TagEditModal
           note={tagTarget.note}
+          availableTags={tagsForBook(tagTarget.book.id)}
           onCancel={() => setTagTarget(null)}
           onSave={(tags) => {
             onUpdateNote(tagTarget.book.id, { ...tagTarget.note, tags, updatedAt: Date.now() })
@@ -215,11 +279,13 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
           heading="编辑摘录"
           text={editTarget.note.text}
           initialTitle={editTarget.note.title || ''}
+          initialSource={editTarget.note.source || `《${editTarget.book.title}》`}
           initialTags={editTarget.note.tags || []}
+          availableTags={tagsForBook(editTarget.book.id)}
           initialHighlights={editTarget.note.highlights || []}
           onCancel={() => setEditTarget(null)}
-          onSave={({ title, tags, highlights }) => {
-            onUpdateNote(editTarget.book.id, { ...editTarget.note, title, tags, highlights, updatedAt: Date.now() })
+          onSave={({ title, source, tags, highlights }) => {
+            onUpdateNote(editTarget.book.id, { ...editTarget.note, title, source, tags, highlights, updatedAt: Date.now() })
             setEditTarget(null)
           }}
         />
@@ -227,6 +293,7 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
       {addTarget ? (
         <AddCustomNoteModal
           book={addTarget}
+          availableTags={tagsForBook(addTarget.id)}
           onCancel={() => setAddTarget(null)}
           onSave={({ text, title, source, tags, highlights }) => {
             const note = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text, custom: true, createdAt: Date.now() }
@@ -242,9 +309,21 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
       {cardMenu ? (
         <div className="context-menu-layer" onMouseDown={() => setCardMenu(null)} onContextMenu={(event) => event.preventDefault()}>
           <div className="card-context-menu" style={{ left: cardMenu.x, top: cardMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
+            <span className="menu-heading">快捷操作</span>
             {cardMenu.multi ? (
-              <button onClick={() => { setShareTarget({ items: cardMenu.multi, note: cardMenu.multi[0].note, book: cardMenu.multi[0].book }); setCardMenu(null) }}><Share2 size={12} /> 分享所选 {cardMenu.multi.length} 条（拼成长图）</button>
-            ) : null}
+              <>
+                <button onClick={() => { setShareTarget({ items: cardMenu.multi, note: cardMenu.multi[0].note, book: cardMenu.multi[0].book }); setCardMenu(null) }}><Share2 size={12} /> 分享所选 {cardMenu.multi.length} 条</button>
+                <button className="danger" onClick={() => deleteNotes(cardMenu.multi)}><Trash2 size={12} /> 删除所选 {cardMenu.multi.length} 条</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => { setEditTarget({ note: cardMenu.note, book: cardMenu.book }); setCardMenu(null) }}><Pencil size={12} /> 编辑笔记</button>
+                <button onClick={() => { setShareTarget({ note: cardMenu.note, book: cardMenu.book }); setCardMenu(null) }}><Share2 size={12} /> 生成分享图</button>
+                <button className="danger" onClick={() => deleteNotes([{ note: cardMenu.note, book: cardMenu.book }])}><Trash2 size={12} /> 删除笔记</button>
+              </>
+            )}
+            <span className="menu-heading">整理</span>
+            <button onClick={() => { setTagTarget({ note: cardMenu.note, book: cardMenu.book }); setCardMenu(null) }}><Tag size={12} /> 编辑标签…</button>
             <span className="menu-heading">移动到分类</span>
             {groups.map(({ book: target }) => (
               <button
@@ -253,8 +332,6 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
                 onClick={() => { onMoveNote(cardMenu.book.id, target.id, cardMenu.note); setCardMenu(null) }}
               >{target.title}{target.id === cardMenu.book.id ? '（当前）' : ''}</button>
             ))}
-            <span className="menu-heading">标签</span>
-            <button onClick={() => { setTagTarget({ note: cardMenu.note, book: cardMenu.book }); setCardMenu(null) }}><Tag size={12} /> 编辑标签…</button>
           </div>
         </div>
       ) : null}
@@ -265,14 +342,14 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, appearance
 const COVER_COLORS = ['#1c2b48', '#396081', '#6a90b4', '#94a2bf', '#16304a', '#5c7fa2']
 
 // 快速编辑标签的小弹窗：卡片/详情弹窗上的标签 icon 打开。
-function TagEditModal({ note, onSave, onCancel }) {
+function TagEditModal({ note, availableTags, onSave, onCancel }) {
   const [tags, setTags] = useState(note.tags || [])
   return (
     <div className="manager-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
       <section className="note-editor tag-edit-modal" role="dialog" aria-modal="true" aria-label="编辑标签">
         <header><strong>编辑标签</strong><button onClick={onCancel} aria-label="关闭"><X size={16} /></button></header>
         <blockquote>{note.text.length > 80 ? `${note.text.slice(0, 80)}…` : note.text}</blockquote>
-        <div className="tag-edit-body"><TagEditor tags={tags} onChange={setTags} placeholder="输入标签名，回车添加" /></div>
+        <div className="tag-edit-body"><TagEditor tags={tags} availableTags={availableTags} onChange={setTags} placeholder="输入标签名，回车添加" /></div>
         <footer>
           <button onClick={onCancel}>取消</button>
           <button className="primary-command" onClick={() => onSave(tags)}>保存标签</button>

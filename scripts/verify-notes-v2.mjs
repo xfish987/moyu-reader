@@ -297,6 +297,29 @@ try {
   await page.evaluate(`document.querySelector('.share-modal > header > button')?.click()`)
   await sleep(300)
 
+  // 窄窗口（380px）适配：无横向溢出、卡片单列
+  await page.send('Emulation.setDeviceMetricsOverride', { width: 380, height: 720, deviceScaleFactor: 1, mobile: false })
+  await sleep(600)
+  const narrow = await page.evaluate(`(() => {
+    const layout = document.querySelector('.notes-library-layout')
+    const grid = document.querySelector('.quote-grid')
+    const worst = [...document.querySelectorAll('.notes-library-layout *')]
+      .filter((el) => el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 2
+        && !['BLOCKQUOTE'].includes(el.tagName)
+        && !el.matches('.quote-context, .quote-source'))
+      .map((el) => el.className).slice(0, 4)
+    return {
+      layoutOverflow: layout ? layout.scrollWidth - layout.clientWidth : -1,
+      gridCols: grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
+      worst,
+    }
+  })()`)
+  check('窄窗口（380px）笔记页无横向溢出', narrow.layoutOverflow <= 2 && narrow.worst.length === 0, JSON.stringify(narrow))
+  check('窄窗口卡片单列', narrow.gridCols === 1)
+  await page.screenshot(`${output}/notes-v2-narrow.png`)
+  await page.send('Emulation.clearDeviceMetricsOverride')
+  await sleep(500)
+
   // 视图切换
   await page.evaluate(`document.querySelector('.notes-view-toggle button[aria-label="横向显示"]')?.click()`)
   await sleep(400)
@@ -382,7 +405,8 @@ try {
   check('滚动模式内容可滚动', readerInfo.scrollable)
   await page.evaluate(`(() => {
     const target = document.querySelector('.text-columns p .paragraph-text')
-    const node = target?.firstChild
+    const walker = target?.ownerDocument.createTreeWalker(target, NodeFilter.SHOW_TEXT)
+    const node = walker?.nextNode()
     if (!node) return
     const range = document.createRange()
     range.setStart(node, 0)
