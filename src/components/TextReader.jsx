@@ -13,7 +13,11 @@ export function truncateCompanionText(text) {
   return `${value.slice(0, 14400)}\n……（中间内容省略）……\n${value.slice(-9600)}`
 }
 
-const TextReader = forwardRef(function TextReader({ content, settings, initialPage, onProgress, onChapters, onCollectIntent, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
+const TextReader = forwardRef(function TextReader({ content, settings, initialPage, initialFraction = null, wheelMode = 'page', onProgress, onChapters, onCollectIntent, onShareIntent, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
+  const scrollMode = wheelMode === 'scroll'
+  const scrollModeRef = useRef(scrollMode)
+  scrollModeRef.current = scrollMode
+  const initialFractionRef = useRef(initialFraction)
   const viewportRef = useRef(null)
   const shellRef = useRef(null)
   const contentRef = useRef(null)
@@ -116,6 +120,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   }, [])
 
   useEffect(() => {
+    if (scrollMode) return undefined
     const timer = requestAnimationFrame(() => {
       const node = contentRef.current
       if (!node || !viewportWidth) return
@@ -131,16 +136,87 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       })
     })
     return () => cancelAnimationFrame(timer)
-  }, [content, pagePadding, settings, viewportWidth])
+  }, [content, pagePadding, settings, viewportWidth, scrollMode])
+
+  // 滚动文字模式：单栏垂直排版，进度按 scrollTop 比例上报，首次按已存百分比恢复位置。
+  useEffect(() => {
+    if (!scrollMode) return undefined
+    const timer = requestAnimationFrame(() => {
+      const viewport = viewportRef.current
+      if (!viewport || !viewportWidth) return
+      setPageCount(Math.max(1, Math.ceil(viewport.scrollHeight / viewport.clientHeight)))
+      if (!measuredLayoutRef.current) {
+        measuredLayoutRef.current = true
+        const fraction = initialFractionRef.current
+        if (fraction > 0) viewport.scrollTop = fraction * (viewport.scrollHeight - viewport.clientHeight)
+      }
+      setPaintReady(true)
+    })
+    return () => cancelAnimationFrame(timer)
+  }, [content, pagePadding, settings, viewportWidth, scrollMode])
+
+  useEffect(() => {
+    if (!scrollMode) return undefined
+    const viewport = viewportRef.current
+    if (!viewport) return undefined
+    const report = () => {
+      const max = viewport.scrollHeight - viewport.clientHeight
+      const fraction = max > 4 ? Math.min(1, viewport.scrollTop / max) : 0
+      const count = Math.max(1, Math.ceil(viewport.scrollHeight / viewport.clientHeight))
+      const currentPage = Math.min(count - 1, Math.floor(viewport.scrollTop / viewport.clientHeight))
+      setPageCount(count)
+      setPage(currentPage)
+      let chapterIndex = -1
+      for (let index = 0; index < chapters.length; index += 1) {
+        const element = contentRef.current?.querySelector(`[data-paragraph="${chapters[index].index}"]`)
+        if (!element || element.offsetTop > viewport.scrollTop + 60) break
+        chapterIndex = index
+      }
+      let textFraction = fraction
+      const nodes = contentRef.current?.querySelectorAll('[data-paragraph]')
+      if (nodes?.length) {
+        let low = 0
+        let high = nodes.length
+        while (low < high) {
+          const middle = (low + high) >> 1
+          if (nodes[middle].offsetTop < viewport.scrollTop - 1) low = middle + 1
+          else high = middle
+        }
+        textFraction = Math.min(1, low / nodes.length)
+      }
+      progressCallbackRef.current({ page: currentPage, pageCount: count, chapterIndex, textFraction, percent: fraction })
+      positionFractionRef.current = textFraction
+    }
+    viewport.addEventListener('scroll', report, { passive: true })
+    report()
+    return () => viewport.removeEventListener('scroll', report)
+  }, [chapters, scrollMode, viewportWidth])
+
+  useEffect(() => {
+    if (!scrollMode) return undefined
+    const viewport = viewportRef.current
+    if (!viewport) return undefined
+    // 滚到顶/底后继续滚 → 通知外层切换分块（大文件）或保持不动（小文件无 boundary 回调）。
+    const handle = (event) => {
+      if (!onBoundaryNext && !onBoundaryPrev) return
+      const max = viewport.scrollHeight - viewport.clientHeight
+      if (event.deltaY > 0 && viewport.scrollTop >= max - 2) onBoundaryNext?.()
+      else if (event.deltaY < 0 && viewport.scrollTop <= 2) onBoundaryPrev?.()
+    }
+    viewport.addEventListener('wheel', handle, { passive: true })
+    return () => viewport.removeEventListener('wheel', handle)
+  }, [scrollMode, onBoundaryNext, onBoundaryPrev])
 
   useLayoutEffect(() => {
+    if (scrollMode) return
     if (!viewportRef.current || !viewportWidth) return
     viewportRef.current.scrollLeft = page * viewportWidth
     if (resizingRef.current) return
     setPaintReady(true)
-  }, [page, settings, viewportWidth])
+  }, [page, settings, viewportWidth, scrollMode])
 
   useEffect(() => {
+    if (scrollMode) return
     const pageLeft = page * viewportWidth
     let chapterIndex = -1
     for (let index = 0; index < chapters.length; index += 1) {
@@ -165,7 +241,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     }
     progressCallbackRef.current({ page, pageCount, chapterIndex, textFraction, percent: pageCount <= 1 ? 0 : page / (pageCount - 1) })
     positionFractionRef.current = textFraction
-  }, [chapters, page, pageCount, viewportWidth])
+  }, [chapters, page, pageCount, viewportWidth, scrollMode])
 
   // 跳转到指定段落。布局尚未就绪（新挂载的分块 viewportWidth 仍为 0）时
   // 先挂起，由下面的 effect 在测量完成后补跳，避免跳转被静默丢弃。
@@ -177,25 +253,54 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       return
     }
     pendingJumpRef.current = null
+    if (scrollMode) {
+      viewportRef.current.scrollTop = Math.max(0, element.offsetTop - 80)
+      return
+    }
     setPage(Math.max(0, Math.round(element.offsetLeft / viewportWidth)))
-  }, [viewportWidth])
+  }, [viewportWidth, scrollMode])
 
   useEffect(() => {
     if (pendingJumpRef.current !== null) jumpToParagraph(pendingJumpRef.current)
   }, [jumpToParagraph, pageCount, viewportWidth])
 
   useImperativeHandle(ref, () => ({
-    next: () => setPage((current) => {
-      if (current < pageCount - 1) return current + 1
-      onBoundaryNext?.()
-      return current
-    }),
-    prev: () => setPage((current) => {
-      if (current > 0) return current - 1
-      onBoundaryPrev?.()
-      return current
-    }),
-    seek: (ratio) => setPage(Math.max(0, Math.min(pageCount - 1, Math.round((pageCount - 1) * ratio)))),
+    next: () => {
+      if (scrollModeRef.current) {
+        const viewport = viewportRef.current
+        if (!viewport) return
+        if (viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 4) onBoundaryNext?.()
+        else viewport.scrollBy({ top: viewport.clientHeight * 0.94 })
+        return
+      }
+      setPage((current) => {
+        if (current < pageCount - 1) return current + 1
+        onBoundaryNext?.()
+        return current
+      })
+    },
+    prev: () => {
+      if (scrollModeRef.current) {
+        const viewport = viewportRef.current
+        if (!viewport) return
+        if (viewport.scrollTop <= 4) onBoundaryPrev?.()
+        else viewport.scrollBy({ top: -viewport.clientHeight * 0.94 })
+        return
+      }
+      setPage((current) => {
+        if (current > 0) return current - 1
+        onBoundaryPrev?.()
+        return current
+      })
+    },
+    seek: (ratio) => {
+      if (scrollModeRef.current) {
+        const viewport = viewportRef.current
+        if (viewport) viewport.scrollTop = ratio * (viewport.scrollHeight - viewport.clientHeight)
+        return
+      }
+      setPage(Math.max(0, Math.min(pageCount - 1, Math.round((pageCount - 1) * ratio))))
+    },
     goToChapter: (index) => jumpToParagraph(index),
     goToParagraph: (index) => jumpToParagraph(index),
     // 主进程返回的字符 anchor（目标在块内容中的字符下标）→ 段落 → 所在页。
@@ -361,6 +466,11 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       onCollectIntent?.(nextSelection)
       window.getSelection()?.removeAllRanges()
       setSelection(null)
+    } else if (action === 'share') {
+      // 直接分享：生成分享图，不写入笔记。
+      onShareIntent?.(nextSelection)
+      window.getSelection()?.removeAllRanges()
+      setSelection(null)
     }
     else if (action === 'dictionary') onLookupDict?.(nextSelection)
     else if (action === 'rewrite') onRewrite?.(nextSelection)
@@ -393,7 +503,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>
-      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'}`} ref={viewportRef} onMouseUp={captureSelection} onContextMenu={openSelectionMenu}>
+      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'} ${scrollMode ? 'is-scroll' : ''}`} ref={viewportRef} onMouseUp={captureSelection} onContextMenu={openSelectionMenu}>
         <article
           ref={contentRef}
           className={`text-columns ${paintReady ? 'is-ready' : 'is-reflowing'}`}

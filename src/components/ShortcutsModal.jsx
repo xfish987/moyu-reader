@@ -4,7 +4,7 @@ import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, displayKey, normalizeKey } from '.
 
 // 快捷键设置：查看与修改。点击按键徽标后按下新键完成修改；
 // Esc 取消捕获，Delete/Backspace 恢复该项默认。老板键只接受 F1–F12（全局注册，字母会劫持系统输入）。
-export default function ShortcutsModal({ shortcuts, setShortcuts, onClose }) {
+export default function ShortcutsModal({ shortcuts, setShortcuts, wheelMode, setWheelMode, onClose }) {
   const [capturing, setCapturing] = useState(null)
 
   useEffect(() => {
@@ -36,6 +36,16 @@ export default function ShortcutsModal({ shortcuts, setShortcuts, onClose }) {
           <button onClick={onClose} aria-label="关闭"><X size={16} /></button>
         </header>
         <div className="manager-content shortcuts-list">
+          <div className="shortcut-row">
+            <div>
+              <strong>鼠标滚轮</strong>
+              <span>滚动文字时，选中文字往下拖会自动跟随滚动</span>
+            </div>
+            <div className="wheel-mode-toggle" role="group" aria-label="鼠标滚轮行为">
+              <button className={wheelMode !== 'scroll' ? 'active' : ''} onClick={() => setWheelMode?.('page')}>翻页</button>
+              <button className={wheelMode === 'scroll' ? 'active' : ''} onClick={() => setWheelMode?.('scroll')}>滚动文字</button>
+            </div>
+          </div>
           {SHORTCUT_ACTIONS.map((action) => (
             <div className="shortcut-row" key={action.id}>
               <div>

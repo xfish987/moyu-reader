@@ -4,6 +4,7 @@ import EpubReader from './EpubReader'
 import LargeTextReader from './LargeTextReader'
 import ReaderSettings from './ReaderSettings'
 import CollectNoteModal from './CollectNoteModal'
+import ShareNoteModal from './ShareNoteModal'
 import TextReader from './TextReader'
 import AISettingsModal from './AISettingsModal'
 import EntityIdentityModal from './EntityIdentityModal'
@@ -44,16 +45,20 @@ function selectDictionaryEvidence(excerpts, question, selectedText, limit = 20) 
   return selected
 }
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, rewrites = [], onSaveRewrite, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
+export default function ReaderView({ book, source, settings, setSettings, wheelMode = 'page', savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, onBackfillNoteChapters, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, rewrites = [], onSaveRewrite, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
   const tocPanelRef = useRef(null)
   const wheelStateRef = useRef({ accumulated: 0, direction: 0, lockedUntil: 0 })
+  const wheelModeRef = useRef(wheelMode)
+  wheelModeRef.current = wheelMode
   const [panel, setPanel] = useState(null)
   const [collectDraft, setCollectDraft] = useState(null)
   // 统一换行为 \n，保证高亮偏移与正文一致。
   const openCollectDraft = (draft) => setCollectDraft(draft ? { ...draft, text: String(draft.text || '').replace(/\r\n/g, '\n') } : draft)
+  // 直接分享：临时对象出分享图，不写入笔记。
+  const [shareDraft, setShareDraft] = useState(null)
   const [rewriteId, setRewriteId] = useState('')
   const [rewriteDraft, setRewriteDraft] = useState({ requirement: '', targetLength: 300 })
   const [rewriteBusy, setRewriteBusy] = useState(false)
@@ -61,6 +66,30 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [rewriteStreamText, setRewriteStreamText] = useState('')
   const [chapters, setChapters] = useState([])
   const [progress, setProgress] = useState(savedProgress || { percent: 0, page: 0, pageCount: 1 })
+
+  // 旧笔记出处回填：打开书时按锚点把缺失的章节名补进笔记。
+  // 大文件 TXT 的段落锚点相对分块、目录又按分块生成，无法直接对应，跳过。
+  useEffect(() => {
+    if (!chapters.length || !onBackfillNoteChapters) return
+    const updates = {}
+    for (const note of notes) {
+      if (note.chapter) continue
+      let label = ''
+      if (source.kind === 'text' && note.paragraphIndex !== undefined && note.chunkOffset === undefined) {
+        const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= note.paragraphIndex ? index : match, -1)
+        label = chapterIndex >= 0 ? chapters[chapterIndex].label : ''
+      } else if (source.kind === 'epub' && note.href) {
+        const notePath = String(note.href).split('#')[0]
+        const chapter = chapters.find((item) => {
+          const href = String(item.href || '').split('#')[0]
+          return href && (notePath === href || notePath.endsWith(`/${href}`) || href.endsWith(`/${notePath}`))
+        })
+        label = chapter?.label || ''
+      }
+      if (label) updates[note.id] = label
+    }
+    if (Object.keys(updates).length) onBackfillNoteChapters(book.id, updates)
+  }, [book.id, chapters, notes, onBackfillNoteChapters, source.kind])
   const [scrubProgress, setScrubProgress] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -172,6 +201,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
   const handlePageWheel = useCallback((event) => {
     if (event.ctrlKey || event.metaKey) return
+    // 滚动文字模式：滚轮交给阅读器原生滚动，不翻页。
+    if (wheelModeRef.current === 'scroll') return
     const absY = Math.abs(event.deltaY)
     const absX = Math.abs(event.deltaX)
     // Ignore diagonal/trackpad noise: only page when one axis clearly dominates.
@@ -1235,11 +1266,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
 
       <section className="reading-stage" onClick={() => panel && setPanel(null)} onWheel={handlePageWheel}>
         {source.kind === 'text' ? (
-          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
+          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}-${wheelMode}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} initialFraction={progress.percent ?? savedProgress?.percent ?? null} onProgress={updateProgress} onChapters={updateChapters} wheelMode={wheelMode} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
         ) : source.kind === 'text-large' ? (
-          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text-large')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
+          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}-${wheelMode}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} wheelMode={wheelMode} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text-large')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
         ) : (
-          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollectIntent={openCollectDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'epub')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onDismissPanel={() => setPanel(null)} />
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${conversionReady}-${wheelMode}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} wheelMode={wheelMode} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'epub')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onDismissPanel={() => setPanel(null)} />
         )}
 
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
@@ -1257,12 +1288,21 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
             if (tags?.length) note.tags = tags
             if (highlights?.length) note.highlights = highlights
             if (collectDraft.paragraphIndex !== undefined) note.paragraphIndex = collectDraft.paragraphIndex
+            if (collectDraft.chapterLabel) note.chapter = collectDraft.chapterLabel
             if (collectDraft.cfi) note.cfi = collectDraft.cfi
             if (collectDraft.href) note.href = collectDraft.href
             if (collectDraft.chunkOffset !== undefined) note.chunkOffset = collectDraft.chunkOffset
             onAddNote(note)
             setCollectDraft(null)
           }}
+        />
+      ) : null}
+      {shareDraft ? (
+        <ShareNoteModal
+          note={{ text: shareDraft.text, chapter: shareDraft.chapterLabel, createdAt: Date.now() }}
+          book={book}
+          appearanceTheme={settings.theme}
+          onClose={() => setShareDraft(null)}
         />
       ) : null}
 

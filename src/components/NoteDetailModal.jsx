@@ -5,7 +5,7 @@ import { ArrowUpRight, Bookmark, Check, Copy, Pencil, Share2, Tag, X } from 'luc
 // 底部操作：编辑（重新选择高亮）、标签、分享成图、跳转原文（手动摘录无此按钮）。
 export default function NoteDetailModal({ note, book, onClose, onEdit, onEditTags, onShare, onOpenNote }) {
   const [copied, setCopied] = useState(false)
-  const canJump = !note.custom && !book.missing && (note.paragraphIndex !== undefined || note.cfi)
+  const canJump = !note.custom && book.live && (note.paragraphIndex !== undefined || note.cfi)
 
   useEffect(() => {
     const handleKeyDown = (event) => { if (event.key === 'Escape') onClose() }
@@ -32,7 +32,7 @@ export default function NoteDetailModal({ note, book, onClose, onEdit, onEditTag
           {note.text.split('\n').map((paragraph, index) => <p key={index}>{paragraph || ' '}</p>)}
         </div>
         <div className="note-detail-meta">
-          <span>{note.source || `《${book.title}》`} · {new Date(note.createdAt).toLocaleDateString('zh-CN')}</span>
+          <span>{note.source || `《${book.title}》`}{note.chapter ? ` · ${note.chapter}` : ''} · {new Date(note.createdAt).toLocaleDateString('zh-CN')}</span>
           {note.tags?.length ? <div className="quote-tags">{note.tags.map((tag) => <span className="quote-tag is-static" key={tag}><Tag size={10} />{tag}</span>)}</div> : null}
         </div>
         <footer>

@@ -56,6 +56,7 @@ export default function App() {
   const [recentBookIds, setRecentBookIds, recentBooksReady] = useStoredState('reader:recent-books', [])
   const [categoryBookOrder, setCategoryBookOrder] = useStoredState('reader:shelf-book-order', {})
   const [epubFontOverrides, setEpubFontOverrides] = useStoredState('reader:epub-font-overrides', {})
+  const [wheelMode, setWheelMode] = useStoredState('reader:wheel-mode', 'page')
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false)
   const [homeView, setHomeView] = useState('virtual')
@@ -532,6 +533,7 @@ export default function App() {
           source={source}
           settings={readerSettings}
           setSettings={setSettings}
+          wheelMode={wheelMode}
           savedProgress={progressMap[activeBook.id]}
           immersive={immersive}
           onBack={closeReader}
@@ -545,6 +547,7 @@ export default function App() {
           onDeleteBookmark={(bookmarkId) => setBookmarksMap((current) => ({ ...current, [activeBook.id]: (current[activeBook.id] || []).filter((item) => item.id !== bookmarkId) }))}
           onAddNote={(note) => setNotesMap((current) => ({ ...current, [activeBook.id]: [...(current[activeBook.id] || []), note] }))}
           onDeleteNote={(noteId) => setNotesMap((current) => ({ ...current, [activeBook.id]: (current[activeBook.id] || []).filter((note) => note.id !== noteId) }))}
+          onBackfillNoteChapters={(bookId, updates) => setNotesMap((current) => ({ ...current, [bookId]: (current[bookId] || []).map((note) => !note.chapter && updates[note.id] ? { ...note, chapter: updates[note.id] } : note) }))}
           initialNote={pendingNote}
           onEncodingChange={changeEncoding}
           epubFontOverride={epubFontOverrides[activeBook.id] || null}
@@ -632,6 +635,11 @@ export default function App() {
             setBookMetadata((current) => ({ ...current, [id]: { id, title: name, customGroup: true } }))
             setNotesMap((current) => ({ ...current, [id]: current[id] || [] }))
           }}
+          onMoveNote={(fromId, toId, note) => setNotesMap((current) => ({
+            ...current,
+            [fromId]: (current[fromId] || []).filter((item) => item.id !== note.id),
+            [toId]: [...(current[toId] || []), note],
+          }))}
           onExportNotes={async (book, notes) => {
             try {
               const filePath = await window.readerAPI.exportNotes({ title: book?.title || '全部阅读笔记', notes })
@@ -641,6 +649,8 @@ export default function App() {
           bookMetadata={bookMetadata}
           shortcuts={shortcuts}
           setShortcuts={setShortcuts}
+          wheelMode={wheelMode}
+          setWheelMode={setWheelMode}
           defaultCover={appearance.theme === 'night' ? DEFAULT_COVERS.dark : DEFAULT_COVERS.light}
           initialView={libraryView}
           onViewChange={setLibraryView}
@@ -658,7 +668,7 @@ export default function App() {
         />
       )}
       {appearanceOpen ? <AppearancePanel appearance={appearance} onChange={setAppearance} onClose={() => setAppearanceOpen(false)} /> : null}
-      {shortcutSettingsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutSettingsOpen(false)} /> : null}
+      {shortcutSettingsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} wheelMode={wheelMode} setWheelMode={setWheelMode} onClose={() => setShortcutSettingsOpen(false)} /> : null}
     </div>
   )
 }

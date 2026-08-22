@@ -94,6 +94,7 @@ const STORE_KEYS = new Set([
   'reader:recent-books',
   'reader:shelf-book-order',
   'reader:epub-font-overrides',
+  'reader:wheel-mode',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -1512,6 +1513,32 @@ ipcMain.handle('user-data:export-folder', async () => {
   const target = path.join(result.filePaths[0], `墨读便携数据-${new Date().toISOString().slice(0, 10)}`)
   await fs.mkdir(target, { recursive: true })
   await fs.cp(storeDirectory(), path.join(target, 'data'), { recursive: true })
+  // 书籍文件一并带上：书籍目录整体复制 + 手动添加的散书逐本复制。
+  let booksCopied = 0
+  try {
+    const store = await loadStore()
+    const directory = store?.data?.['reader:directory']
+    const manualBooks = Array.isArray(store?.data?.['reader:manual-books']) ? store.data['reader:manual-books'] : []
+    const booksTarget = path.join(target, 'books')
+    const written = new Set()
+    if (directory && fsSync.existsSync(directory)) {
+      await fs.cp(directory, booksTarget, { recursive: true })
+      const countFiles = (dir) => fsSync.readdirSync(dir, { withFileTypes: true }).reduce((sum, entry) => sum + (entry.isDirectory() ? countFiles(path.join(dir, entry.name)) : 1), 0)
+      booksCopied += countFiles(booksTarget)
+      for (const name of fsSync.readdirSync(booksTarget)) written.add(name.toLowerCase())
+    }
+    for (const book of manualBooks) {
+      const sourcePath = book?.path
+      if (!sourcePath || !fsSync.existsSync(sourcePath)) continue
+      if (directory && path.resolve(sourcePath).startsWith(path.resolve(directory))) continue
+      let name = path.basename(sourcePath)
+      if (written.has(name.toLowerCase())) name = `${path.basename(name, path.extname(name))}-手动添加${path.extname(name)}`
+      await fs.mkdir(booksTarget, { recursive: true })
+      await fs.copyFile(sourcePath, path.join(booksTarget, name))
+      written.add(name.toLowerCase())
+      booksCopied += 1
+    }
+  } catch { /* 书籍复制失败不阻断数据导出 */ }
   // 便携版运行时 electron-builder 会设置 PORTABLE_EXECUTABLE_FILE 指向原始 exe。
   const portableExe = process.env.PORTABLE_EXECUTABLE_FILE
   let exeCopied = false
@@ -1524,6 +1551,7 @@ ipcMain.handle('user-data:export-folder', async () => {
     '',
     '文件夹内容：',
     '  data/          全部阅读数据（书架、进度、笔记、设置等）',
+    booksCopied ? `  books/         书架上的 ${booksCopied} 个书籍文件` : '  （未找到可复制的书籍文件）',
     exeCopied ? `  ${path.basename(portableExe)}  便携版程序` : '  （未附带程序：请把便携版 exe 放到本文件夹一起携带）',
     '',
     '带到新电脑的使用方法：',
@@ -1531,11 +1559,12 @@ ipcMain.handle('user-data:export-folder', async () => {
     '  2. 运行一次便携版 exe，然后退出。',
     '  3. 按 Win+R，输入 %APPDATA%\\MoyuReaderUIB 并回车，',
     '     用本文件夹里的 data 目录替换掉里面的 data 目录。',
-    '  4. 重新打开墨读阅读器，书架、阅读记录和笔记都会恢复。',
+    '  4. 重新打开墨读阅读器，点「导入书籍目录」选择本文件夹里的 books 目录，',
+    '     书架、阅读记录和笔记都会对应恢复。',
     '',
   ].join('\r\n')
   await fs.writeFile(path.join(target, '使用说明.txt'), guide, 'utf8')
-  return { folder: target, exeCopied }
+  return { folder: target, exeCopied, booksCopied }
 })
 
 ipcMain.handle('ui:choose-background', async (_event, scope) => {
@@ -1608,7 +1637,7 @@ ipcMain.handle('notes:export-markdown', async (_event, { title, notes }) => {
   const body = [`# ${safeTitle}`, '', ...(Array.isArray(notes) ? notes : []).flatMap((note) => [
     `> ${String(note.text || '').replace(/\r?\n/g, '\n> ')}`,
     note.title ? `\n**${note.title}**` : '',
-    note.source ? `\n出处：${note.source}` : '',
+    note.source || note.chapter ? `\n出处：${[note.source, note.chapter].filter(Boolean).join(' · ')}` : '',
     Array.isArray(note.tags) && note.tags.length ? `\n标签：${note.tags.join('、')}` : '',
     `\n_${new Date(note.createdAt || Date.now()).toLocaleDateString('zh-CN')}_`, '',
   ])].join('\n')
@@ -2178,6 +2207,7 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
       { label: '复制', role: 'copy', click: () => finish('copy') },
       { type: 'separator' },
       { label: '收藏句子', click: () => finish('note') },
+      { label: '分享这段文字（生成图片）', click: () => finish('share') },
       { label: '字典百科（AI 解说这段文字）', click: () => finish('dictionary') },
       { label: '改写（按要求重写这段文字）', click: () => finish('rewrite') },
     )

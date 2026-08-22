@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Pencil, Plus, RefreshCw, Rows3, ServerCog, Settings, Tags, Trash2, X } from 'lucide-react'
+import { BookOpenText, Check, DatabaseBackup, Eraser, FileInput, FolderOpen, GripVertical, Grid2X2, ImagePlus, Keyboard, Library, List, ListChecks, MapPin, MoonStar, NotebookPen, Pencil, Plus, RefreshCw, Rows3, ServerCog, Tags, Trash2, X } from 'lucide-react'
 import { formatBytes } from '../hooks'
 import { ALL_BOOKS_ORDER_KEY, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst, shortCategoryLabel } from '../ui-b/shelfLayout'
 import CoverEditor from './CoverEditor'
@@ -19,7 +19,7 @@ import searchIcon from '../ui-b/assets/dark-shelf/search.svg'
 const COVER_COLORS = ['#315c57', '#935746', '#354d6b', '#786844', '#624c63', '#41616d']
 const RECENT_CATEGORY = '__recent__'
 
-function BookCover({ book, index, progress, category, customCover, defaultCover, coversReady, onOpen, onManage, onEditCover, selecting, selected, onToggle, reordering, dragging, dropPosition, onDragStart, onDragOver, onDrop, onDragEnd, onPointerStart, onPointerMove, onPointerUp, onKeyboardMove }) {
+function BookCover({ book, index, progress, category, customCover, defaultCover, coversReady, onOpen, onManage, onEditCover, selecting, selected, highlighted, onToggle, onToggleSelect, reordering, dragging, dropPosition, onPointerDownStart, onDragOver, onDrop, onPointerMove, onPointerUp }) {
   const [cover, setCover] = useState(null)
   useEffect(() => {
     if (!coversReady || customCover || !book.hasCover || book.format !== 'EPUB') {
@@ -38,10 +38,9 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
   const sizeLabel = Number.isFinite(book.size) && book.size > 0 ? formatBytes(book.size) : book.format
 
   return (
-    <div className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''}`} onContextMenu={(event) => { event.preventDefault(); onManage(book) }} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
-      {reordering ? <span className="book-reorder-handle" draggable tabIndex={0} role="button" aria-label={`拖动调整 ${book.title} 的顺序`} title="拖动调整主页陈列顺序" onDragStart={(event) => onDragStart(event, book.id)} onDragEnd={onDragEnd} onPointerDown={(event) => { if (event.pointerType === 'mouse') return; event.preventDefault(); onPointerStart(book.id) }} onKeyDown={(event) => { if (event.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); onKeyboardMove(book.id, ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1) } }}><GripVertical size={14} /></span> : null}
+    <div className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''} ${highlighted ? 'is-selected' : ''}`} onContextMenu={(event) => { event.preventDefault(); onManage(book) }} onPointerDown={reordering ? (event) => onPointerDownStart(event, book.id) : undefined} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
       {selecting ? <button className={`book-select ${selected ? 'selected' : ''}`} onClick={() => onToggle(book.id)} aria-label={selected ? `取消选择 ${book.title}` : `选择 ${book.title}`}><Check size={13} /></button> : null}
-      <button className="book-open" onClick={() => onOpen(book)}>
+      <button className="book-open" onClick={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); onToggleSelect?.(book.id); return } onOpen(book) }}>
         <span className={`book-cover ${coverSource ? 'has-image' : ''} ${!displayCover && defaultCover ? 'is-default' : ''}`} style={{ '--cover': COVER_COLORS[index % COVER_COLORS.length] }}>
           {coverSource ? <img src={coverSource} alt="" /> : <><span className="cover-rule" /><strong>{book.title}</strong><small>{book.format}</small></>}
         </span>
@@ -60,31 +59,32 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
   )
 }
 
-function BookManager({ book, categories, selectedCategory, onAssign, onRemove, onDeleteSource, onRelocate, onClose }) {
+function BookManager({ book, targets, categories, isCategorySelected, onAssign, onRemove, onDeleteSource, onRelocate, onClose }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const multi = targets.length > 1
   return (
     <div className="manager-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="book-manager" role="dialog" aria-modal="true" aria-label="整理书籍">
         <header>
-          <div><Tags size={17} /><strong>整理《{book.title}》</strong></div>
+          <div><Tags size={17} /><strong>{multi ? `整理 ${targets.length} 本书` : `整理《${book.title}》`}</strong></div>
           <button onClick={onClose} aria-label="关闭整理窗口"><X size={17} /></button>
         </header>
         <div className="manager-content">
           <label>放入分类</label>
           <div className="category-checklist">
-            <button className={!selectedCategory ? 'selected' : ''} onClick={() => onAssign('')}><span>未分类</span>{!selectedCategory ? <Check size={14} /> : null}</button>
+            <button className={isCategorySelected('') ? 'selected' : ''} onClick={() => onAssign('')}><span>未分类</span>{isCategorySelected('') ? <Check size={14} /> : null}</button>
             {categories.map((category) => (
-              <button key={category} className={selectedCategory === category ? 'selected' : ''} onClick={() => onAssign(category)}>
-                <span>{category}</span>{selectedCategory === category ? <Check size={14} /> : null}
+              <button key={category} className={isCategorySelected(category) ? 'selected' : ''} onClick={() => onAssign(category)}>
+                <span>{category}</span>{isCategorySelected(category) ? <Check size={14} /> : null}
               </button>
             ))}
           </div>
-          {!categories.length ? <p className="category-tip">请先在书架左侧创建分类，再把这本书放进去。</p> : null}
+          {!categories.length ? <p className="category-tip">请先在书架左侧创建分类，再把书放进去。</p> : null}
         </div>
         <footer className={confirmingDelete ? 'confirming-delete' : ''}>
           {confirmingDelete ? (
             <div className="delete-choice">
-              <div><strong>要如何删除这本书？</strong><span>删除源文件会将它移入 Windows 回收站。</span></div>
+              <div><strong>{multi ? `要如何删除这 ${targets.length} 本书？` : '要如何删除这本书？'}</strong><span>删除源文件会将它移入 Windows 回收站。</span></div>
               <div>
                 <button onClick={() => { onRemove(); onClose() }}>仅移出书架</button>
                 <button className="delete-source" onClick={async () => { if (await onDeleteSource() !== false) onClose() }}>删除源文件</button>
@@ -93,7 +93,7 @@ function BookManager({ book, categories, selectedCategory, onAssign, onRemove, o
             </div>
           ) : (
             <>
-              <div className="manager-footer-actions"><button onClick={onRelocate}><MapPin size={15} /> 重新定位</button><button className="remove-command" onClick={() => setConfirmingDelete(true)}><Trash2 size={15} /> 删除书籍</button></div>
+              <div className="manager-footer-actions">{multi ? null : <button onClick={onRelocate}><MapPin size={15} /> 重新定位</button>}<button className="remove-command" onClick={() => setConfirmingDelete(true)}><Trash2 size={15} /> 删除书籍</button></div>
               <span>删除前会询问是否保留源文件</span>
             </>
           )}
@@ -231,7 +231,7 @@ function LibraryBottomDock({ onOpenVirtualHome, onAddBooks, onToggleTheme, onNot
   )
 }
 
-export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onAddNote, onUpdateNote, onDeleteNote, onCreateNoteGroup, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, onOpenAppearance, onToggleTheme, appearanceTheme, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
+export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onAddNote, onUpdateNote, onDeleteNote, onCreateNoteGroup, onMoveNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, wheelMode, setWheelMode, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, onOpenAppearance, onToggleTheme, appearanceTheme, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
   const [view, setView] = useState(initialView)
   const rootRef = useRef(null)
 
@@ -261,12 +261,19 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const [selectedIds, setSelectedIds] = useState([])
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
-  const [reorderMode, setReorderMode] = useState(false)
   const [draggingBook, setDraggingBook] = useState('')
   const [bookDropState, setBookDropState] = useState(null)
+  // 整卡拖拽排序：pointerdown 先记候选，移动超过阈值才升级为拖拽，避免抢点击。
+  const dragCandidateRef = useRef(null)
+  const dragSuppressRef = useRef(false)
   useEffect(() => {
     if (!draggingBook) return undefined
-    const clear = () => { setDraggingBook(''); setBookDropState(null) }
+    const clear = () => {
+      setDraggingBook('')
+      setBookDropState(null)
+      // 吞点击标记只挡住紧随拖拽的那一次 click，随后自动解除。
+      setTimeout(() => { dragSuppressRef.current = false }, 0)
+    }
     window.addEventListener('pointerup', clear)
     window.addEventListener('pointercancel', clear)
     return () => { window.removeEventListener('pointerup', clear); window.removeEventListener('pointercancel', clear) }
@@ -312,9 +319,8 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   const isCustomCategory = categories.includes(activeCategory)
   const isAllBooks = activeCategory === '全部书籍'
   const isReorderableCategory = isAllBooks || isCustomCategory
-  useEffect(() => {
-    if (selecting || sortBy !== 'custom' || !isReorderableCategory) setReorderMode(false)
-  }, [isReorderableCategory, selecting, sortBy])
+  // 「全部书籍」与自定义分类支持直接拖拽排序；最近在读/未读是计算出的顺序，不可拖。
+  const dragReorderEnabled = !selecting && sortBy === 'custom' && isReorderableCategory
   const bookOrderKey = isAllBooks ? ALL_BOOKS_ORDER_KEY : activeCategory
   const filteredBooks = books.filter((book) => {
     const category = tagsMap[book.id]?.[0]
@@ -362,7 +368,6 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   }
 
   const selectCategory = (category) => {
-    setReorderMode(false)
     setActiveCategory(category)
     setSortBy(category === '全部书籍' || categories.includes(category) ? 'custom' : 'recent')
   }
@@ -375,8 +380,42 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     onRefresh?.()
   }
 
-  const assignCategory = (category) => setTagsMap((current) => ({ ...current, [managedBook.id]: category ? [category] : [] }))
   const toggleSelected = (id) => setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])
+  // 拖拽结束后紧接着的 click 要吞掉，否则拖完会误打开书。
+  const openBookFromCard = (book) => {
+    if (dragSuppressRef.current) { dragSuppressRef.current = false; return }
+    onOpen(book)
+  }
+  // 右键：落在多选里就走批量面板，否则清掉多选只整理这本。
+  const manageBook = (book) => {
+    if (!(selectedIds.length > 1 && selectedIds.includes(book.id))) setSelectedIds([])
+    setManagedBook(book)
+  }
+  const handleBookPointerDown = (event, id) => {
+    if (event.button !== 0) return
+    // 新一轮交互开始，清掉上一轮拖拽遗留的吞点击标记。
+    dragSuppressRef.current = false
+    const startX = event.clientX
+    const startY = event.clientY
+    dragCandidateRef.current = id
+    const move = (moveEvent) => {
+      if (!dragCandidateRef.current) return
+      if (Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) > 7) {
+        dragSuppressRef.current = true
+        setDraggingBook(dragCandidateRef.current)
+        dragCandidateRef.current = null
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+      }
+    }
+    const up = () => {
+      dragCandidateRef.current = null
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
   const selectedBooks = books.filter((book) => selectedIds.includes(book.id))
   const setSelectedStatus = (status) => setStatusMap((current) => ({ ...current, ...Object.fromEntries(selectedIds.map((id) => [id, status])) }))
   const removeSelected = () => {
@@ -431,12 +470,6 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
     setBookDropState(null)
   }
 
-  const moveBookByKeyboard = (source, delta) => {
-    const index = visibleBooks.findIndex((book) => book.id === source)
-    const target = visibleBooks[index + delta]
-    if (target) reorderBook(source, target.id, delta < 0 ? 'before' : 'after')
-  }
-
   return (
     <main className={`shelf-view library-design-view is-${view}`} ref={rootRef}>
       <section className="shelf-workspace">
@@ -451,7 +484,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         </div>
       </header>
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
-      {shortcutsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutsOpen(false)} /> : null}
+      {shortcutsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} wheelMode={wheelMode} setWheelMode={setWheelMode} onClose={() => setShortcutsOpen(false)} /> : null}
 
       {view === 'shelf' && lastBook ? (
         <button className="continue-reading" onClick={() => onOpen(lastBook)}>
@@ -461,19 +494,18 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         </button>
       ) : null}
 
-      {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onAddNote={onAddNote} onUpdateNote={onUpdateNote} onDeleteNote={onDeleteNote} onCreateGroup={onCreateNoteGroup} onExportNotes={onExportNotes} /> : books.length ? (
+      {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onAddNote={onAddNote} onUpdateNote={onUpdateNote} onDeleteNote={onDeleteNote} onCreateGroup={onCreateNoteGroup} onMoveNote={onMoveNote} onExportNotes={onExportNotes} /> : books.length ? (
         <div className="library-catalog">
           <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} onRename={renameCategory} />
           <section className="category-books">
             <div className="category-heading">
               <img src={managerChevronsIcon} alt="" />
               <strong>{visibleBooks.length}</strong><span>本</span>
-              {isReorderableCategory && !selecting ? <button className={`book-order-toggle ${reorderMode ? 'active' : ''}`} onClick={() => { setSortBy('custom'); setReorderMode((current) => !current) }} title={reorderMode ? '完成顺序调整' : '调整书籍顺序'} aria-label={reorderMode ? '完成顺序调整' : '调整书籍顺序'} aria-pressed={reorderMode}><Settings size={14} /></button> : null}
             </div>
             {selecting ? <div className="batch-bar"><span>已选 {selectedIds.length} 本</span><button onClick={() => setSelectedIds(visibleBooks.map((book) => book.id))}>全选当前结果</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('unread')}>设为未读</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('reading')}>设为阅读中</button><button disabled={!selectedIds.length} onClick={() => setSelectedStatus('finished')}>设为已读完</button><button className="danger" disabled={!selectedIds.length} onClick={removeSelected}>移出书架</button></div> : null}
             {visibleBooks.length ? (
               <div className="book-grid is-grid">
-                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : onOpen} onManage={setManagedBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} onToggle={toggleSelected} reordering={reorderMode && !selecting && sortBy === 'custom' && isReorderableCategory} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onDragStart={(event, id) => { event.dataTransfer.setData('text/book-id', id); event.dataTransfer.setData('text/plain', `book:${id}`); event.dataTransfer.effectAllowed = 'move'; setDraggingBook(id) }} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onDragEnd={() => { setDraggingBook(''); setBookDropState(null) }} onPointerStart={setDraggingBook} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} onKeyboardMove={moveBookByKeyboard} />)}
+                {visibleBooks.map((book, index) => <BookCover key={book.id} book={book} index={index} category={tagsMap[book.id]?.[0]} progress={progressMap[book.id]?.percent} customCover={coversMap[book.id]} defaultCover={defaultCover} coversReady={coversReady} onOpen={selecting ? () => toggleSelected(book.id) : openBookFromCard} onManage={manageBook} onEditCover={setCoverBook} selecting={selecting} selected={selectedIds.includes(book.id)} highlighted={!selecting && selectedIds.includes(book.id)} onToggle={toggleSelected} onToggleSelect={toggleSelected} reordering={dragReorderEnabled} dragging={draggingBook === book.id} dropPosition={bookDropState?.target === book.id ? bookDropState.position : ''} onPointerDownStart={handleBookPointerDown} onDragOver={handleBookDragOver} onDrop={handleBookDrop} onPointerMove={handleBookPointerMove} onPointerUp={handleBookPointerUp} />)}
               </div>
             ) : <div className="empty-filter">这个分类里还没有书</div>}
           </section>
@@ -485,7 +517,22 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
 
       <LibraryBottomDock onOpenVirtualHome={onOpenVirtualHome} onAddBooks={onAddBooks} onToggleTheme={onToggleTheme} onNotes={() => changeView('notes')} onOpenAppearance={onOpenAppearance} />
 
-      {managedBook ? <BookManager book={managedBook} categories={categories} selectedCategory={tagsMap[managedBook.id]?.[0] || ''} onAssign={assignCategory} onRemove={() => onRemove(managedBook)} onDeleteSource={() => onDeleteSource(managedBook)} onRelocate={async () => { if (await onRelocate(managedBook)) setManagedBook(null) }} onClose={() => setManagedBook(null)} /> : null}
+      {managedBook ? (() => {
+        const managedTargets = selectedIds.length > 1 && selectedIds.includes(managedBook.id) ? selectedBooks : [managedBook]
+        return (
+          <BookManager
+            book={managedBook}
+            targets={managedTargets}
+            categories={categories}
+            isCategorySelected={(category) => managedTargets.every((item) => (tagsMap[item.id]?.[0] || '') === category)}
+            onAssign={(category) => setTagsMap((current) => { const next = { ...current }; managedTargets.forEach((item) => { next[item.id] = category ? [category] : [] }); return next })}
+            onRemove={() => managedTargets.forEach(onRemove)}
+            onDeleteSource={async () => { for (const item of managedTargets) { if (await onDeleteSource(item) === false) return false } return true }}
+            onRelocate={async () => { if (await onRelocate(managedBook)) setManagedBook(null) }}
+            onClose={() => setManagedBook(null)}
+          />
+        )
+      })() : null}
       {coverBook ? (
         <CoverEditor
           book={coverBook}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Download, Image, X } from 'lucide-react'
+import { segmentByHighlights } from '../noteHighlights'
 
 const CARD_THEMES = [
   {
@@ -169,9 +170,8 @@ function createShareImage(note, book, author, theme) {
   context.font = `500 20px ${DISPLAY}`
   context.fillText('FROM', CONTENT_X, metaY - 35)
 
-  // 出处：手动摘录用自填出处（如《钓王》），否则用书书名。
-  const rawSource = note.source || `《${book.title}》`
-  const sourceTitle = rawSource.length > 28 ? `${rawSource.slice(0, 28)}…` : rawSource
+  // 出处：手动摘录用自填出处（如《钓王》），否则用书书名；有章节名时附上。
+  const sourceTitle = sourceLine(note, book)
   context.fillStyle = theme.ink
   context.font = `700 36px ${SERIF}`
   context.fillText(sourceTitle, CONTENT_X, metaY + 25)
@@ -194,32 +194,91 @@ function createShareImage(note, book, author, theme) {
   return canvas.toDataURL('image/png')
 }
 
-// ===== 手机长图：750px 宽（主流手机满宽查看时正文≈15pt），高度随文字自动伸长，底部出处 =====
+// ===== 手机长图：750px 宽（主流手机满宽查看时正文≈15pt），高度随文字自动伸长 =====
+// 排版规则：段首缩进两字符、1.6 倍行距、1.5 倍行距的段间距、非末行两端对齐、
+// 高亮用 700 粗华康宋、正文用 300 细华康宋；出处在右侧、距最后一行 2 倍行距，
+// 顶部留白与底部留白对称。
 const MOBILE_CARD_WIDTH = 750
 const MOBILE_CONTENT_X = 56
 const MOBILE_CONTENT_WIDTH = MOBILE_CARD_WIDTH - MOBILE_CONTENT_X * 2
 const MOBILE_FONT_SIZE = 30
-const MOBILE_LINE_HEIGHT = 57
+const MOBILE_LINE_HEIGHT = 48
+const MOBILE_PARAGRAPH_GAP = 72
+const MOBILE_SOURCE_GAP = MOBILE_LINE_HEIGHT * 2
+const MOBILE_LIGHT_FONT = `300 ${MOBILE_FONT_SIZE}px ${SERIF}`
+const MOBILE_BOLD_FONT = `700 ${MOBILE_FONT_SIZE}px ${SERIF}`
 
-function createMobileShareImage(note, book, author, theme) {
-  const canvas = document.createElement('canvas')
-  canvas.width = MOBILE_CARD_WIDTH
-  let context = canvas.getContext('2d')
-  const quote = note.text?.trim() || ' '
-  context.font = `500 ${MOBILE_FONT_SIZE}px ${SERIF}`
-  const lines = wrapText(context, quote, MOBILE_CONTENT_WIDTH)
-  const title = note.title ? (note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title) : ''
-  const rawSource = note.source || `《${book.title}》`
-  const sourceTitle = rawSource.length > 28 ? `${rawSource.slice(0, 28)}…` : rawSource
-  const authorLine = note.source ? '' : (author || '佚名')
+// 把文本按高亮分段后排版成行：首行缩进两字符，逐字测宽（带缓存）。
+function layoutRichText(context, text, highlights, width) {
+  const cache = new Map()
+  const measure = (character, hl) => {
+    const key = `${hl ? 1 : 0}${character}`
+    let cached = cache.get(key)
+    if (cached === undefined) {
+      context.font = hl ? MOBILE_BOLD_FONT : MOBILE_LIGHT_FONT
+      cached = context.measureText(character).width
+      cache.set(key, cached)
+    }
+    return cached
+  }
+  const paragraphs = []
+  let paragraphStart = 0
+  for (const raw of text.split('\n')) {
+    const items = []
+    for (const segment of segmentByHighlights(text, highlights, paragraphStart, paragraphStart + raw.length)) {
+      for (const character of segment.text) items.push({ character, hl: segment.highlighted, width: measure(character, segment.highlighted) })
+    }
+    paragraphStart += raw.length + 1
+    const lines = []
+    let line = []
+    let lineWidth = 0
+    let available = width - MOBILE_FONT_SIZE * 2
+    for (const item of items) {
+      if (lineWidth + item.width > available && line.length) {
+        lines.push({ items: line, width: lineWidth })
+        line = []
+        lineWidth = 0
+        available = width
+      }
+      line.push(item)
+      lineWidth += item.width
+    }
+    lines.push({ items: line, width: lineWidth })
+    paragraphs.push({ lines })
+  }
+  return paragraphs
+}
 
-  const quoteTop = 148 + (title ? 96 : 64)
-  const metaTop = quoteTop + lines.length * MOBILE_LINE_HEIGHT + 48
-  const canvasHeight = metaTop + 150 + 84
-  canvas.height = canvasHeight
-  context = canvas.getContext('2d')
+function richTextHeight(paragraphs) {
+  return paragraphs.reduce((sum, paragraph, index) => sum + paragraph.lines.length * MOBILE_LINE_HEIGHT + (index ? MOBILE_PARAGRAPH_GAP : 0), 0)
+}
 
-  // 背景：底色 + 左侧书脊条 + 噪点
+// 绘制排版好的段落，返回文字区底部 y。非末行两端对齐（字间均分多余宽度）。
+function drawRichText(context, paragraphs, x, top, width, ink) {
+  let cursor = top
+  context.fillStyle = ink
+  context.textBaseline = 'alphabetic'
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    paragraph.lines.forEach((line, lineIndex) => {
+      const indent = lineIndex === 0 ? MOBILE_FONT_SIZE * 2 : 0
+      const baseline = cursor + MOBILE_FONT_SIZE + 6
+      const isLastLine = lineIndex === paragraph.lines.length - 1
+      let dx = x + indent
+      const justifyGap = !isLastLine && line.items.length > 1 ? Math.max(0, (width - indent - line.width) / (line.items.length - 1)) : 0
+      for (const item of line.items) {
+        context.font = item.hl ? MOBILE_BOLD_FONT : MOBILE_LIGHT_FONT
+        context.fillText(item.character, dx, baseline)
+        dx += item.width + justifyGap
+      }
+      cursor += MOBILE_LINE_HEIGHT
+    })
+    if (paragraphIndex < paragraphs.length - 1) cursor += MOBILE_PARAGRAPH_GAP
+  })
+  return cursor
+}
+
+// 长图骨架：背景、书脊条、噪点、头部、顶部分隔线、页脚。
+function drawMobileChrome(context, theme, canvasHeight, heading) {
   context.fillStyle = theme.background
   context.fillRect(0, 0, MOBILE_CARD_WIDTH, canvasHeight)
   context.fillStyle = theme.surface
@@ -227,71 +286,122 @@ function createMobileShareImage(note, book, author, theme) {
   context.fillRect(17, 0, 3, canvasHeight)
   drawGrain(context, canvasHeight, theme.grain, MOBILE_CARD_WIDTH)
 
-  // 头部
   context.textAlign = 'left'
   context.fillStyle = theme.ink
   context.font = `700 27px ${SERIF}`
   context.fillText('墨读', MOBILE_CONTENT_X, 84)
   context.fillStyle = theme.muted
   context.font = `500 15px ${DISPLAY}`
-  context.fillText('READING NOTE', MOBILE_CONTENT_X, 116)
+  context.fillText(heading, MOBILE_CONTENT_X, 116)
   const topRule = context.createLinearGradient(MOBILE_CONTENT_X, 0, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, 0)
   topRule.addColorStop(0, theme.accent)
   topRule.addColorStop(1, theme.accentEnd)
   context.fillStyle = topRule
   context.fillRect(MOBILE_CONTENT_X, 148, MOBILE_CONTENT_WIDTH, 5)
 
-  // 备注标题
+  context.fillStyle = theme.muted
+  context.font = `500 13px ${DISPLAY}`
+  context.fillText('MOYU READER', MOBILE_CONTENT_X, canvasHeight - 42)
+  context.textAlign = 'right'
+  context.fillText('摘录 · 阅读 · 留存', MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, canvasHeight - 42)
+  context.textAlign = 'left'
+}
+
+function createMobileShareImage(note, book, author, theme) {
+  const canvas = document.createElement('canvas')
+  canvas.width = MOBILE_CARD_WIDTH
+  let context = canvas.getContext('2d')
+  const quote = note.text?.trim() || ' '
+  const paragraphs = layoutRichText(context, quote, note.highlights, MOBILE_CONTENT_WIDTH)
+  const title = note.title ? (note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title) : ''
+  const sourceTitle = sourceLine(note, book)
+  const authorLine = note.source ? '' : (author || '佚名')
+
+  const contentTop = 148 + MOBILE_SOURCE_GAP + (title ? 56 : 0)
+  const textBottom = contentTop + richTextHeight(paragraphs)
+  const sourceBaseline = textBottom + MOBILE_SOURCE_GAP
+  const canvasHeight = sourceBaseline + 34 + 84
+  canvas.height = canvasHeight
+  context = canvas.getContext('2d')
+
+  drawMobileChrome(context, theme, canvasHeight, 'READING NOTE')
+
   if (title) {
     context.fillStyle = theme.muted
     context.font = `600 21px ${DISPLAY}`
-    context.fillText(title, MOBILE_CONTENT_X, 148 + 48)
+    context.fillText(title, MOBILE_CONTENT_X, 148 + 62)
   }
 
   // 引号装饰 + 正文
   context.fillStyle = theme.accent
   context.globalAlpha = theme.id === 'dark' ? .52 : .38
   context.font = `700 92px ${SERIF}`
-  context.fillText('“', 18, quoteTop + 32)
+  context.fillText('“', 18, contentTop + 30)
   context.globalAlpha = 1
-  context.fillStyle = theme.ink
-  context.font = `500 ${MOBILE_FONT_SIZE}px ${SERIF}`
-  context.textBaseline = 'alphabetic'
-  lines.forEach((line, index) => context.fillText(line, MOBILE_CONTENT_X, quoteTop + 40 + index * MOBILE_LINE_HEIGHT))
+  drawRichText(context, paragraphs, MOBILE_CONTENT_X, contentTop, MOBILE_CONTENT_WIDTH, theme.ink)
 
-  // 底部出处
-  context.fillStyle = theme.accent
-  context.fillRect(MOBILE_CONTENT_X, metaTop, MOBILE_CONTENT_WIDTH, 4)
-  context.fillStyle = theme.surface
-  context.fillRect(MOBILE_CONTENT_X, metaTop + 4, MOBILE_CONTENT_WIDTH, 2)
-  context.fillStyle = theme.muted
-  context.font = `500 14px ${DISPLAY}`
-  context.fillText('FROM', MOBILE_CONTENT_X, metaTop + 48)
-  context.fillStyle = theme.ink
-  context.font = `700 27px ${SERIF}`
-  context.fillText(sourceTitle, MOBILE_CONTENT_X, metaTop + 92)
-  context.fillStyle = theme.muted
-  context.font = `400 18px ${SERIF}`
-  if (authorLine) context.fillText(authorLine, MOBILE_CONTENT_X, metaTop + 128)
+  // 出处：右对齐，距最后一行 2 倍行距；作者与日期在其下一行。
   context.textAlign = 'right'
-  context.font = `500 16px ${DISPLAY}`
-  context.fillText(formatDate(note.createdAt), MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, metaTop + 128)
-
-  // 页脚
+  context.fillStyle = theme.ink
+  context.font = `700 22px ${SERIF}`
+  context.fillText(`—— ${sourceTitle}`, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline)
+  context.fillStyle = theme.muted
+  context.font = `500 15px ${DISPLAY}`
+  context.fillText(`${authorLine ? `${authorLine} · ` : ''}${formatDate(note.createdAt)}`, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline + 32)
   context.textAlign = 'left'
-  context.fillStyle = theme.muted
-  context.font = `500 13px ${DISPLAY}`
-  context.fillText('MOYU READER', MOBILE_CONTENT_X, canvasHeight - 42)
-  context.textAlign = 'right'
-  context.fillText('摘录 · 阅读 · 留存', MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, canvasHeight - 42)
   return canvas.toDataURL('image/png')
 }
 
-export default function ShareNoteModal({ note, book, appearanceTheme = 'mist', onClose }) {
+// 出处行：自填出处（如《钓王》）或书书名，有章节名时附上章节。
+function sourceLine(note, book, maxLength = 28) {
+  const raw = `${note.source || `《${book.title}》`}${note.chapter ? ` · ${note.chapter}` : ''}`
+  return raw.length > maxLength ? `${raw.slice(0, maxLength)}…` : raw
+}
+
+// 多条摘录合并长图（手机格式）：逐条摘录（同样的排版规则）+ 各自右侧出处。
+function createMobileMultiShareImage(items, theme) {
+  const canvas = document.createElement('canvas')
+  canvas.width = MOBILE_CARD_WIDTH
+  let context = canvas.getContext('2d')
+  const blocks = items.map(({ note, book }) => {
+    const paragraphs = layoutRichText(context, note.text?.trim() || ' ', note.highlights, MOBILE_CONTENT_WIDTH)
+    const title = note.title ? (note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title) : ''
+    return { paragraphs, source: sourceLine(note, book, 34), title }
+  })
+  // 单块高度 = 标题(56) + 正文 + 出处(2 倍行距 + 20)
+  const measureBlock = (block) => (block.title ? 56 : 0) + richTextHeight(block.paragraphs) + MOBILE_SOURCE_GAP + 20
+  const canvasHeight = 148 + MOBILE_SOURCE_GAP + blocks.reduce((sum, block) => sum + measureBlock(block), 0) + 64
+  canvas.height = canvasHeight
+  context = canvas.getContext('2d')
+
+  drawMobileChrome(context, theme, canvasHeight, 'READING NOTES')
+
+  let y = 148 + MOBILE_SOURCE_GAP
+  blocks.forEach((block) => {
+    if (block.title) {
+      context.fillStyle = theme.muted
+      context.font = `600 21px ${DISPLAY}`
+      context.fillText(block.title, MOBILE_CONTENT_X, y + 26)
+      y += 56
+    }
+    const textBottom = drawRichText(context, block.paragraphs, MOBILE_CONTENT_X, y, MOBILE_CONTENT_WIDTH, theme.ink)
+    const sourceBaseline = textBottom + MOBILE_SOURCE_GAP
+    context.textAlign = 'right'
+    context.fillStyle = theme.muted
+    context.font = `500 17px ${DISPLAY}`
+    context.fillText(`—— ${block.source}`, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline)
+    context.textAlign = 'left'
+    y = sourceBaseline + 20
+  })
+  return canvas.toDataURL('image/png')
+}
+
+export default function ShareNoteModal({ note, book, items, appearanceTheme = 'mist', onClose }) {
+  const isMulti = Array.isArray(items) && items.length > 1
   const preferredTheme = appearanceTheme === 'night' ? 'dark' : 'light'
   const [author, setAuthor] = useState(book.author || '佚名')
   const [themeId, setThemeId] = useState(preferredTheme)
-  const [format, setFormat] = useState('card')
+  const [format, setFormat] = useState(isMulti ? 'mobile' : 'card')
   const [imageUrl, setImageUrl] = useState('')
   const [savedPath, setSavedPath] = useState('')
   const theme = useMemo(() => CARD_THEMES.find((item) => item.id === themeId) || CARD_THEMES[0], [themeId])
@@ -303,17 +413,21 @@ export default function ShareNoteModal({ note, book, appearanceTheme = 'mist', o
         await Promise.all([
           document.fonts.load(`500 64px ${SERIF}`),
           document.fonts.load(`500 22px ${DISPLAY}`),
+          document.fonts.load(MOBILE_LIGHT_FONT),
+          document.fonts.load(MOBILE_BOLD_FONT),
         ])
       }
       if (!cancelled) {
-        setImageUrl(format === 'mobile'
-          ? createMobileShareImage(note, book, author.trim() || '佚名', theme)
-          : createShareImage(note, book, author.trim() || '佚名', theme))
+        setImageUrl(isMulti
+          ? createMobileMultiShareImage(items, theme)
+          : format === 'mobile'
+            ? createMobileShareImage(note, book, author.trim() || '佚名', theme)
+            : createShareImage(note, book, author.trim() || '佚名', theme))
       }
     }
     render()
     return () => { cancelled = true }
-  }, [author, book, format, note, theme])
+  }, [author, book, format, isMulti, items, note, theme])
 
   useEffect(() => {
     const handleKeyDown = (event) => { if (event.key === 'Escape') onClose() }
@@ -341,10 +455,12 @@ export default function ShareNoteModal({ note, book, appearanceTheme = 'mist', o
         <div className="share-body">
           <div className="share-preview">{imageUrl ? <img src={imageUrl} alt={`${theme.name}阅读笔记分享卡片预览`} /> : <span>正在生成预览...</span>}</div>
           <div className="share-fields">
-            <div className="format-picker" role="group" aria-label="分享图格式">
-              <button className={format === 'card' ? 'active' : ''} onClick={() => selectFormat('card')} aria-pressed={format === 'card'}>书房卡片<span>1200×1600 方图</span></button>
-              <button className={format === 'mobile' ? 'active' : ''} onClick={() => selectFormat('mobile')} aria-pressed={format === 'mobile'}>手机长图<span>750 宽 · 高度自适应</span></button>
-            </div>
+            {isMulti ? <p className="multi-share-hint">已选 {items.length} 条摘录，合并为手机长图，每条注明出处</p> : (
+              <div className="format-picker" role="group" aria-label="分享图格式">
+                <button className={format === 'card' ? 'active' : ''} onClick={() => selectFormat('card')} aria-pressed={format === 'card'}>书房卡片<span>1200×1600 方图</span></button>
+                <button className={format === 'mobile' ? 'active' : ''} onClick={() => selectFormat('mobile')} aria-pressed={format === 'mobile'}>手机长图<span>750 宽 · 高度自适应</span></button>
+              </div>
+            )}
             <div className="theme-picker" role="group" aria-label="分享卡片主题">
               {CARD_THEMES.map((item) => (
                 <button key={item.id} className={themeId === item.id ? 'active' : ''} onClick={() => selectTheme(item.id)} aria-pressed={themeId === item.id}>
@@ -353,8 +469,8 @@ export default function ShareNoteModal({ note, book, appearanceTheme = 'mist', o
                 </button>
               ))}
             </div>
-            <label>出处<input value={note.source || `《${book.title}》`} readOnly /></label>
-            {note.source ? null : <label>作者<input value={author} maxLength={30} onChange={(event) => { setSavedPath(''); setAuthor(event.target.value) }} /></label>}
+            {isMulti ? null : <label>出处<input value={note.source || `《${book.title}》`} readOnly /></label>}
+            {isMulti || note.source ? null : <label>作者<input value={author} maxLength={30} onChange={(event) => { setSavedPath(''); setAuthor(event.target.value) }} /></label>}
             <button className="save-share" disabled={!imageUrl} onClick={save}><Download size={16} /> {imageUrl ? '保存 PNG' : '正在生成'}</button>
             {savedPath ? <p title={savedPath}>已保存到 {savedPath}</p> : null}
           </div>

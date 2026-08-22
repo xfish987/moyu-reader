@@ -221,7 +221,8 @@ function hasReadableContent(document) {
   return Boolean(visibleBodyText(body))
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollectIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, wheelMode = 'page', onProgress, onChapters, onShortcut, onWheel, onCollectIntent, onShareIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
+  const scrollMode = wheelMode === 'scroll'
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -275,9 +276,10 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     const rendition = book.renderTo(hostRef.current, {
       width: '100%',
       height: '100%',
-      flow: 'paginated',
+      // 滚动文字模式：连续垂直滚动文档；翻页模式保持分页。
+      flow: scrollMode ? 'scrolled-doc' : 'paginated',
       spread: 'none',
-      manager: 'default',
+      manager: scrollMode ? 'continuous' : 'default',
     })
     rendition.hooks.content.register((contents) => {
       installReaderFonts(contents.document)
@@ -443,7 +445,8 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
       if (!boundViewDocuments.has(view.document)) {
         boundViewDocuments.add(view.document)
         view.document.addEventListener('keydown', (event) => shortcutRef.current(event))
-        view.document.addEventListener('wheel', (event) => wheelCallbackRef.current?.(event), { passive: false })
+        // 滚动文字模式让 iframe 原生滚动；翻页模式滚轮接管翻页。
+        if (!scrollMode) view.document.addEventListener('wheel', (event) => wheelCallbackRef.current?.(event), { passive: false })
         // iframe 内点击不冒泡到外层，面板“点击外部关闭”需要这里兜底。
         view.document.addEventListener('click', () => dismissPanelRef.current?.())
         view.document.addEventListener('contextmenu', async (event) => {
@@ -457,6 +460,10 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
           if (action === 'note') {
             // 收藏改为由 ReaderView 弹出 CollectNoteModal（高亮编辑 + 备注 + 标签）。
             onCollectIntent?.(payload)
+            closeSelectionPopup()
+          } else if (action === 'share') {
+            // 直接分享：生成分享图，不写入笔记。
+            onShareIntent?.(payload)
             closeSelectionPopup()
           }
           else if (action === 'dictionary') onLookupDict?.(payload)

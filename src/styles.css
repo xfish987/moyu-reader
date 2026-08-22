@@ -478,6 +478,10 @@ button:focus-visible, input:focus-visible {
 }
 .book-item:hover .cover-edit, .cover-edit:focus-visible { opacity: 1; }
 .cover-edit:hover { background: var(--surface); color: var(--accent); }
+.book-item.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.wheel-mode-toggle { display: flex; gap: 4px; }
+.wheel-mode-toggle button { height: 28px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
+.wheel-mode-toggle button.active { border-color: var(--accent-tint); background: var(--accent-bg); color: var(--accent-tint); }
 .book-tag { position: absolute; left: 3px; bottom: -17px; max-width: calc(100% - 6px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent-tint); font-size: var(--text-xs); }
 .empty-filter { max-width: 1120px; margin: 70px auto; color: var(--ink-3); font: 300 var(--text-sm)/1.6 var(--font-ui); text-align: center; }
 
@@ -499,7 +503,6 @@ button:focus-visible, input:focus-visible {
 .note-book-group > header .export-notes:hover { background: var(--paper-2); color: var(--accent-tint); }
 .quote-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .quote-card { position: relative; min-height: 170px; padding: 23px 22px 15px; border: 1px solid var(--line); border-radius: var(--r-md); display: flex; flex-direction: column; background: var(--surface); }
-.quote-mark { margin-bottom: 13px; color: var(--accent-tint); }
 .quote-card blockquote { margin: 0 0 18px; display: -webkit-box; overflow: hidden; color: var(--ink); font: 16px/1.85 var(--font-serif); -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
 .quote-comment { margin: -8px 0 14px; padding: 7px 10px; border-left: 2px solid var(--note-line); border-radius: 0 4px 4px 0; background: var(--note-bg); color: var(--note); font-size: var(--text-sm); line-height: 1.65; }
 .quote-card footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
@@ -537,8 +540,13 @@ button:focus-visible, input:focus-visible {
 .quote-grid.is-list .quote-card blockquote { -webkit-line-clamp: 3; }
 .quote-card { cursor: pointer; transition: border-color var(--t-fast) ease, box-shadow var(--t-fast) ease; }
 .quote-card:hover { border-color: var(--accent-tint); box-shadow: 0 6px 18px rgba(23, 29, 26, .08); }
+.quote-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg), 0 6px 18px rgba(23, 29, 26, .1); }
 .quote-card blockquote .quote-dim { opacity: .32; }
 .quote-card blockquote .quote-hl { font-weight: 500; }
+/* 三段式高亮节选：上一行灰 / 高亮块独立成行 / 下一行灰 */
+.quote-card blockquote.has-hl { display: block; overflow: hidden; -webkit-line-clamp: unset; -webkit-box-orient: unset; }
+.quote-card blockquote .quote-context { display: block; overflow: hidden; text-overflow: clip; white-space: nowrap; }
+.quote-card blockquote .quote-hl-body { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .quote-title { margin: -8px 0 12px; color: var(--ink); font: 600 var(--text-sm)/1.5 var(--font-ui); }
 .quote-tags { margin: -4px 0 12px; display: flex; flex-wrap: wrap; gap: 5px; }
 .quote-tag { min-height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
@@ -574,6 +582,20 @@ button:focus-visible, input:focus-visible {
 .highlight-menu { position: fixed; z-index: 60; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); box-shadow: 0 10px 30px rgba(23, 29, 26, .2); }
 .highlight-menu button { height: 30px; padding: 0 12px; border: 0; border-radius: 3px; display: flex; align-items: center; gap: 6px; background: transparent; color: var(--ink); font-size: var(--text-xs); cursor: pointer; }
 .highlight-menu button:hover { background: var(--accent-bg); color: var(--accent-tint); }
+.hl-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.hl-editor-bar { height: 34px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; }
+.hl-editor-bar > span { color: var(--ink-3); font-size: var(--text-xs); }
+.hl-editor-bar > button { height: 26px; padding: 0 9px; border: 0; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 5px; background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
+.hl-editor-bar > button:hover { background: var(--paper-2); color: var(--accent-tint); }
+.hl-editor-bar > button:disabled { opacity: .4; cursor: default; }
+.add-custom-note.is-highlight-step { width: min(680px, calc(100vw - 40px)); max-height: calc(100vh - 120px); display: flex; flex-direction: column; }
+.context-menu-layer { position: fixed; z-index: 55; inset: 0; }
+.card-context-menu { position: fixed; z-index: 56; min-width: 168px; max-height: 300px; overflow-y: auto; padding: 5px; border: 1px solid var(--line); border-radius: var(--r-sm); display: grid; gap: 1px; background: var(--surface); box-shadow: 0 12px 34px rgba(23, 29, 26, .24); }
+.card-context-menu .menu-heading { padding: 6px 10px 3px; color: var(--ink-3); font-size: var(--text-xs); }
+.card-context-menu button { min-height: 28px; padding: 0 10px; border: 0; border-radius: 3px; display: flex; align-items: center; gap: 6px; background: transparent; color: var(--ink); font-size: var(--text-xs); text-align: left; cursor: pointer; }
+.card-context-menu button:hover { background: var(--accent-bg); color: var(--accent-tint); }
+.card-context-menu button:disabled { color: var(--ink-3); cursor: default; }
+.card-context-menu button:disabled:hover { background: transparent; }
 
 /* ===== 标签编辑器 ===== */
 .tag-editor { min-height: 36px; padding: 4px 6px; border: 1px solid var(--line); border-radius: var(--r-sm); display: flex; flex-wrap: wrap; align-items: center; gap: 5px; background: var(--surface); }
@@ -657,6 +679,7 @@ button:focus-visible, input:focus-visible {
 .format-picker button span { color: var(--b-ink-3, var(--ink-3)); font: 400 10px/1.2 var(--font-ui); }
 .format-picker button:hover { background: var(--b-surface-muted, var(--paper-2)); }
 .format-picker button.active { border-color: var(--b-accent, var(--accent)); background: var(--b-accent-soft, var(--accent-bg)); color: var(--b-ink, var(--ink)); }
+.multi-share-hint { margin: 0; padding: 10px 12px; border: 1px dashed var(--b-line-strong, var(--line)); border-radius: 5px; color: var(--b-ink-2, var(--ink-2)); font-size: 11px; line-height: 1.6; }
 .theme-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .theme-picker button { min-width: 0; height: 96px; padding: 8px; border: 1px solid var(--b-line-strong, var(--line)); border-radius: 5px; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 10px; background: transparent; color: var(--b-ink-2, var(--ink-2)); cursor: pointer; }
 .theme-picker button:hover { background: var(--b-surface-muted, var(--paper-2)); }
@@ -912,6 +935,10 @@ button:focus-visible, input:focus-visible {
 .text-columns.is-reflowing { visibility: hidden; }
 .text-columns.is-ready { visibility: visible; }
 .text-viewport.is-reflowing::after { content: ''; position: absolute; z-index: 7; inset: 0; background: var(--reader-bg); pointer-events: none; }
+/* 滚动文字模式：单栏垂直排版，滚轮原生滚动 */
+.text-viewport.is-scroll { overflow-x: hidden; overflow-y: auto; }
+.text-viewport.is-scroll .text-columns { height: auto; min-height: 100%; column-width: auto; column-gap: 0; }
+.text-viewport.is-scroll .text-columns h2 { break-before: auto; column-break-before: auto; }
 .reader-view.is-immersive .text-columns { padding-block: 6vh; }
 .selection-popup, .note-popup {
   position: absolute;
