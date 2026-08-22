@@ -76,6 +76,7 @@ const STORE_KEYS = new Set([
   'reader:tags',
   'reader:categories',
   'reader:notes',
+  'reader:note-source-presets',
   'reader:covers',
   'reader:pinned',
   'reader:shortcuts',
