@@ -37,30 +37,6 @@ const DISPLAY = SERIF
 const PROHIBITED_LINE_START = new Set([...`、。，．！？：；）〕］｝〉》」』】〙〗〟’”ァィゥェォッャュョヮヵヶぁぃぅぇぉっゃゅょゎ々ー〜…‥`])
 const PROHIBITED_LINE_END = new Set([...`（〔［｛〈《「『【〘〖〝‘“`])
 
-function wrapText(context, text, maxWidth) {
-  const lines = []
-  let line = ''
-  for (const character of text) {
-    if (character === '\n') {
-      lines.push(line)
-      line = ''
-      continue
-    }
-    const candidate = line + character
-    if (context.measureText(candidate).width > maxWidth && line && !PROHIBITED_LINE_START.has(character)) {
-      let carry = ''
-      while (line && PROHIBITED_LINE_END.has(line.at(-1))) {
-        carry = line.at(-1) + carry
-        line = line.slice(0, -1)
-      }
-      if (line) lines.push(line)
-      line = carry + character
-    } else line = candidate
-  }
-  if (line || !lines.length) lines.push(line)
-  return lines
-}
-
 function drawGrain(context, height, color, width = CARD_WIDTH) {
   let seed = 47
   for (let index = 0; index < Math.round(height * 1.25); index += 1) {
@@ -111,18 +87,6 @@ function drawCardBackground(context, theme, height) {
   drawBookMark(context, theme)
 }
 
-function getQuoteLayout(context, quote) {
-  const length = [...quote].length
-  let size = Math.max(42, 70 - Math.max(0, Math.min(120, length - 38)) * .22)
-  let lines = []
-  for (; size >= 42; size -= 2) {
-    context.font = `500 ${size}px ${SERIF}`
-    lines = wrapText(context, quote, CONTENT_WIDTH - 54)
-    if (lines.length <= 7) break
-  }
-  return { size, lines, lineHeight: Math.round(size * 1.68) }
-}
-
 function formatDate(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -132,17 +96,16 @@ function formatDate(value) {
 function createShareImage(note, book, author, theme) {
   const canvas = document.createElement('canvas')
   canvas.width = CARD_WIDTH
-  canvas.height = BASE_CARD_HEIGHT
+  canvas.height = 1
   let context = canvas.getContext('2d')
   const quote = note.text?.trim() || ' '
-  const initialLayout = getQuoteLayout(context, quote)
-  const overflowLines = Math.max(0, initialLayout.lines.length - 7)
-  const canvasHeight = BASE_CARD_HEIGHT + overflowLines * initialLayout.lineHeight
-  if (canvasHeight !== canvas.height) {
-    canvas.height = canvasHeight
-    context = canvas.getContext('2d')
-  }
-  const layout = getQuoteLayout(context, quote)
+  const paragraphs = layoutRichText(context, quote, note.highlights, CONTENT_WIDTH, CARD_TYPE)
+  const title = note.title ? (note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title) : ''
+  const contentTop = 238 + 118 + (title ? 72 : 0)
+  const textBottom = contentTop + richTextHeight(paragraphs, CARD_TYPE)
+  const canvasHeight = Math.max(BASE_CARD_HEIGHT, textBottom + 430)
+  canvas.height = canvasHeight
+  context = canvas.getContext('2d')
 
   drawCardBackground(context, theme, canvasHeight)
 
@@ -154,7 +117,7 @@ function createShareImage(note, book, author, theme) {
   context.font = `500 22px ${DISPLAY}`
   context.fillText('READING NOTE', CONTENT_X, 184)
 
-  const quoteTop = overflowLines ? 370 : Math.max(405, 700 - (layout.lines.length * layout.lineHeight) / 2)
+  const quoteTop = contentTop
   context.fillStyle = theme.accent
   context.globalAlpha = theme.id === 'dark' ? .52 : .38
   context.font = `700 178px ${SERIF}`
@@ -162,16 +125,14 @@ function createShareImage(note, book, author, theme) {
   context.globalAlpha = 1
 
   // 备注标题（若有）绘制在摘录上方小字。
-  if (note.title) {
+  if (title) {
     context.fillStyle = theme.muted
     context.font = `500 23px ${DISPLAY}`
-    context.fillText(note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title, CONTENT_X, quoteTop + 58)
+    context.fillText(title, CONTENT_X, 238 + 86)
   }
 
-  context.fillStyle = theme.ink
-  context.font = `500 ${layout.size}px ${SERIF}`
-  context.textBaseline = 'alphabetic'
-  layout.lines.forEach((line, index) => context.fillText(line, CONTENT_X, quoteTop + 110 + index * layout.lineHeight))
+  // 正文版心与顶部横线完全同宽：首行缩进两字、非末行两端对齐、段距 1.5 行。
+  drawRichText(context, paragraphs, CONTENT_X, quoteTop, CONTENT_WIDTH, theme.ink, CARD_TYPE)
 
   const metaY = canvasHeight - 296
   context.fillStyle = theme.muted
@@ -211,19 +172,35 @@ const MOBILE_CONTENT_X = 56
 const MOBILE_CONTENT_WIDTH = MOBILE_CARD_WIDTH - MOBILE_CONTENT_X * 2
 const MOBILE_FONT_SIZE = 30
 const MOBILE_LINE_HEIGHT = 48
-const MOBILE_PARAGRAPH_GAP = 72
+// 段间基线距离为 1.5 行：常规换行已占 1 行，因此这里只追加 0.5 行。
+const MOBILE_PARAGRAPH_GAP = MOBILE_LINE_HEIGHT * .5
 const MOBILE_SOURCE_GAP = MOBILE_LINE_HEIGHT * 2
 const MOBILE_LIGHT_FONT = `300 ${MOBILE_FONT_SIZE}px ${SERIF}`
 const MOBILE_BOLD_FONT = `700 ${MOBILE_FONT_SIZE}px ${SERIF}`
+const MOBILE_TYPE = {
+  fontSize: MOBILE_FONT_SIZE,
+  lineHeight: MOBILE_LINE_HEIGHT,
+  paragraphGap: MOBILE_PARAGRAPH_GAP,
+  lightFont: MOBILE_LIGHT_FONT,
+  boldFont: MOBILE_BOLD_FONT,
+}
+const CARD_FONT_SIZE = 52
+const CARD_TYPE = {
+  fontSize: CARD_FONT_SIZE,
+  lineHeight: 84,
+  paragraphGap: 42,
+  lightFont: `300 ${CARD_FONT_SIZE}px ${SERIF}`,
+  boldFont: `700 ${CARD_FONT_SIZE}px ${SERIF}`,
+}
 
 // 把文本按高亮分段后排版成行：首行缩进两字符，逐字测宽（带缓存）。
-function layoutRichText(context, text, highlights, width) {
+function layoutRichText(context, text, highlights, width, type = MOBILE_TYPE) {
   const cache = new Map()
   const measure = (character, hl) => {
     const key = `${hl ? 1 : 0}${character}`
     let cached = cache.get(key)
     if (cached === undefined) {
-      context.font = hl ? MOBILE_BOLD_FONT : MOBILE_LIGHT_FONT
+      context.font = hl ? type.boldFont : type.lightFont
       cached = context.measureText(character).width
       cache.set(key, cached)
     }
@@ -240,7 +217,7 @@ function layoutRichText(context, text, highlights, width) {
     const lines = []
     let line = []
     let lineWidth = 0
-    let available = width - MOBILE_FONT_SIZE * 2
+    let available = width - type.fontSize * 2
     for (const item of items) {
       if (lineWidth + item.width > available && line.length && !PROHIBITED_LINE_START.has(item.character)) {
         const carry = []
@@ -260,30 +237,30 @@ function layoutRichText(context, text, highlights, width) {
   return paragraphs
 }
 
-function richTextHeight(paragraphs) {
-  return paragraphs.reduce((sum, paragraph, index) => sum + paragraph.lines.length * MOBILE_LINE_HEIGHT + (index ? MOBILE_PARAGRAPH_GAP : 0), 0)
+function richTextHeight(paragraphs, type = MOBILE_TYPE) {
+  return paragraphs.reduce((sum, paragraph, index) => sum + paragraph.lines.length * type.lineHeight + (index ? type.paragraphGap : 0), 0)
 }
 
 // 绘制排版好的段落，返回文字区底部 y。非末行两端对齐（字间均分多余宽度）。
-function drawRichText(context, paragraphs, x, top, width, ink) {
+function drawRichText(context, paragraphs, x, top, width, ink, type = MOBILE_TYPE) {
   let cursor = top
   context.fillStyle = ink
   context.textBaseline = 'alphabetic'
   paragraphs.forEach((paragraph, paragraphIndex) => {
     paragraph.lines.forEach((line, lineIndex) => {
-      const indent = lineIndex === 0 ? MOBILE_FONT_SIZE * 2 : 0
-      const baseline = cursor + MOBILE_FONT_SIZE + 6
+      const indent = lineIndex === 0 ? type.fontSize * 2 : 0
+      const baseline = cursor + type.fontSize + Math.round(type.fontSize * .2)
       const isLastLine = lineIndex === paragraph.lines.length - 1
       let dx = x + indent
       const justifyGap = !isLastLine && line.items.length > 1 ? Math.max(0, (width - indent - line.width) / (line.items.length - 1)) : 0
       for (const item of line.items) {
-        context.font = item.hl ? MOBILE_BOLD_FONT : MOBILE_LIGHT_FONT
+        context.font = item.hl ? type.boldFont : type.lightFont
         context.fillText(item.character, dx, baseline)
         dx += item.width + justifyGap
       }
-      cursor += MOBILE_LINE_HEIGHT
+      cursor += type.lineHeight
     })
-    if (paragraphIndex < paragraphs.length - 1) cursor += MOBILE_PARAGRAPH_GAP
+    if (paragraphIndex < paragraphs.length - 1) cursor += type.paragraphGap
   })
   return cursor
 }
@@ -424,6 +401,8 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
         await Promise.all([
           document.fonts.load(`500 64px ${SERIF}`),
           document.fonts.load(`500 22px ${DISPLAY}`),
+          document.fonts.load(CARD_TYPE.lightFont),
+          document.fonts.load(CARD_TYPE.boldFont),
           document.fonts.load(MOBILE_LIGHT_FONT),
           document.fonts.load(MOBILE_BOLD_FONT),
         ])
