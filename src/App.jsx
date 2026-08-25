@@ -328,18 +328,43 @@ export default function App() {
     }
   }
 
-  const handleFileDragEnter = (event) => {
-    if (![...(event.dataTransfer?.types || [])].includes('Files')) return
-    event.preventDefault()
-    fileDragDepthRef.current += 1
-    setFileDragActive(true)
-  }
-
-  const handleFileDragLeave = (event) => {
-    if (![...(event.dataTransfer?.types || [])].includes('Files')) return
-    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1)
-    if (!fileDragDepthRef.current) setFileDragActive(false)
-  }
+  // Electron/Windows can route a native file drag through window chrome or an
+  // overlay before it reaches the React root. Capture it at window level so the
+  // whole client area is a drop target, including reader margins and panels.
+  useEffect(() => {
+    const hasFiles = (event) => [...(event.dataTransfer?.types || [])].includes('Files')
+    const enter = (event) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      fileDragDepthRef.current += 1
+      setFileDragActive(true)
+    }
+    const over = (event) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    }
+    const leave = (event) => {
+      if (!hasFiles(event)) return
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1)
+      if (!fileDragDepthRef.current) setFileDragActive(false)
+    }
+    const drop = (event) => {
+      if (!hasFiles(event)) return
+      event.stopPropagation()
+      handleDrop(event)
+    }
+    window.addEventListener('dragenter', enter, true)
+    window.addEventListener('dragover', over, true)
+    window.addEventListener('dragleave', leave, true)
+    window.addEventListener('drop', drop, true)
+    return () => {
+      window.removeEventListener('dragenter', enter, true)
+      window.removeEventListener('dragover', over, true)
+      window.removeEventListener('dragleave', leave, true)
+      window.removeEventListener('drop', drop, true)
+    }
+  })
 
   const openBookAtNote = async (book, note) => {
     setPendingNote(note)
@@ -564,7 +589,7 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragEnter={handleFileDragEnter} onDragLeave={handleFileDragLeave} onDragOver={(event) => { if ([...(event.dataTransfer?.types || [])].includes('Files')) event.preventDefault() }} onDrop={handleDrop}>
+    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${fileDragActive ? 'is-file-dragging' : ''} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
       {fileDragActive ? <div className="book-file-drop" aria-live="polite"><div><strong>松开即可阅读</strong><span>TXT / EPUB 会加入书架并立即打开</span></div></div> : null}
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}

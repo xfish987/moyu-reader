@@ -166,20 +166,27 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     if (!scrollMode) return undefined
     const viewport = viewportRef.current
     if (!viewport) return undefined
+    const visibleLineRects = () => {
+      const viewportRect = viewport.getBoundingClientRect()
+      const nodes = contentRef.current?.querySelectorAll('[data-paragraph]') || []
+      const rects = []
+      for (const element of nodes) {
+        const box = element.getBoundingClientRect()
+        if (box.bottom < viewportRect.top - 2) continue
+        if (box.top > viewportRect.bottom + 2) break
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 && rect.height > 0) rects.push(rect)
+        }
+      }
+      return rects
+    }
     const alignFirstLine = () => {
       if (viewport.scrollTop <= 1) return
-      const x = viewport.getBoundingClientRect().left + Math.min(40, viewport.clientWidth / 2)
-      const y = viewport.getBoundingClientRect().top + 2
-      const range = document.caretRangeFromPoint?.(x, y)
-      const node = range?.startContainer
-      if (!node || node.nodeType !== Node.TEXT_NODE || !contentRef.current?.contains(node)) return
-      const offset = Math.min(range.startOffset, Math.max(0, node.length - 1))
-      const glyph = document.createRange()
-      glyph.setStart(node, offset)
-      glyph.setEnd(node, Math.min(node.length, offset + 1))
-      const rect = glyph.getClientRects()[0]
       const viewportTop = viewport.getBoundingClientRect().top
-      if (rect && rect.top < viewportTop - .5) viewport.scrollTop += rect.top - viewportTop
+      const clipped = visibleLineRects().find((rect) => rect.top < viewportTop - .5 && rect.bottom > viewportTop + .5)
+      if (clipped) viewport.scrollTop += clipped.top - viewportTop
     }
     const fitLastLine = () => {
       // Start from the full shell on every settled position, then place its
@@ -189,22 +196,9 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
         const viewportBottom = viewport.getBoundingClientRect().bottom
         if (!viewportBottom) return
         let guard = 0
-        const nodes = contentRef.current.querySelectorAll('[data-paragraph]')
-        const targetY = viewport.scrollTop + viewport.clientHeight
-        let low = 0
-        let high = nodes.length
-        while (low < high) {
-          const middle = (low + high) >> 1
-          const node = nodes[middle]
-          if (node.offsetTop + node.offsetHeight <= targetY) low = middle + 1
-          else high = middle
-        }
-        const candidates = [nodes[low - 1], nodes[low], nodes[low + 1]].filter(Boolean)
-        for (const element of candidates) {
-          const range = document.createRange()
-          range.selectNodeContents(element)
-          for (const rect of range.getClientRects()) {
-            if (rect.top < viewportBottom && rect.bottom > viewportBottom + .5) guard = Math.max(guard, viewportBottom - rect.top + 1)
+        for (const rect of visibleLineRects()) {
+          if (rect.top < viewportBottom && rect.bottom > viewportBottom + .5) {
+            guard = Math.max(guard, viewportBottom - rect.top + 1)
           }
         }
         viewport.style.setProperty('--scroll-bottom-guard', `${Math.ceil(guard)}px`)
@@ -214,7 +208,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       clearTimeout(scrollSettleTimerRef.current)
       scrollSettleTimerRef.current = setTimeout(() => {
         alignFirstLine()
-        fitLastLine()
+        requestAnimationFrame(fitLastLine)
       }, 90)
     }
     viewport.addEventListener('scroll', settle, { passive: true })

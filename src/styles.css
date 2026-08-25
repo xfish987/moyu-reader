@@ -211,6 +211,7 @@ button:focus-visible, input:focus-visible {
 .book-file-drop > div { display: grid; justify-items: center; gap: 7px; padding: 24px 32px; text-align: center; }
 .book-file-drop strong { font: 600 18px/1.4 var(--font-ui); letter-spacing: .06em; }
 .book-file-drop span { color: #cdd8e6; font-size: var(--text-sm); }
+.app-shell.is-file-dragging, .app-shell.is-file-dragging * { -webkit-app-region: no-drag !important; }
 .app-notice button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: inherit; font-size: 20px; cursor: pointer; }
 .app-notice button:hover { background: rgba(0, 0, 0, .06); }
 
@@ -1081,9 +1082,9 @@ button:focus-visible, input:focus-visible {
 }
 .immersive-topbar.is-visible { opacity: 1; transform: none; pointer-events: auto; }
 
-/* 沉浸阅读：阅读区空白处（页边距、文本列之外）均可拖拽移动窗口。
-   文本、按钮、进度条等交互元素显式 no-drag，划句收藏与翻页不受影响。 */
-.is-immersive .reading-stage { -webkit-app-region: drag; }
+/* 沉浸阅读的窗口移动由顶部浮栏走手动 IPC。阅读区保持 no-drag，
+   否则 Windows 会在页边距吞掉原生文件拖放，造成只有正文中心能导入。 */
+.is-immersive .reading-stage { -webkit-app-region: no-drag; }
 .is-immersive .text-columns,
 .is-immersive .selection-popup,
 .is-immersive .note-popup,
