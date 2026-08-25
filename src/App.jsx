@@ -12,7 +12,7 @@ import AppearancePanel from './ui-b/AppearancePanel'
 import BackgroundLayer from './ui-b/BackgroundLayer'
 import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
 import VirtualBookshelfHome from './ui-b/VirtualBookshelfHome'
-import { moveBeforeOrAfter } from './ui-b/shelfLayout'
+import { ALL_BOOKS_ORDER_KEY, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst } from './ui-b/shelfLayout'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -70,6 +70,8 @@ export default function App() {
   const [immersive, setImmersive] = useState(false)
   const [pendingNote, setPendingNote] = useState(null)
   const [notice, setNotice] = useState(null)
+  const [fileDragActive, setFileDragActive] = useState(false)
+  const fileDragDepthRef = useRef(0)
   const readerActionRef = useRef(null)
   const manualUpgradeRef = useRef(new Set())
   const recentSeededRef = useRef(false)
@@ -302,16 +304,41 @@ export default function App() {
 
   const handleDrop = async (event) => {
     event.preventDefault()
+    fileDragDepthRef.current = 0
+    setFileDragActive(false)
     if (!event.dataTransfer.files?.length) return
     try {
       const paths = [...event.dataTransfer.files].map((file) => window.readerAPI.getPathForFile(file)).filter(Boolean)
       const incoming = await window.readerAPI.describeBookPaths(paths)
-      if (!incoming.length) return
-      mergeManualBooks(incoming)
-      showSuccess(`已添加 ${incoming.length} 本书`)
+      if (!incoming.length) {
+        showError('拖放添加书籍', new Error('只支持 TXT 和 EPUB 文件'))
+        return
+      }
+      const known = new Map([...directoryBooks, ...manualBooks].map((book) => [book.id, book]))
+      const fresh = incoming.filter((book) => !known.has(book.id))
+      const duplicates = incoming.length - fresh.length
+      if (fresh.length) mergeManualBooks(fresh)
+      const first = known.get(incoming[0].id) || incoming[0]
+      await openBook(first)
+      if (duplicates && fresh.length) showSuccess(`已添加 ${fresh.length} 本，${duplicates} 本已在书架；已打开《${first.title}》`)
+      else if (duplicates) showSuccess(`《${first.title}》已在书架，已为你打开`)
+      else showSuccess(`已添加并打开《${first.title}》`)
     } catch (error) {
       showError('拖放添加书籍', error)
     }
+  }
+
+  const handleFileDragEnter = (event) => {
+    if (![...(event.dataTransfer?.types || [])].includes('Files')) return
+    event.preventDefault()
+    fileDragDepthRef.current += 1
+    setFileDragActive(true)
+  }
+
+  const handleFileDragLeave = (event) => {
+    if (![...(event.dataTransfer?.types || [])].includes('Files')) return
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1)
+    if (!fileDragDepthRef.current) setFileDragActive(false)
   }
 
   const openBookAtNote = async (book, note) => {
@@ -490,6 +517,18 @@ export default function App() {
     setCategories((current) => moveBeforeOrAfter(current, source, target, position))
   }, [setCategories])
 
+  const reorderVirtualBooks = useCallback((row, source, target, position) => {
+    const isAll = row?.key === 'all'
+    const orderKey = isAll ? ALL_BOOKS_ORDER_KEY : row?.key
+    if (!orderKey || source === target) return
+    const members = isAll ? books : books.filter((book) => tagsMap[book.id]?.[0] === orderKey)
+    const ordered = (isAll
+      ? orderBooksWithNewFirst(members, categoryBookOrder[orderKey])
+      : orderBooksByIds(members, categoryBookOrder[orderKey])).map((book) => book.id)
+    const next = moveBeforeOrAfter(ordered, source, target, position)
+    setCategoryBookOrder((current) => ({ ...current, [orderKey]: next }))
+  }, [books, categoryBookOrder, setCategoryBookOrder, tagsMap])
+
   const openLibraryTarget = useCallback((row) => {
     setLibraryView('shelf')
     setLibraryTarget({
@@ -525,8 +564,9 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+    <div className={`app-shell ui-b ui-b-theme-${appearance.theme} ${!immersive ? 'has-designed-titlebar' : ''} ${!activeBook && homeView === 'virtual' ? 'is-virtual-home' : ''} ${!activeBook && homeView === 'library' ? 'is-library-home' : ''} ${activeBook && !immersive ? 'is-reader' : ''} ${immersive ? 'app-immersive' : ''} ${activeBook ? `theme-${colorTheme}` : ''}`} style={appearanceStyle} onDragEnter={handleFileDragEnter} onDragLeave={handleFileDragLeave} onDragOver={(event) => { if ([...(event.dataTransfer?.types || [])].includes('Files')) event.preventDefault() }} onDrop={handleDrop}>
       <BackgroundLayer scope={activeBook ? 'reader' : 'home'} preference={activeBook ? appearance.reader : appearance.home} theme={appearance.theme} />
+      {fileDragActive ? <div className="book-file-drop" aria-live="polite"><div><strong>松开即可阅读</strong><span>TXT / EPUB 会加入书架并立即打开</span></div></div> : null}
       {notice ? <div className={`app-notice is-${notice.type}`} role="status"><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示">×</button></div> : null}
       {!immersive ? <WindowBar onOpenShortcuts={() => setShortcutSettingsOpen(true)} appearanceTheme={appearance.theme} onToggleTheme={activeBook ? toggleAppearanceTheme : null} /> : null}
       {activeBook && source ? (
@@ -600,6 +640,7 @@ export default function App() {
           onClearAllData={clearReadingData}
           onToggleTheme={toggleAppearanceTheme}
           onReorderCategories={reorderCategories}
+          onReorderBook={reorderVirtualBooks}
           scrollMemory={homeScrollRef.current}
         />
       ) : (

@@ -11,6 +11,7 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
   const resumeAppliedRef = useRef(false)
   const pendingParagraphRef = useRef(null)
   const pendingAnchorRef = useRef(null)
+  const pendingChapterRef = useRef('')
   // 目录副本：onChapters 上报给 ReaderView 之外，本地留一份供 getChapterText 计算章节边界。
   const tocRef = useRef([])
   // Until the saved position is restored, progress events from the initial
@@ -84,16 +85,32 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
   }, [book.path, chunk.end, chunk.start, chunk.total])
 
   useEffect(() => {
-    if (pendingParagraphRef.current === null && pendingAnchorRef.current === null) return undefined
+    if (pendingParagraphRef.current === null && pendingAnchorRef.current === null && !pendingChapterRef.current) return undefined
     const paragraph = pendingParagraphRef.current
     const anchor = pendingAnchorRef.current
+    const chapterLabel = pendingChapterRef.current
     pendingParagraphRef.current = null
     pendingAnchorRef.current = null
-    const frame = requestAnimationFrame(() => {
+    pendingChapterRef.current = ''
+    let frame = 0
+    let attempts = 0
+    const applyPending = () => {
       const reader = readerRefs.current.get(chunk.start)
+      if (chapterLabel) {
+        if (reader?.goToChapterLabel?.(chapterLabel)) return
+        // The child mounts before its chapter list has been derived. Retry for a
+        // few frames so a directory jump resolves to the heading, not merely the
+        // containing byte chunk.
+        if (attempts < 60) {
+          attempts += 1
+          frame = requestAnimationFrame(applyPending)
+          return
+        }
+      }
       if (anchor !== null) reader?.goToAnchor(anchor)
       else if (paragraph !== null) reader?.goToParagraph(paragraph)
-    })
+    }
+    frame = requestAnimationFrame(applyPending)
     return () => cancelAnimationFrame(frame)
   }, [chunk.start])
 
@@ -165,7 +182,20 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
         readerRefs.current.get(currentChunkRef.current.start)?.goToChapter(chapter?.index ?? chapter)
         return
       }
-      await jumpToAnchor(chapter.offset, 'exact')
+      // Most nearby TOC jumps already live in the active large-text chunk. Use
+      // the rendered heading immediately instead of waiting for another disk read.
+      const currentReader = readerRefs.current.get(currentChunkRef.current.start)
+      if (chapter?.label && currentReader?.goToChapterLabel?.(chapter.label)) return
+      const target = await window.readerAPI.readTextChunk(book.path, chapter.offset, 'exact')
+      if (target.start === currentChunkRef.current.start) {
+        const reader = readerRefs.current.get(target.start)
+        const matched = reader?.goToChapterLabel?.(chapter.label)
+        if (!matched) reader?.goToAnchor(target.anchor ?? 0)
+        return
+      }
+      pendingAnchorRef.current = target.anchor ?? 0
+      pendingChapterRef.current = chapter.label || ''
+      jumpToChunk(target)
     },
     goToNote: async (note) => {
       if (note.chunkOffset === undefined || note.chunkOffset === currentChunkRef.current.start) {

@@ -22,6 +22,9 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const shellRef = useRef(null)
   const contentRef = useRef(null)
   const resizeTimerRef = useRef(null)
+  const scrollSettleTimerRef = useRef(null)
+  const chapterFlashTimerRef = useRef(null)
+  const jumpTimersRef = useRef([])
   const resizingRef = useRef(false)
   const positionFractionRef = useRef(null)
   const measuredLayoutRef = useRef(false)
@@ -33,6 +36,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const [paintReady, setPaintReady] = useState(false)
   const [selection, setSelection] = useState(null)
   const [marker, setMarker] = useState(null)
+  const [chapterFlash, setChapterFlash] = useState(-1)
   progressCallbackRef.current = onProgress
   chaptersCallbackRef.current = onChapters
   const pagePadding = viewportWidth
@@ -155,6 +159,75 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     return () => cancelAnimationFrame(timer)
   }, [content, pagePadding, settings, viewportWidth, scrollMode])
 
+  // Native scrolling can stop at any sub-pixel and leave the first line cut in half.
+  // Once scrolling settles, move the clipped line back into full view. This keeps
+  // wheel scrolling natural while page turns and restored positions remain readable.
+  useEffect(() => {
+    if (!scrollMode) return undefined
+    const viewport = viewportRef.current
+    if (!viewport) return undefined
+    const alignFirstLine = () => {
+      if (viewport.scrollTop <= 1) return
+      const x = viewport.getBoundingClientRect().left + Math.min(40, viewport.clientWidth / 2)
+      const y = viewport.getBoundingClientRect().top + 2
+      const range = document.caretRangeFromPoint?.(x, y)
+      const node = range?.startContainer
+      if (!node || node.nodeType !== Node.TEXT_NODE || !contentRef.current?.contains(node)) return
+      const offset = Math.min(range.startOffset, Math.max(0, node.length - 1))
+      const glyph = document.createRange()
+      glyph.setStart(node, offset)
+      glyph.setEnd(node, Math.min(node.length, offset + 1))
+      const rect = glyph.getClientRects()[0]
+      const viewportTop = viewport.getBoundingClientRect().top
+      if (rect && rect.top < viewportTop - .5) viewport.scrollTop += rect.top - viewportTop
+    }
+    const fitLastLine = () => {
+      // Start from the full shell on every settled position, then place its
+      // lower edge immediately before the glyph row that would be clipped.
+      viewport.style.setProperty('--scroll-bottom-guard', '0px')
+      requestAnimationFrame(() => {
+        const viewportBottom = viewport.getBoundingClientRect().bottom
+        if (!viewportBottom) return
+        let guard = 0
+        const nodes = contentRef.current.querySelectorAll('[data-paragraph]')
+        const targetY = viewport.scrollTop + viewport.clientHeight
+        let low = 0
+        let high = nodes.length
+        while (low < high) {
+          const middle = (low + high) >> 1
+          const node = nodes[middle]
+          if (node.offsetTop + node.offsetHeight <= targetY) low = middle + 1
+          else high = middle
+        }
+        const candidates = [nodes[low - 1], nodes[low], nodes[low + 1]].filter(Boolean)
+        for (const element of candidates) {
+          const range = document.createRange()
+          range.selectNodeContents(element)
+          for (const rect of range.getClientRects()) {
+            if (rect.top < viewportBottom && rect.bottom > viewportBottom + .5) guard = Math.max(guard, viewportBottom - rect.top + 1)
+          }
+        }
+        viewport.style.setProperty('--scroll-bottom-guard', `${Math.ceil(guard)}px`)
+      })
+    }
+    const settle = () => {
+      clearTimeout(scrollSettleTimerRef.current)
+      scrollSettleTimerRef.current = setTimeout(() => {
+        alignFirstLine()
+        fitLastLine()
+      }, 90)
+    }
+    viewport.addEventListener('scroll', settle, { passive: true })
+    const shellObserver = new ResizeObserver(settle)
+    if (shellRef.current) shellObserver.observe(shellRef.current)
+    settle()
+    return () => {
+      clearTimeout(scrollSettleTimerRef.current)
+      shellObserver.disconnect()
+      viewport.removeEventListener('scroll', settle)
+    }
+  }, [scrollMode, viewportWidth])
+
   useEffect(() => {
     if (!scrollMode) return undefined
     const viewport = viewportRef.current
@@ -254,11 +327,44 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     }
     pendingJumpRef.current = null
     if (scrollMode) {
-      viewportRef.current.scrollTop = Math.max(0, element.offsetTop - 80)
+      const paddingTop = parseFloat(getComputedStyle(contentRef.current).paddingTop) || 0
+      const viewport = viewportRef.current
+      const align = () => {
+        const delta = element.getBoundingClientRect().top - viewport.getBoundingClientRect().top - paddingTop
+        if (Math.abs(delta) > .5) viewport.scrollTop = Math.max(0, viewport.scrollTop + delta)
+      }
+      viewport.scrollTop = Math.max(0, element.offsetTop - paddingTop)
+      // Fonts, chapter margins and a different immersive viewport can all alter
+      // the first estimate. Correct against the actual painted rectangles more
+      // than once because a newly activated large-text chunk also mounts buffers.
+      jumpTimersRef.current.forEach(clearTimeout)
+      jumpTimersRef.current = [0, 80, 240, 700].map((delay) => setTimeout(align, delay))
       return
     }
     setPage(Math.max(0, Math.round(element.offsetLeft / viewportWidth)))
   }, [viewportWidth, scrollMode])
+
+  const jumpToChapterLabel = useCallback((label) => {
+    const normalized = String(label || '').replace(/[\u3000\t]+/g, ' ').trim()
+    const chapter = chapters.find((item) => item.label === normalized)
+      || chapters.find((item) => item.label.includes(normalized) || normalized.includes(item.label))
+    const heading = [...(contentRef.current?.querySelectorAll('h2[data-paragraph]') || [])].find((item) => {
+      const text = item.textContent.replace(/[\u3000\t]+/g, ' ').trim()
+      return text === normalized || text.includes(normalized) || normalized.includes(text)
+    })
+    const index = chapter?.index ?? Number(heading?.dataset.paragraph)
+    if (!Number.isFinite(index)) return false
+    jumpToParagraph(index)
+    setChapterFlash(index)
+    clearTimeout(chapterFlashTimerRef.current)
+    chapterFlashTimerRef.current = setTimeout(() => setChapterFlash(-1), 1400)
+    return true
+  }, [chapters, jumpToParagraph])
+
+  useEffect(() => () => {
+    clearTimeout(chapterFlashTimerRef.current)
+    jumpTimersRef.current.forEach(clearTimeout)
+  }, [])
 
   useEffect(() => {
     if (pendingJumpRef.current !== null) jumpToParagraph(pendingJumpRef.current)
@@ -301,7 +407,13 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       }
       setPage(Math.max(0, Math.min(pageCount - 1, Math.round((pageCount - 1) * ratio))))
     },
-    goToChapter: (index) => jumpToParagraph(index),
+    goToChapter: (index) => {
+      jumpToParagraph(index)
+      setChapterFlash(index)
+      clearTimeout(chapterFlashTimerRef.current)
+      chapterFlashTimerRef.current = setTimeout(() => setChapterFlash(-1), 1400)
+    },
+    goToChapterLabel: (label) => jumpToChapterLabel(label),
     goToParagraph: (index) => jumpToParagraph(index),
     // 主进程返回的字符 anchor（目标在块内容中的字符下标）→ 段落 → 所在页。
     goToAnchor: (charIndex) => {
@@ -396,7 +508,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       }
       return { excerpts, totalMatches: total, truncated: total > excerpts.length }
     },
-  }), [chapters, onBoundaryNext, onBoundaryPrev, page, pageCount, paragraphs, paragraphSpans, jumpToParagraph])
+  }), [chapters, onBoundaryNext, onBoundaryPrev, page, pageCount, paragraphs, paragraphSpans, jumpToParagraph, jumpToChapterLabel])
 
   const buildSelection = (selected) => {
     if (!selected?.rangeCount) return null
@@ -552,7 +664,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
             const rewriteMarker = paragraphRewrites.length ? <button className="rewrite-star-marker" title="查看改写" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onOpenRewrite?.(paragraphRewrites[paragraphRewrites.length - 1]) }}>✦</button> : null
             const paragraphContent = <span className="paragraph-text">{parts}</span>
             return isChapter
-              ? <h2 key={index} data-paragraph={index}>{paragraphContent}{rewriteMarker}</h2>
+              ? <h2 className={chapterFlash === index ? 'is-jump-target' : undefined} key={index} data-paragraph={index}>{paragraphContent}{rewriteMarker}</h2>
               : <p key={index} data-paragraph={index}>{paragraphContent}{rewriteMarker}</p>
           })}
         </article>

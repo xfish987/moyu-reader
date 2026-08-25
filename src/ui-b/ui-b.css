@@ -270,9 +270,9 @@
 .ui-b .text-viewport { width: min(820px, calc(100% - 56px)); inset-inline: 0; margin-inline: auto; transform: none; }
 /* 纸页不要边框和圆角：窗口本身已有外框，卡片再描边会变成双层框。 */
 /* 扁平化阅读区：纯矩形容器，无纸页纹理、无翻页阴影、无圆角描边。 */
-.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); border: 0; border-radius: 0; box-shadow: none; background: var(--b-surface-solid); color: var(--b-ink); text-align: left; }
+.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); border: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--b-ink); text-align: left; }
 .ui-b .text-columns h2 { color: var(--b-accent); }
-.ui-b .epub-host { width: min(820px, calc(100% - 56px)); height: calc(100% - 48px); margin: 24px auto; border: 0; border-radius: 0; box-shadow: none; background: var(--b-surface-solid); }
+.ui-b .epub-host { width: min(820px, calc(100% - 56px)); height: calc(100% - 48px); margin: 24px auto; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
 .ui-b.ui-b-theme-night.is-reader .text-columns,
 .ui-b.ui-b-theme-night.is-reader .epub-host { background: transparent; }
 .ui-b.ui-b-theme-night.is-reader .text-columns { color: #e8ecef; }
@@ -685,6 +685,13 @@
 .ui-b .v-shelf-stack { width: min(1180px, 100%); min-height: 0; margin: 0 auto; padding: 24px 0 34px; gap: 28px; justify-content: flex-start !important; }
 .ui-b .v-shelf-row { width: 100%; min-height: 214px; padding: 0; display: block; position: relative; transition: opacity 160ms ease, transform 200ms cubic-bezier(.22, 1, .36, 1); }
 .ui-b .v-shelf-row.is-dragging { opacity: .52; transform: translateY(-3px); }
+.ui-b .v-face-book[draggable="true"], .ui-b .v-spine[draggable="true"] { cursor: grab; }
+.ui-b .v-face-book[draggable="true"]:active, .ui-b .v-spine[draggable="true"]:active { cursor: grabbing; }
+.ui-b .v-face-book[data-drop-position="before"] { box-shadow: -4px 0 0 #79a7c8, 0 0 12px rgba(121,167,200,.7); }
+.ui-b .v-face-book[data-drop-position="after"] { box-shadow: 4px 0 0 #79a7c8, 0 0 12px rgba(121,167,200,.7); }
+.ui-b .v-spine[data-drop-position="before"]::before, .ui-b .v-spine[data-drop-position="after"]::after { content: ''; position: absolute; z-index: 4; top: -5px; bottom: -5px; width: 2px; background: #79a7c8; box-shadow: 0 0 7px rgba(121,167,200,.9); }
+.ui-b .v-spine[data-drop-position="before"]::before { left: -4px; }
+.ui-b .v-spine[data-drop-position="after"]::after { right: -4px; }
 .ui-b .v-shelf-row.is-drop-before::before, .ui-b .v-shelf-row.is-drop-after::after { content: ''; position: absolute; z-index: 5; right: 0; left: 0; height: 2px; border-radius: 1px; background: var(--b-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--b-accent) 12%, transparent); }
 .ui-b .v-shelf-row.is-drop-before::before { top: -14px; }
 .ui-b .v-shelf-row.is-drop-after::after { bottom: -14px; }

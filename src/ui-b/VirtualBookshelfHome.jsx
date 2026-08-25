@@ -54,7 +54,7 @@ function useBookCover(book, customCover, defaultCover) {
   return { ref, cover: cover || defaultCover }
 }
 
-function FaceBook({ book, customCover, defaultCover, progress, onOpen, expanded, onActivate }) {
+function FaceBook({ book, customCover, defaultCover, progress, onOpen, expanded, onActivate, dragProps }) {
   const { ref, cover } = useBookCover(book, customCover, defaultCover)
   const percent = Math.round((progress || 0) * 100)
   return (
@@ -68,6 +68,7 @@ function FaceBook({ book, customCover, defaultCover, progress, onOpen, expanded,
       onBlur={() => onActivate('')}
       title={book.title}
       aria-label={`${book.title}${percent ? `，阅读进度 ${percent}%` : ''}`}
+      {...dragProps}
     >
       <span className="v-face-closed"><img src={cover} alt="" /></span>
       <span className="v-face-open" aria-hidden="true">
@@ -82,12 +83,12 @@ function FaceBook({ book, customCover, defaultCover, progress, onOpen, expanded,
   )
 }
 
-function SpineBook({ book, customCover, defaultCover, progress, onOpen, hidden, revealLeft }) {
+function SpineBook({ book, customCover, defaultCover, progress, onOpen, hidden, revealLeft, dragProps }) {
   const { ref, cover } = useBookCover(book, customCover, defaultCover)
   const seed = hashSeed(book.id || book.path || book.title)
   const percent = Math.round((progress || 0) * 100)
   return (
-    <button ref={ref} className={`v-spine v-spine-${seed % SPINES.length} ${hidden ? 'is-expansion-hidden' : ''} ${revealLeft ? 'is-reveal-left' : ''}`} onClick={() => onOpen(book)} title={book.title} aria-label={`${book.title}${percent ? `，阅读进度 ${percent}%` : ''}`}>
+    <button ref={ref} className={`v-spine v-spine-${seed % SPINES.length} ${hidden ? 'is-expansion-hidden' : ''} ${revealLeft ? 'is-reveal-left' : ''}`} onClick={() => onOpen(book)} title={book.title} aria-label={`${book.title}${percent ? `，阅读进度 ${percent}%` : ''}`} {...dragProps}>
       <img className="v-spine-art" src={SPINES[seed % SPINES.length]} alt="" />
       <span className="v-spine-reveal" aria-hidden="true">
         <img src={cover} alt="" />
@@ -96,7 +97,7 @@ function SpineBook({ book, customCover, defaultCover, progress, onOpen, hidden, 
   )
 }
 
-function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingCategory, dropState, onDragStart, onDragOver, onDrop, onDragEnd, onMoveByKeyboard, onOpenCategory }) {
+function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingCategory, dropState, onDragStart, onDragOver, onDrop, onDragEnd, onMoveByKeyboard, onOpenCategory, onReorderBook }) {
   const booksRef = useRef(null)
   const [width, setWidth] = useState(320)
   const [expandedFaceId, setExpandedFaceId] = useState('')
@@ -137,6 +138,36 @@ function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingC
 
   const dropClass = dropState?.target === row.key ? `is-drop-${dropState.position}` : ''
   const canDrag = row.reorderable
+  const canReorderBooks = row.key === 'all' || row.reorderable
+  const [bookDrag, setBookDrag] = useState(null)
+  const bookDragProps = (book) => canReorderBooks ? {
+    draggable: true,
+    'data-drop-position': bookDrag?.target === book.id ? bookDrag.position : undefined,
+    onDragStart: (event) => {
+      event.stopPropagation()
+      event.dataTransfer.setData('text/book-id', book.id)
+      event.dataTransfer.effectAllowed = 'move'
+      setBookDrag({ source: book.id, target: '', position: 'before' })
+    },
+    onDragOver: (event) => {
+      const source = event.dataTransfer.getData('text/book-id') || bookDrag?.source
+      if (!source || source === book.id) return
+      event.preventDefault()
+      event.stopPropagation()
+      const rect = event.currentTarget.getBoundingClientRect()
+      const position = event.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+      event.dataTransfer.dropEffect = 'move'
+      setBookDrag((current) => ({ source: current?.source || source, target: book.id, position }))
+    },
+    onDrop: (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const source = event.dataTransfer.getData('text/book-id') || bookDrag?.source
+      if (source && source !== book.id) onReorderBook(row, source, book.id, bookDrag?.target === book.id ? bookDrag.position : 'before')
+      setBookDrag(null)
+    },
+    onDragEnd: () => setBookDrag(null),
+  } : {}
   const shelfStyle = {
     '--cover-width': `${layout.coverWidth}px`,
     '--cover-height': `${Math.round(layout.coverWidth * 1.333)}px`,
@@ -179,9 +210,9 @@ function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingC
       </header>
       <div ref={booksRef} className="v-shelf-books">
         <div className="v-face-group">
-          {layout.covers.map((book) => <FaceBook key={book.id} book={book} customCover={coversMap[book.id]} defaultCover={defaultCover} progress={progressMap[book.id]?.percent} onOpen={onOpen} expanded={expandedFaceId === book.id} onActivate={setExpandedFaceId} />)}
+          {layout.covers.map((book) => <FaceBook key={book.id} book={book} customCover={coversMap[book.id]} defaultCover={defaultCover} progress={progressMap[book.id]?.percent} onOpen={onOpen} expanded={expandedFaceId === book.id} onActivate={setExpandedFaceId} dragProps={bookDragProps(book)} />)}
         </div>
-        {layout.spines.length ? <div className="v-spine-group">{layout.spines.map(({ book }, index) => <SpineBook key={book.id} book={book} customCover={coversMap[book.id]} defaultCover={defaultCover} progress={progressMap[book.id]?.percent} onOpen={onOpen} hidden={index < hiddenSpineCount} revealLeft={index >= layout.spines.length - 3} />)}</div> : null}
+        {layout.spines.length ? <div className="v-spine-group">{layout.spines.map(({ book }, index) => <SpineBook key={book.id} book={book} customCover={coversMap[book.id]} defaultCover={defaultCover} progress={progressMap[book.id]?.percent} onOpen={onOpen} hidden={index < hiddenSpineCount} revealLeft={index >= layout.spines.length - 3} dragProps={bookDragProps(book)} />)}</div> : null}
       </div>
       <div className="v-shelf-board" aria-hidden="true" />
     </section>
@@ -220,7 +251,7 @@ function LibraryTopBar({ bookCount, query, onQueryChange, onClearAllData, onOpen
   )
 }
 
-export default function VirtualBookshelfHome({ books, progressMap, statusMap, coversMap, defaultCover, categories, tagsMap, categoryBookOrder, recentBookIds, onOpen, onAddBooks, onOpenLibrary, onOpenNotes, onOpenAppearance, onChooseDirectory, onClearAllData, onReorderCategories, onToggleTheme, scrollMemory }) {
+export default function VirtualBookshelfHome({ books, progressMap, statusMap, coversMap, defaultCover, categories, tagsMap, categoryBookOrder, recentBookIds, onOpen, onAddBooks, onOpenLibrary, onOpenNotes, onOpenAppearance, onChooseDirectory, onClearAllData, onReorderCategories, onReorderBook, onToggleTheme, scrollMemory }) {
   const [query, setQuery] = useState('')
   const [draggingCategory, setDraggingCategory] = useState('')
   const [dropState, setDropState] = useState(null)
@@ -282,7 +313,7 @@ export default function VirtualBookshelfHome({ books, progressMap, statusMap, co
     <main className="v-home" aria-label="书脊视图">
       <div className="v-bookshelf-scene" ref={sceneRef}>
         <LibraryTopBar bookCount={books.length} query={query} onQueryChange={setQuery} onClearAllData={onClearAllData} onOpenAiSettings={() => setAiSettingsOpen(true)} onChooseDirectory={onChooseDirectory} />
-        {rows.length ? <div className="v-shelf-stack">{rows.map((row) => <ShelfRow key={row.key} row={row} progressMap={progressMap} coversMap={coversMap} defaultCover={defaultCover} onOpen={onOpen} draggingCategory={draggingCategory} dropState={dropState} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} onDragEnd={() => { setDraggingCategory(''); setDropState(null) }} onMoveByKeyboard={moveByKeyboard} onOpenCategory={onOpenLibrary} />)}</div> : query ? <div className="v-empty-shelf"><strong>没有找到相关书籍</strong></div> : <div className="v-empty-shelf"><strong>书架还是空的</strong><button onClick={onAddBooks}>导入书籍</button></div>}
+        {rows.length ? <div className="v-shelf-stack">{rows.map((row) => <ShelfRow key={row.key} row={row} progressMap={progressMap} coversMap={coversMap} defaultCover={defaultCover} onOpen={onOpen} draggingCategory={draggingCategory} dropState={dropState} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} onDragEnd={() => { setDraggingCategory(''); setDropState(null) }} onMoveByKeyboard={moveByKeyboard} onOpenCategory={onOpenLibrary} onReorderBook={onReorderBook} />)}</div> : query ? <div className="v-empty-shelf"><strong>没有找到相关书籍</strong></div> : <div className="v-empty-shelf"><strong>书架还是空的</strong><button onClick={onAddBooks}>导入书籍</button></div>}
       </div>
       <BottomDock onLibrary={() => onOpenLibrary(null)} onImport={onAddBooks} onToggleTheme={onToggleTheme} onNotes={onOpenNotes} onSettings={onOpenAppearance} />
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />

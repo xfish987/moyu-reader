@@ -207,6 +207,10 @@ button:focus-visible, input:focus-visible {
 }
 .app-notice.is-error { border-color: var(--danger-line); background: var(--danger-bg); color: var(--danger); }
 .app-notice span { min-width: 0; overflow-wrap: anywhere; }
+.book-file-drop { position: fixed; z-index: 240; inset: 12px; display: grid; place-items: center; border: 2px dashed rgba(231, 239, 248, .82); border-radius: 10px; background: rgba(28, 43, 72, .88); color: #e8ecef; pointer-events: none; }
+.book-file-drop > div { display: grid; justify-items: center; gap: 7px; padding: 24px 32px; text-align: center; }
+.book-file-drop strong { font: 600 18px/1.4 var(--font-ui); letter-spacing: .06em; }
+.book-file-drop span { color: #cdd8e6; font-size: var(--text-sm); }
 .app-notice button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: inherit; font-size: 20px; cursor: pointer; }
 .app-notice button:hover { background: rgba(0, 0, 0, .06); }
 
@@ -952,9 +956,12 @@ button:focus-visible, input:focus-visible {
 .text-columns.is-ready { visibility: visible; }
 .text-viewport.is-reflowing::after { content: ''; position: absolute; z-index: 7; inset: 0; background: var(--reader-bg); pointer-events: none; }
 /* 滚动文字模式：单栏垂直排版，滚轮原生滚动 */
-.text-viewport.is-scroll { overflow-x: hidden; overflow-y: auto; }
+.text-viewport.is-scroll { bottom: var(--scroll-bottom-guard, 0px); overflow-x: hidden; overflow-y: auto; }
 .text-viewport.is-scroll .text-columns { height: auto; min-height: 100%; column-width: auto; column-gap: 0; }
-.text-viewport.is-scroll .text-columns h2 { break-before: auto; column-break-before: auto; }
+.text-viewport.is-scroll .text-columns h2 { margin-top: clamp(46px, 10vh, 92px); padding-top: 0; break-before: auto; column-break-before: auto; }
+.text-viewport.is-scroll .text-columns h2:first-child { margin-top: 0; }
+.text-columns h2.is-jump-target { animation: chapter-jump-confirm 1.4s ease-out; }
+@keyframes chapter-jump-confirm { 0%, 22% { color: var(--accent); text-shadow: 0 0 18px rgba(var(--reader-ink), .16); } 100% { color: inherit; text-shadow: none; } }
 .reader-view.is-immersive .text-columns { padding-block: 6vh; }
 .selection-popup, .note-popup {
   position: absolute;
