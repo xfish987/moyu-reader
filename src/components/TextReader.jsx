@@ -33,6 +33,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const [page, setPage] = useState(initialPage || 0)
   const [pageCount, setPageCount] = useState(1)
   const [viewportWidth, setViewportWidth] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
   const [paintReady, setPaintReady] = useState(false)
   const [selection, setSelection] = useState(null)
   const [marker, setMarker] = useState(null)
@@ -112,7 +113,9 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     }
     const observer = new ResizeObserver(([entry]) => {
       const nextWidth = Math.round(entry.contentRect.width)
+      const nextHeight = Math.round(entry.contentRect.height)
       setViewportWidth((current) => current === nextWidth ? current : nextWidth)
+      setViewportHeight((current) => current === nextHeight ? current : nextHeight)
     })
     observer.observe(viewport)
     window.addEventListener('resize', handleWindowResize)
@@ -128,7 +131,12 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     const timer = requestAnimationFrame(() => {
       const node = contentRef.current
       if (!node || !viewportWidth) return
-      const count = Math.max(1, Math.round((viewportRef.current.scrollWidth + pagePadding * 2) / viewportWidth))
+      // Column count changes when either width or height changes. Immersive mode
+      // often keeps the same width but gains vertical space, so measuring only
+      // on width changes leaves a stale pageCount and makes the last arrow turns
+      // clamp to the same scroll position. scrollWidth already includes the
+      // article's inline padding; dividing by the actual viewport pitch is enough.
+      const count = Math.max(1, Math.round(viewportRef.current.scrollWidth / viewportWidth))
       setPageCount(count)
       setPage((current) => {
         if (!measuredLayoutRef.current) {
@@ -140,7 +148,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       })
     })
     return () => cancelAnimationFrame(timer)
-  }, [content, pagePadding, settings, viewportWidth, scrollMode])
+  }, [content, pagePadding, settings, viewportWidth, viewportHeight, scrollMode])
 
   // 滚动文字模式：单栏垂直排版，进度按 scrollTop 比例上报，首次按已存百分比恢复位置。
   useEffect(() => {
@@ -157,7 +165,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
       setPaintReady(true)
     })
     return () => cancelAnimationFrame(timer)
-  }, [content, pagePadding, settings, viewportWidth, scrollMode])
+  }, [content, pagePadding, settings, viewportWidth, viewportHeight, scrollMode])
 
   // Native scrolling can stop at any sub-pixel and leave the first line cut in half.
   // Once scrolling settles, move the clipped line back into full view. This keeps
