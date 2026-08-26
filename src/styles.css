@@ -947,12 +947,15 @@ button:focus-visible, input:focus-visible {
   letter-spacing: var(--letter-spacing);
   text-align: justify;
   text-justify: inter-ideograph;
-  overflow-wrap: break-word;
+  line-break: strict;
+  word-break: normal;
+  overflow-wrap: normal;
+  hanging-punctuation: first last;
   margin: 0;
 }
-.text-columns p { margin: 0 0 var(--paragraph-gap); white-space: pre-wrap; text-indent: 2em; break-inside: auto; }
+.text-columns p { margin: 0 0 var(--paragraph-gap); white-space: normal; text-indent: 2em; break-inside: auto; }
 .reader-collected-text { font-family: "Moyu DF Song", "DFSongGB", "Songti SC", SimSun, serif; font-weight: 700; }
-.text-columns h2 { margin: 0 0 1.5em; padding-top: .25em; color: inherit; font-family: var(--reader-title-font, var(--reader-font)); font-size: 1.35em; font-weight: var(--reader-title-font-weight, 700); line-height: 1.5; letter-spacing: .1em; break-before: column; break-after: avoid; column-break-before: always; }
+.text-columns h2 { margin: 0 0 1.5em; padding-top: 0; color: inherit; font-family: var(--reader-title-font, var(--reader-font)); font-size: 1.35em; font-weight: var(--reader-title-font-weight, 700); line-height: 1.5; letter-spacing: .1em; text-align: left; text-indent: 0; break-before: column; break-after: avoid; column-break-before: always; }
 .text-columns.is-reflowing { visibility: hidden; }
 .text-columns.is-ready { visibility: visible; }
 .text-viewport.is-reflowing::after { content: ''; position: absolute; z-index: 7; inset: 0; background: var(--reader-bg); pointer-events: none; }

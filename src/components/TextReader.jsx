@@ -2,11 +2,13 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { NotePopup } from './NotePopups'
 import { convertChinese } from '../chineseConversion'
 import { getNearestReaderFontWeight, getReaderFontStack, normalizeReaderFontFamily } from '../readerFonts'
-
-const CHAPTER_PATTERN = /^(?:(?:正文\s*)?第\s*[0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟]+\s*[章节卷部篇回集幕]\s*.{0,50}|(?:卷|部|篇|章)\s*[0-9０-９零〇一二三四五六七八九十百千万两]+(?:[\s:：.-]+.{0,45})?|(?:序章|序言|前言|楔子|引子|后记|尾声|终章|大结局)(?:[\s:：.-]+.{0,45})?|(?:番外|外传|附录)\s*[0-9０-９零〇一二三四五六七八九十百千万两]*(?:[\s:：.-]+.{0,45})?|(?:chapter|part|volume|book)\s+[0-9ivxlcdm]+(?:[\s:：.-]+.{0,50})?)$/i
+import { isTxtChapter, layoutTxtBlocks } from '../textLayout'
 
 // AI 陪读单次总结的文本上限：超过则保留首尾、省略中间。
 const COMPANION_TEXT_LIMIT = 24000
+function escapeClipboardHtml(value) {
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
+}
 export function truncateCompanionText(text) {
   const value = String(text || '')
   if (value.length <= COMPANION_TEXT_LIMIT) return value
@@ -55,33 +57,16 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   }, [notes])
 
   const displayContent = useMemo(() => convertChinese(content, settings.scriptConversion), [content, settings.scriptConversion])
-  const paragraphs = useMemo(() => displayContent
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n+/)
-    .map((text) => text.trim())
-    .filter(Boolean), [displayContent])
+  const textBlocks = useMemo(() => layoutTxtBlocks(displayContent), [displayContent])
+  const paragraphs = useMemo(() => textBlocks.map((block) => block.text), [textBlocks])
 
   // 每个渲染段落（trim 后）在 content 中的字符区间，用于把主进程给的字符
   // anchor 映射成段落下标。与上面 split/trim/filter 的结果一一对应。
-  const paragraphSpans = useMemo(() => {
-    const text = displayContent.replace(/^\uFEFF/, '')
-    const spans = []
-    const pattern = /[^\r\n]+/g
-    let match = pattern.exec(text)
-    while (match) {
-      const trimmed = match[0].trim()
-      if (trimmed) {
-        const lead = match[0].length - match[0].trimStart().length
-        spans.push({ index: spans.length, start: match.index + lead, end: match.index + lead + trimmed.length })
-      }
-      match = pattern.exec(text)
-    }
-    return spans
-  }, [displayContent])
+  const paragraphSpans = useMemo(() => textBlocks.map((block, index) => ({ index, start: block.start, end: block.end })), [textBlocks])
 
   const chapters = useMemo(() => paragraphs.reduce((items, text, index) => {
     const line = text.replace(/[\u3000\t]+/g, ' ').trim()
-    if (line.length <= 80 && CHAPTER_PATTERN.test(line)) items.push({ label: line, index })
+    if (isTxtChapter(line)) items.push({ label: line, index })
     return items
   }, []), [paragraphs])
 
@@ -593,6 +578,26 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     else if (action === 'link-entity') onLookupEntity?.(nextSelection, 'link')
   }
 
+  const copySelection = (event) => {
+    const selected = window.getSelection()
+    if (!selected?.rangeCount || selected.isCollapsed) return
+    const range = selected.getRangeAt(0)
+    if (!contentRef.current?.contains(range.commonAncestorContainer)) return
+    const holder = document.createElement('div')
+    holder.append(range.cloneContents())
+    const blocks = [...holder.querySelectorAll('p, h2')]
+    const values = blocks.length
+      ? blocks.map((node) => ({ text: node.textContent.trim(), chapter: node.tagName === 'H2' })).filter((item) => item.text)
+      : [{ text: selected.toString().trim(), chapter: false }]
+    if (!values[0]?.text) return
+    const plainText = values.map((item) => item.text).join('\n\n')
+    const html = values.map((item) => item.chapter
+      ? `<h2 style="margin:0 0 1.5em;text-align:left;font-family:'Source Han Serif SC','Songti SC',SimSun,serif;font-size:1.35em;line-height:1.5">${escapeClipboardHtml(item.text)}</h2>`
+      : `<p style="margin:0 0 .8em;text-indent:2em;text-align:justify;text-justify:inter-ideograph;line-height:1.8;font-family:'Source Han Serif SC','Songti SC',SimSun,serif">${escapeClipboardHtml(item.text)}</p>`).join('')
+    event.preventDefault()
+    event.clipboardData.setData('text/plain', plainText)
+    event.clipboardData.setData('text/html', `<div lang="zh-CN">${html}</div>`)
+  }
   const openMarker = (event, index) => {
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
@@ -617,14 +622,14 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>
-      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'} ${scrollMode ? 'is-scroll' : ''}`} ref={viewportRef} onMouseUp={captureSelection} onContextMenu={openSelectionMenu}>
+      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'} ${scrollMode ? 'is-scroll' : ''}`} ref={viewportRef} onMouseUp={captureSelection} onContextMenu={openSelectionMenu} onCopy={copySelection}>
         <article
           ref={contentRef}
           className={`text-columns ${paintReady ? 'is-ready' : 'is-reflowing'}`}
           aria-busy={!paintReady}
           style={{
-            '--column-width': `${Math.max(1, viewportWidth - pagePadding * 2)}px`,
-            '--column-gap': `${pagePadding * 2}px`,
+            '--column-width': `${Math.max(1, viewportWidth)}px`,
+            '--column-gap': '0px',
             '--font-size': `${settings.fontSize}px`,
             '--line-height': settings.lineHeight,
             '--paragraph-gap': `${settings.paragraphGap}px`,
@@ -638,7 +643,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
         >
           {paragraphs.map((paragraph, index) => {
             const line = paragraph.replace(/[\u3000\t]+/g, ' ').trim()
-            const isChapter = line.length <= 80 && CHAPTER_PATTERN.test(line)
+            const isChapter = isTxtChapter(line)
             const paragraphNotes = notesByParagraph.get(index)
             const noteRanges = (paragraphNotes || []).map((note) => {
               const start = Number.isFinite(note.startOffset) ? note.startOffset : paragraph.indexOf(note.text || '')
