@@ -653,6 +653,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const titleFontFamily = getReaderFontStack(titleFont)
   const bodyFontWeight = getNearestReaderFontWeight(bodyFont, settings.fontWeight, 400)
   const titleFontWeight = getNearestReaderFontWeight(titleFont, settings.titleFontWeight, 700)
+  const spreadGap = settings.layoutMode === 'landscape' ? 48 : 0
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>
@@ -662,8 +663,8 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
           className={`text-columns ${paintReady ? 'is-ready' : 'is-reflowing'}`}
           aria-busy={!paintReady}
           style={{
-            '--column-width': `${Math.max(1, settings.layoutMode === 'landscape' ? viewportWidth / 2 : viewportWidth)}px`,
-            '--column-gap': '0px',
+            '--column-width': `${Math.max(1, settings.layoutMode === 'landscape' ? (viewportWidth - spreadGap) / 2 : viewportWidth)}px`,
+            '--column-gap': `${spreadGap}px`,
             '--font-size': `${settings.fontSize}px`,
             '--line-height': settings.lineHeight,
             '--paragraph-gap': `${settings.paragraphGap}px`,
