@@ -281,8 +281,9 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
       width: '100%',
       height: '100%',
       flow: 'paginated',
-      spread: settings.layoutMode === 'landscape' ? 'always' : 'none',
-      minSpreadWidth: settings.layoutMode === 'landscape' ? 0 : 800,
+      spread: settings.layoutMode === 'landscape' ? 'both' : 'none',
+      minSpreadWidth: settings.layoutMode === 'landscape' ? 1 : 800,
+      gap: settings.layoutMode === 'landscape' ? 56 : 0,
       manager: 'default',
     })
     rendition.hooks.content.register((contents) => {

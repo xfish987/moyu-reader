@@ -276,25 +276,8 @@
 .ui-b .layout-landscape .text-viewport,
 .ui-b .layout-landscape .epub-host {
   width: min(1180px, calc(100% - 40px));
-  background: color-mix(in srgb, var(--b-surface) 82%, transparent);
-  box-shadow: 0 12px 36px rgba(1, 22, 43, .12);
-}
-.ui-b .layout-landscape .text-viewport::after,
-.ui-b .layout-landscape .epub-host::after {
-  content: '';
-  position: absolute;
-  z-index: 6;
-  inset-block: 0;
-  left: 50%;
-  width: 48px;
-  transform: translateX(-50%);
-  pointer-events: none;
-  background: linear-gradient(90deg, rgba(1,22,43,.09), rgba(255,255,255,.2) 43%, rgba(255,255,255,.2) 57%, rgba(1,22,43,.09));
-  box-shadow: inset 1px 0 rgba(255,255,255,.34), inset -1px 0 rgba(1,22,43,.08);
-}
-.ui-b.ui-b-theme-night .layout-landscape .text-viewport::after,
-.ui-b.ui-b-theme-night .layout-landscape .epub-host::after {
-  background: linear-gradient(90deg, rgba(0,0,0,.35), rgba(255,255,255,.035) 46%, rgba(255,255,255,.035) 54%, rgba(0,0,0,.35));
+  background: transparent;
+  box-shadow: none;
 }
 .ui-b.ui-b-theme-night.is-reader .text-columns,
 .ui-b.ui-b-theme-night.is-reader .epub-host { background: transparent; }

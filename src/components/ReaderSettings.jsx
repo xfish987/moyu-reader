@@ -107,10 +107,10 @@ export default function ReaderSettings({ settings, onChange, encoding, onEncodin
       </section>
 
       <section>
-        <label>排版模式 <span>横版模拟实体书左右页</span></label>
+        <label>排版模式 <span>横版在连续背景中显示左右双栏</span></label>
         <div className="segment-control">
           <button className={(settings.layoutMode || 'portrait') === 'portrait' ? 'active' : ''} onClick={() => set('layoutMode', 'portrait')}>竖版单页</button>
-          <button className={settings.layoutMode === 'landscape' ? 'active' : ''} onClick={() => set('layoutMode', 'landscape')}>横版双页</button>
+          <button className={settings.layoutMode === 'landscape' ? 'active' : ''} onClick={() => set('layoutMode', 'landscape')}>横版双栏</button>
         </div>
       </section>
 
