@@ -546,10 +546,19 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     const prefixRange = range.cloneRange()
     prefixRange.selectNodeContents(startTextElement)
     prefixRange.setEnd(range.startContainer, range.startOffset)
+    const suffixRange = range.cloneRange()
+    suffixRange.selectNodeContents(endTextElement)
+    suffixRange.setEnd(range.endContainer, range.endOffset)
     const leading = rawText.length - rawText.trimStart().length
     const paragraphIndex = Number(startElement.dataset.paragraph)
+    const endParagraphIndex = Number(endElement.dataset.paragraph)
     const startOffset = prefixRange.toString().length + leading
-    const endOffset = startOffset + text.length
+    const endOffset = paragraphIndex === endParagraphIndex ? startOffset + text.length : suffixRange.toString().length
+    const formattedText = paragraphs.slice(paragraphIndex, endParagraphIndex + 1).map((paragraph, relativeIndex, selectedParagraphs) => {
+      const from = relativeIndex === 0 ? startOffset : 0
+      const to = relativeIndex === selectedParagraphs.length - 1 ? endOffset : paragraph.length
+      return paragraph.slice(from, to).trim()
+    }).filter(Boolean).join('\n\n')
     const currentParagraph = paragraphs[paragraphIndex] || startTextElement.textContent || ''
     const chapterIndex = chapters.reduce((match, chapter, index) => chapter.index <= paragraphIndex ? index : match, -1)
     const chapterStart = chapterIndex >= 0 ? chapters[chapterIndex].index : 0
@@ -558,6 +567,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     const above = rect.top - viewportRect.top
     return {
       text: text.slice(0, 50000),
+      formattedText: formattedText.slice(0, 50000),
       paragraphIndex,
       startOffset,
       endOffset,

@@ -87,13 +87,16 @@ function layoutRichText(context, text, highlights, width, type = MOBILE_TYPE) {
     return cached
   }
   const paragraphs = []
-  let paragraphStart = 0
-  for (const raw of text.split('\n')) {
+  for (const match of text.matchAll(/[^\n]+/g)) {
+    const untrimmed = match[0]
+    const leading = untrimmed.length - untrimmed.trimStart().length
+    const raw = untrimmed.trim()
+    if (!raw) continue
+    const paragraphStart = (match.index || 0) + leading
     const items = []
     for (const segment of segmentByHighlights(text, highlights, paragraphStart, paragraphStart + raw.length)) {
       for (const character of segment.text) items.push({ character, hl: segment.highlighted, width: measure(character, segment.highlighted) })
     }
-    paragraphStart += raw.length + 1
     const lines = []
     let line = []
     let lineWidth = 0

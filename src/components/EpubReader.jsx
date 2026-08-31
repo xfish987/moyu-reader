@@ -380,7 +380,12 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     rendition.on('selected', async (cfiRange, contents) => {
       try {
         const range = await book.getRange(cfiRange)
-        const text = range?.toString().replace(/\s+/g, ' ').trim()
+        const text = range?.toString()
+          .replace(/\r\n/g, '\n')
+          .replace(/[ \t\f\v]+/g, ' ')
+          .replace(/\n[ \t]+/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
         if (!text || text.length < 2) return
         const iframe = hostRef.current?.querySelector('iframe')
         if (!iframe) return
@@ -424,6 +429,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
         setNotePopup(null)
         const payload = {
           text: text.slice(0, 12000),
+          formattedText: text.slice(0, 12000),
           cfi: cfiRange,
           href: selectionHref,
           spineIndex: Number(rendition.currentLocation()?.start?.index) || 0,

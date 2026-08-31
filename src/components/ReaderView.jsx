@@ -56,7 +56,8 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   // 统一换行为 \n，保证高亮偏移与正文一致。
   const openCollectDraft = (draft) => setCollectDraft(draft ? { ...draft, text: String(draft.text || '').replace(/\r\n/g, '\n') } : draft)
   // 直接分享：临时对象出分享图，不写入笔记。
-  const [shareDraft, setShareDraft] = useState(null)
+  const [shareDraft, setShareDraftState] = useState(null)
+  const setShareDraft = (draft) => setShareDraftState(draft ? { ...draft, text: String(draft.formattedText || draft.text || '').replace(/\r\n/g, '\n') } : draft)
   const [rewriteId, setRewriteId] = useState('')
   const [rewriteDraft, setRewriteDraft] = useState({ requirement: '', targetLength: 300 })
   const [rewriteBusy, setRewriteBusy] = useState(false)
@@ -1277,10 +1278,12 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       {collectDraft ? (
         <CollectNoteModal
           text={collectDraft.text}
+          initialSource={`《${book.title}》${collectDraft.chapterLabel ? ` · ${collectDraft.chapterLabel}` : ''}`}
           onCancel={() => setCollectDraft(null)}
-          onSave={({ title, tags, highlights }) => {
+          onSave={({ title, source: noteSource, tags, highlights }) => {
             const note = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: collectDraft.text, createdAt: Date.now() }
             if (title) note.title = title
+            if (noteSource) note.source = noteSource
             if (tags?.length) note.tags = tags
             if (highlights?.length) note.highlights = highlights
             if (collectDraft.paragraphIndex !== undefined) note.paragraphIndex = collectDraft.paragraphIndex
