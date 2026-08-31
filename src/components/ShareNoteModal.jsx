@@ -51,15 +51,15 @@ function formatDate(value) {
   return date.toLocaleDateString('zh-CN').replaceAll('/', '.')
 }
 
-// ===== 手机长图：750px 宽（主流手机满宽查看时正文≈15pt），高度随文字自动伸长 =====
-// 排版规则：段首缩进两字符、1.6 倍行距、1.5 倍行距的段间距、非末行两端对齐、
+// ===== 手机长图：750px 宽，按 2× 输出 14pt 正文，高度随文字自动伸长 =====
+// 排版规则：段首缩进两字符、1.5 倍行距、0.5 行段后距、非末行两端对齐、
 // 高亮用 700 粗华康宋、正文用 300 细华康宋；出处在右侧、距最后一行 2 倍行距，
 // 顶部留白与底部留白对称。
 const MOBILE_CARD_WIDTH = 750
 const MOBILE_CONTENT_X = 56
 const MOBILE_CONTENT_WIDTH = MOBILE_CARD_WIDTH - MOBILE_CONTENT_X * 2
-const MOBILE_FONT_SIZE = 30
-const MOBILE_LINE_HEIGHT = 48
+const MOBILE_FONT_SIZE = 28
+const MOBILE_LINE_HEIGHT = 42
 // 段间基线距离为 1.5 行：常规换行已占 1 行，因此这里只追加 0.5 行。
 const MOBILE_PARAGRAPH_GAP = MOBILE_LINE_HEIGHT * .5
 const MOBILE_SOURCE_GAP = MOBILE_LINE_HEIGHT * 2

@@ -270,9 +270,11 @@
 .ui-b .text-viewport { width: min(820px, calc(100% - 56px)); inset-inline: 0; margin-inline: auto; transform: none; }
 /* 纸页不要边框和圆角：窗口本身已有外框，卡片再描边会变成双层框。 */
 /* 扁平化阅读区：纯矩形容器，无纸页纹理、无翻页阴影、无圆角描边。 */
-.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); border: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--b-ink); text-align: left; }
+.ui-b .text-columns { min-height: 100%; padding: 50px var(--page-padding, 34px); border: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--b-ink); }
 .ui-b .text-columns h2 { color: var(--b-accent); }
 .ui-b .epub-host { width: min(820px, calc(100% - 56px)); height: calc(100% - 48px); margin: 24px auto; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.ui-b .layout-landscape .text-viewport,
+.ui-b .layout-landscape .epub-host { width: min(1180px, calc(100% - 40px)); }
 .ui-b.ui-b-theme-night.is-reader .text-columns,
 .ui-b.ui-b-theme-night.is-reader .epub-host { background: transparent; }
 .ui-b.ui-b-theme-night.is-reader .text-columns { color: #e8ecef; }

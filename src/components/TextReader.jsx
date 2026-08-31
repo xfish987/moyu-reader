@@ -15,10 +15,9 @@ export function truncateCompanionText(text) {
   return `${value.slice(0, 14400)}\n……（中间内容省略）……\n${value.slice(-9600)}`
 }
 
-const TextReader = forwardRef(function TextReader({ content, settings, initialPage, initialFraction = null, wheelMode = 'page', onProgress, onChapters, onCollectIntent, onShareIntent, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
-  const scrollMode = wheelMode === 'scroll'
-  const scrollModeRef = useRef(scrollMode)
-  scrollModeRef.current = scrollMode
+const TextReader = forwardRef(function TextReader({ content, settings, initialPage, initialFraction = null, onProgress, onChapters, onCollectIntent, onShareIntent, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
+  const scrollMode = false
+  const scrollModeRef = useRef(false)
   const initialFractionRef = useRef(initialFraction)
   const viewportRef = useRef(null)
   const shellRef = useRef(null)
@@ -27,6 +26,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const scrollSettleTimerRef = useRef(null)
   const chapterFlashTimerRef = useRef(null)
   const jumpTimersRef = useRef([])
+  const selectionPageTimerRef = useRef(null)
   const resizingRef = useRef(false)
   const positionFractionRef = useRef(null)
   const measuredLayoutRef = useRef(false)
@@ -350,8 +350,42 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
 
   useEffect(() => () => {
     clearTimeout(chapterFlashTimerRef.current)
+    clearTimeout(selectionPageTimerRef.current)
     jumpTimersRef.current.forEach(clearTimeout)
   }, [])
+
+  // 按住左键把选区拖到页底时自动翻页，并把焦点接到新页第一行。
+  // 延迟触发可避免用户只想选中末行时发生误翻页。
+  const continueSelectionAcrossPage = useCallback((event) => {
+    if (event.buttons !== 1) {
+      clearTimeout(selectionPageTimerRef.current)
+      return
+    }
+    const viewport = viewportRef.current
+    const selection = window.getSelection()
+    if (!viewport || !selection?.rangeCount || selection.isCollapsed) return
+    const rect = viewport.getBoundingClientRect()
+    if (event.clientY < rect.bottom - 30 || page >= pageCount - 1) {
+      clearTimeout(selectionPageTimerRef.current)
+      return
+    }
+    if (selectionPageTimerRef.current) return
+    const pointerX = event.clientX
+    selectionPageTimerRef.current = setTimeout(() => {
+      selectionPageTimerRef.current = null
+      setPage((current) => Math.min(pageCount - 1, current + 1))
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const nextRect = viewport.getBoundingClientRect()
+        const range = document.caretRangeFromPoint?.(
+          Math.max(nextRect.left + 8, Math.min(nextRect.right - 8, pointerX)),
+          nextRect.top + Math.max(24, pagePadding),
+        )
+        if (range?.startContainer) {
+          try { selection.extend(range.startContainer, range.startOffset) } catch {}
+        }
+      }))
+    }, 260)
+  }, [page, pageCount, pagePadding])
 
   useEffect(() => {
     if (pendingJumpRef.current !== null) jumpToParagraph(pendingJumpRef.current)
@@ -622,13 +656,13 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>
-      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'} ${scrollMode ? 'is-scroll' : ''}`} ref={viewportRef} onMouseUp={captureSelection} onContextMenu={openSelectionMenu} onCopy={copySelection}>
+      <div className={`text-viewport ${paintReady ? 'is-ready' : 'is-reflowing'} ${scrollMode ? 'is-scroll' : ''}`} ref={viewportRef} onMouseMove={continueSelectionAcrossPage} onMouseUp={(event) => { clearTimeout(selectionPageTimerRef.current); captureSelection(event) }} onContextMenu={openSelectionMenu} onCopy={copySelection}>
         <article
           ref={contentRef}
           className={`text-columns ${paintReady ? 'is-ready' : 'is-reflowing'}`}
           aria-busy={!paintReady}
           style={{
-            '--column-width': `${Math.max(1, viewportWidth)}px`,
+            '--column-width': `${Math.max(1, settings.layoutMode === 'landscape' ? viewportWidth / 2 : viewportWidth)}px`,
             '--column-gap': '0px',
             '--font-size': `${settings.fontSize}px`,
             '--line-height': settings.lineHeight,

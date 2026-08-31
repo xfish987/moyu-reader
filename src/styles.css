@@ -953,17 +953,12 @@ button:focus-visible, input:focus-visible {
   hanging-punctuation: first last;
   margin: 0;
 }
-.text-columns p { margin: 0 0 var(--paragraph-gap); white-space: normal; text-indent: 2em; break-inside: auto; }
+.text-columns p { margin: 0 0 var(--paragraph-gap); white-space: normal; text-indent: 2em; text-align: justify; text-align-last: left; text-justify: inter-ideograph; line-break: strict; word-break: normal; overflow-wrap: break-word; hanging-punctuation: first last; break-inside: auto; }
 .reader-collected-text { font-family: "Moyu DF Song", "DFSongGB", "Songti SC", SimSun, serif; font-weight: 700; }
 .text-columns h2 { margin: 0 0 1.5em; padding-top: 0; color: inherit; font-family: var(--reader-title-font, var(--reader-font)); font-size: 1.35em; font-weight: var(--reader-title-font-weight, 700); line-height: 1.5; letter-spacing: .1em; text-align: left; text-indent: 0; break-before: column; break-after: avoid; column-break-before: always; }
 .text-columns.is-reflowing { visibility: hidden; }
 .text-columns.is-ready { visibility: visible; }
 .text-viewport.is-reflowing::after { content: ''; position: absolute; z-index: 7; inset: 0; background: var(--reader-bg); pointer-events: none; }
-/* 滚动文字模式：单栏垂直排版，滚轮原生滚动 */
-.text-viewport.is-scroll { bottom: var(--scroll-bottom-guard, 0px); overflow-x: hidden; overflow-y: auto; }
-.text-viewport.is-scroll .text-columns { height: auto; min-height: 100%; column-width: auto; column-gap: 0; }
-.text-viewport.is-scroll .text-columns h2 { margin-top: clamp(46px, 10vh, 92px); padding-top: 0; break-before: auto; column-break-before: auto; }
-.text-viewport.is-scroll .text-columns h2:first-child { margin-top: 0; }
 .text-columns h2.is-jump-target { animation: chapter-jump-confirm 1.4s ease-out; }
 @keyframes chapter-jump-confirm { 0%, 22% { color: var(--accent); text-shadow: 0 0 18px rgba(var(--reader-ink), .16); } 100% { color: inherit; text-shadow: none; } }
 .reader-view.is-immersive .text-columns { padding-block: 6vh; }

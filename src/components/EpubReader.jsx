@@ -60,6 +60,12 @@ function applyRenditionSettings(rendition, settings, fontOverride) {
       'letter-spacing': `${settings.letterSpacing}px !important`,
       color: `${textColor} !important`,
       'background-color': 'transparent !important',
+      'box-sizing': 'border-box !important',
+      'padding-left': `${settings.pageMargin}px !important`,
+      'padding-right': `${settings.pageMargin}px !important`,
+      'line-break': 'strict !important',
+      'word-break': 'normal !important',
+      'hanging-punctuation': 'first last !important',
     },
     'p, div.para, div.paragraph, div[class~="para"], div[class~="paragraph"]': {
       'margin-top': '0 !important',
@@ -219,8 +225,7 @@ function hasReadableContent(document) {
   return Boolean(visibleBodyText(body))
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, wheelMode = 'page', onProgress, onChapters, onShortcut, onWheel, onCollectIntent, onShareIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
-  const scrollMode = wheelMode === 'scroll'
+const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollectIntent, onShareIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -251,6 +256,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   const lastPercentRef = useRef(0)
   const navLockRef = useRef(0)
   const pagingRef = useRef(false)
+  const selectionPagingRef = useRef({ timer: null, locked: false })
   const initialDataRef = useRef(data)
   const initialCfiRef = useRef(initialCfi)
   const shortcutRef = useRef(onShortcut)
@@ -274,10 +280,9 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     const rendition = book.renderTo(hostRef.current, {
       width: '100%',
       height: '100%',
-      // 滚动文字模式：连续垂直滚动文档；翻页模式保持分页。
-      flow: scrollMode ? 'scrolled-doc' : 'paginated',
-      spread: 'none',
-      manager: scrollMode ? 'continuous' : 'default',
+      flow: 'paginated',
+      spread: settings.layoutMode === 'landscape' ? 'always' : 'none',
+      manager: 'default',
     })
     rendition.hooks.content.register((contents) => {
       installReaderFonts(contents.document)
@@ -443,8 +448,34 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
       if (!boundViewDocuments.has(view.document)) {
         boundViewDocuments.add(view.document)
         view.document.addEventListener('keydown', (event) => shortcutRef.current(event))
-        // 滚动文字模式让 iframe 原生滚动；翻页模式滚轮接管翻页。
-        if (!scrollMode) view.document.addEventListener('wheel', (event) => wheelCallbackRef.current?.(event), { passive: false })
+        view.document.addEventListener('wheel', (event) => wheelCallbackRef.current?.(event), { passive: false })
+        view.document.addEventListener('mousemove', (event) => {
+          const state = selectionPagingRef.current
+          if (event.buttons !== 1) {
+            clearTimeout(state.timer)
+            state.timer = null
+            return
+          }
+          const selection = view.document.defaultView?.getSelection()
+          const viewportHeight = view.document.documentElement?.clientHeight || view.document.defaultView?.innerHeight || 0
+          if (!selection?.rangeCount || selection.isCollapsed || event.clientY < viewportHeight - 30 || state.locked || state.timer) return
+          const pointerX = event.clientX
+          state.timer = setTimeout(async () => {
+            state.timer = null
+            state.locked = true
+            try {
+              await rendition.next()
+              requestAnimationFrame(() => {
+                const range = view.document.caretRangeFromPoint?.(pointerX, Math.max(24, settingsRef.current.pageMargin))
+                if (range?.startContainer && view.document.contains(range.startContainer)) {
+                  try { selection.extend(range.startContainer, range.startOffset) } catch {}
+                }
+              })
+            } finally {
+              setTimeout(() => { state.locked = false }, 300)
+            }
+          }, 260)
+        })
         // iframe 内点击不冒泡到外层，面板“点击外部关闭”需要这里兜底。
         view.document.addEventListener('click', () => dismissPanelRef.current?.())
         view.document.addEventListener('contextmenu', async (event) => {

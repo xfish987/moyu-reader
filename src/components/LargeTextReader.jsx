@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import TextReader, { truncateCompanionText } from './TextReader'
 
-const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, wheelMode = 'page', onProgress, onChapters, onCollectIntent, onShareIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
+const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollectIntent, onShareIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
   const readerRefs = useRef(new Map())
   const pageHintsRef = useRef(new Map([[source.start, savedProgress?.page || 0]]))
   const currentChunkRef = useRef(source)
@@ -275,7 +275,6 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
               }}
               content={layer.content}
               settings={settings}
-              wheelMode={wheelMode}
               initialPage={pageHintsRef.current.get(layer.start) || 0}
               onProgress={(local) => updateProgress(layer, local)}
               onChapters={() => {}}

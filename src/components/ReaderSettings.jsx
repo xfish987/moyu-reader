@@ -106,6 +106,14 @@ export default function ReaderSettings({ settings, onChange, encoding, onEncodin
         </div>
       </section>
 
+      <section>
+        <label>排版模式 <span>横版模拟实体书左右页</span></label>
+        <div className="segment-control">
+          <button className={(settings.layoutMode || 'portrait') === 'portrait' ? 'active' : ''} onClick={() => set('layoutMode', 'portrait')}>竖版单页</button>
+          <button className={settings.layoutMode === 'landscape' ? 'active' : ''} onClick={() => set('layoutMode', 'landscape')}>横版双页</button>
+        </div>
+      </section>
+
       <section className="setting-row">
         <div><Type size={15} /><span>字号</span></div>
         <Stepper value={settings.fontSize} min={14} max={36} step={1} onChange={(value) => set('fontSize', value)} suffix="" />

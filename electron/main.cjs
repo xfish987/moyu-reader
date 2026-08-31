@@ -95,7 +95,6 @@ const STORE_KEYS = new Set([
   'reader:recent-books',
   'reader:shelf-book-order',
   'reader:epub-font-overrides',
-  'reader:wheel-mode',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -657,8 +656,9 @@ async function createWindow() {
     height: restored.height,
     x: restored.x,
     y: restored.y,
-    minWidth: 360,
-    minHeight: 260,
+    // 568×320 是手机横屏阅读仍可用的最小窗口。
+    minWidth: 568,
+    minHeight: 320,
     frame: false,
     thickFrame: true,
     resizable: true,

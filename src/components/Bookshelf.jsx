@@ -231,7 +231,7 @@ function LibraryBottomDock({ onOpenVirtualHome, onAddBooks, onToggleTheme, onNot
   )
 }
 
-export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, sourcePresetsMap, onSaveSourcePreset, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onAddNote, onUpdateNote, onDeleteNote, onCreateNoteGroup, onMoveNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, wheelMode, setWheelMode, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, onOpenAppearance, onToggleTheme, appearanceTheme, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
+export default function Bookshelf({ books, directory, progressMap, loading, tagsMap, setTagsMap, categories, setCategories, notesMap, sourcePresetsMap, onSaveSourcePreset, lastBookId, onOpenNote, onChooseDirectory, onAddBooks, onRefresh, onOpen, onRemove, onDeleteSource, onRelocate, coversMap, setCoversMap, coversReady, onExportData, onImportData, statusMap, setStatusMap, onAddNote, onUpdateNote, onDeleteNote, onCreateNoteGroup, onMoveNote, onExportNotes, bookMetadata, shortcuts, setShortcuts, defaultCover, initialView = 'shelf', onViewChange, onOpenVirtualHome, onOpenAppearance, onToggleTheme, appearanceTheme, scrollMemory, onClearReadingData, recentBookIds = [], categoryBookOrder = {}, setCategoryBookOrder, navigationTarget, onReorderCategories }) {
   const [view, setView] = useState(initialView)
   const rootRef = useRef(null)
 
@@ -497,7 +497,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
         </div>
       </header>
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
-      {shortcutsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} wheelMode={wheelMode} setWheelMode={setWheelMode} onClose={() => setShortcutsOpen(false)} /> : null}
+      {shortcutsOpen ? <ShortcutsModal shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setShortcutsOpen(false)} /> : null}
 
       {view === 'shelf' && lastBook ? (
         <button className="continue-reading" onClick={() => onOpen(lastBook)}>
