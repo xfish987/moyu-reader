@@ -12,6 +12,7 @@ const fixtureDir = path.join(userData, 'fixtures')
 const txtPath = path.join(fixtureDir, 'packaged-reader-smoke.txt')
 const epubPath = path.join(fixtureDir, 'packaged-reader-smoke.epub')
 const shelfTxtPath = path.join(fixtureDir, 'packaged-shelf-second-book.txt')
+const koreanEpubPath = path.join(path.dirname(root), '怪谈 完 .epub')
 const executable = path.join(root, 'release', 'win-unpacked', '墨读阅读器.exe')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -113,9 +114,11 @@ try {
   const fixtures = [
     { path: txtPath, format: 'TXT', expected: '打包后的 Electron 程序必须显示这段 TXT 正文' },
     { path: epubPath, format: 'EPUB', expected: '打包后的 Electron 程序必须显示这段 EPUB 正文' },
+    // 用户实际提供的韩文 EPUB：目录标签为“001화”，用于回归章节识别。
+    ...(fs.existsSync(koreanEpubPath) ? [{ path: koreanEpubPath, format: 'EPUB', expected: '', korean: true }] : []),
   ]
   for (const fixture of fixtures) {
-    const dataDirectory = path.join(userData, fixture.format.toLowerCase())
+    const dataDirectory = path.join(userData, fixture.korean ? 'korean-epub' : fixture.format.toLowerCase())
     fs.rmSync(dataDirectory, { recursive: true, force: true })
     app = launch(dataDirectory)
     let page = await connect()
@@ -146,8 +149,41 @@ try {
       await waitFor(page, `document.querySelector('.text-columns')?.innerText.includes(${JSON.stringify(fixture.expected)})`, 'TXT 正文')
       await capture(page, 'packaged-reader-txt.png')
     } else {
-      await waitFor(page, `(() => { const frame = document.querySelector('.epub-host iframe'); return Boolean(frame?.contentDocument?.body?.innerText?.includes(${JSON.stringify(fixture.expected)})) })()`, 'EPUB 正文')
-      await capture(page, 'packaged-reader-epub.png')
+      if (fixture.korean) {
+        await waitFor(page, "Boolean(document.querySelector('.reader-toolbar'))", '韩文 EPUB 阅读器工具栏')
+        const openedToc = await page.evaluate(`(() => {
+          const button = [...document.querySelectorAll('.reader-toolbar button')].find((item) => item.title === '目录')
+          button?.click()
+          return Boolean(button)
+        })()`)
+        if (!openedToc) {
+          const toolbar = await page.evaluate("[...document.querySelectorAll('.reader-toolbar button')].map((item) => item.title)")
+          throw new Error(`找不到目录按钮：${JSON.stringify(toolbar)}`)
+        }
+        await waitFor(page, "document.querySelectorAll('.toc-list button').length > 100", '韩文 EPUB 目录')
+        const enteredChapter = await page.evaluate(`(() => {
+          const chapter = [...document.querySelectorAll('.toc-list button')].find((item) => item.textContent.includes('001화'))
+          chapter?.click()
+          return Boolean(chapter)
+        })()`)
+        if (!enteredChapter) throw new Error('韩文 EPUB 目录中找不到 001화')
+      }
+      const bodyCheck = fixture.expected
+        ? `frame?.contentDocument?.body?.innerText?.includes(${JSON.stringify(fixture.expected)})`
+        : 'frame?.contentDocument?.body?.innerText?.trim().length > 30'
+      await waitFor(page, `(() => { const frame = document.querySelector('.epub-host iframe'); return Boolean(${bodyCheck}) })()`, 'EPUB 正文')
+      if (fixture.korean) {
+        const started = await page.evaluate(`(() => {
+          const button = document.querySelector('[title="翻译当前章节"]')
+          button?.click()
+          return Boolean(button)
+        })()`)
+        if (!started) throw new Error('找不到翻译当前章节按钮')
+        await sleep(800)
+        const translationError = await page.evaluate("document.querySelector('.translation-error')?.textContent || ''")
+        if (translationError.includes('当前章节无法识别')) throw new Error(`韩文 EPUB 翻译单元识别失败：${translationError}`)
+        console.log('PASS packaged Korean EPUB: TOC and translation unit resolved')
+      } else await capture(page, 'packaged-reader-epub.png')
     }
     console.log(`PASS packaged ${book.format}: ${book.title}`)
     if (page.errors.length) throw new Error(`桌面渲染报错：${page.errors.join('\n')}`)

@@ -342,6 +342,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
       progressCallbackRef.current({
         cfi: location.start.cfi,
         href: resolveTocHref(location, rendition, book, tocRef.current),
+        spineIndex,
         percent,
         page: displayedPage,
         pageCount: displayedTotal,

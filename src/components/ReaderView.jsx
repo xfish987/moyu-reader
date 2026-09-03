@@ -430,7 +430,21 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   // 无目录的 EPUB 无法稳定定位单元，不总结。
   const resolveCompanionUnit = useCallback(() => {
     if (chapters.length > 0) {
-      if (activeChapterIndex < 0) return null
+      if (activeChapterIndex < 0) {
+        // EPUB 的目录 href 可能与阅读引擎上报的 href 在加载瞬间不同步。
+        // 当前 href 仍能精确指向 spine 节，不能因此拒绝翻译。
+        if (source.kind === 'epub' && progress.href) {
+          return { unitKey: `href-${progress.href}`, order: Math.max(0, Number(progress.spineIndex) || 0), label: '当前章节', chapter: { href: progress.href, label: '当前章节' } }
+        }
+        // 大文件 TXT 的 TOC 扫描异步完成时，继续按当前位置的固定片段处理。
+        if (source.kind !== 'epub') {
+          const order = source.kind === 'text-large'
+            ? Math.floor((progress.absolutePosition || 0) / 5000)
+            : Math.floor((progress.textFraction || 0) * (source.content?.length || 0) / 5000)
+          return { unitKey: `seg-${order}`, order, label: `第 ${order + 1} 段（约 ${order * 5000} 字处）`, range: [order * 5000, (order + 1) * 5000] }
+        }
+        return null
+      }
       const chapter = chapters[activeChapterIndex]
       return { unitKey: `ch-${activeChapterIndex}`, order: activeChapterIndex, label: chapter.label, chapter }
     }
@@ -439,7 +453,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       ? Math.floor((progress.absolutePosition || 0) / 5000)
       : Math.floor((progress.textFraction || 0) * (source.content?.length || 0) / 5000)
     return { unitKey: `seg-${order}`, order, label: `第 ${order + 1} 段（约 ${order * 5000} 字处）`, range: [order * 5000, (order + 1) * 5000] }
-  }, [chapters, activeChapterIndex, source.kind, source.content, progress.absolutePosition, progress.textFraction])
+  }, [chapters, activeChapterIndex, source.kind, source.content, progress.absolutePosition, progress.href, progress.spineIndex, progress.textFraction])
 
   const currentTranslationUnit = resolveCompanionUnit()
   const currentTranslationUnitKey = currentTranslationUnit?.unitKey || ''

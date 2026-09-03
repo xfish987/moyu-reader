@@ -654,6 +654,8 @@ function isChapterTitle(value) {
     || /^(?:序章|序言|前言|楔子|引子|后记|尾声|终章|大结局)(?:[\s:：.-]+.{0,45})?$/i.test(line)
     || /^(?:番外|外传|附录)\s*[0-9０-９零〇一二三四五六七八九十百千万两]*(?:[\s:：.-]+.{0,45})?$/i.test(line)
     || /^(?:chapter|part|volume|book)\s+[0-9ivxlcdm]+(?:[\s:：.-]+.{0,50})?$/i.test(line)
+    || /.*(?:\d{1,4}\s*화|제\s*\d{1,4}\s*화)(?:\s*[:：.-].{0,45})?$/i.test(line)
+    || /^(?:프롤로그|에필로그)(?:[\s:：.-]+.{0,45})?$/i.test(line)
 }
 
 async function buildTextToc({ data, encoding }) {
