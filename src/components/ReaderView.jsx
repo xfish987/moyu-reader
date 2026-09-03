@@ -214,9 +214,17 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     const exactMatch = chapters.findIndex((chapter) => normalizeHref(chapter.href, true) === exactHref)
     if (exactMatch >= 0) return exactMatch
     const currentHref = normalizeHref(progress.href)
-    if (!currentHref) return -1
-    return chapters.findIndex((chapter) => normalizeHref(chapter.href) === currentHref)
-  }, [chapters, progress.absolutePosition, progress.chapterIndex, progress.href, progress.offset, source.kind])
+    if (currentHref) {
+      const hrefMatch = chapters.findIndex((chapter) => normalizeHref(chapter.href) === currentHref)
+      if (hrefMatch >= 0) return hrefMatch
+    }
+    // EPUB 导航文档和当前 iframe 偶尔在不同事件帧抵达；spine 序号是稳定的
+    // 第二定位键，避免 href 尚未同步时误判为“没有章节”。
+    if (source.kind === 'epub' && Number.isFinite(Number(progress.spineIndex))) {
+      return chapters.findIndex((chapter) => Number(chapter.spineIndex) === Number(progress.spineIndex))
+    }
+    return -1
+  }, [chapters, progress.absolutePosition, progress.chapterIndex, progress.href, progress.offset, progress.spineIndex, source.kind])
 
   useEffect(() => {
     if (panel !== 'toc' || activeChapterIndex < 0) return undefined
@@ -436,14 +444,17 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         if (source.kind === 'epub' && progress.href) {
           return { unitKey: `href-${progress.href}`, order: Math.max(0, Number(progress.spineIndex) || 0), label: '当前章节', chapter: { href: progress.href, label: '当前章节' } }
         }
-        // 大文件 TXT 的 TOC 扫描异步完成时，继续按当前位置的固定片段处理。
-        if (source.kind !== 'epub') {
-          const order = source.kind === 'text-large'
-            ? Math.floor((progress.absolutePosition || 0) / 5000)
-            : Math.floor((progress.textFraction || 0) * (source.content?.length || 0) / 5000)
-          return { unitKey: `seg-${order}`, order, label: `第 ${order + 1} 段（约 ${order * 5000} 字处）`, range: [order * 5000, (order + 1) * 5000] }
+        if (source.kind === 'epub') {
+          // 目录已经可用但首个 relocated 事件还未送达时，不向用户报错；
+          // 先用当前 spine 对应目录，最早期再退到目录首项。
+          const chapter = chapters.find((item) => Number(item.spineIndex) === Number(progress.spineIndex)) || chapters[0]
+          return { unitKey: `ch-${Math.max(0, chapters.indexOf(chapter))}`, order: Math.max(0, chapters.indexOf(chapter)), label: chapter.label, chapter }
         }
-        return null
+        // 大文件 TXT 的 TOC 扫描异步完成时，继续按当前位置的固定片段处理。
+        const order = source.kind === 'text-large'
+          ? Math.floor((progress.absolutePosition || 0) / 5000)
+          : Math.floor((progress.textFraction || 0) * (source.content?.length || 0) / 5000)
+        return { unitKey: `seg-${order}`, order, label: `第 ${order + 1} 段（约 ${order * 5000} 字处）`, range: [order * 5000, (order + 1) * 5000] }
       }
       const chapter = chapters[activeChapterIndex]
       return { unitKey: `ch-${activeChapterIndex}`, order: activeChapterIndex, label: chapter.label, chapter }

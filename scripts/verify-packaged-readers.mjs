@@ -1,5 +1,6 @@
 // Packaged Electron smoke test: starts the unpacked desktop app, not a browser.
 import { spawn, execFileSync } from 'node:child_process'
+import { once } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import JSZip from 'jszip'
@@ -103,10 +104,11 @@ const launch = (dataDirectory) => spawn(executable, [`--remote-debugging-port=${
   windowsHide: true,
   env: { ...process.env, MOYU_E2E: '1', MOYU_E2E_USER_DATA: dataDirectory },
 })
-const stop = (app) => {
-  if (!app?.killed && app?.pid) {
-    try { execFileSync('taskkill', ['/pid', String(app.pid), '/t', '/f'], { stdio: 'ignore' }) } catch {}
-  }
+const stop = async (app) => {
+  if (!app?.pid || app.exitCode !== null) return
+  const exited = once(app, 'exit').catch(() => {})
+  try { execFileSync('taskkill', ['/pid', String(app.pid), '/t', '/f'], { stdio: 'ignore' }) } catch {}
+  await Promise.race([exited, sleep(3_000)])
 }
 
 let app
@@ -187,9 +189,9 @@ try {
     }
     console.log(`PASS packaged ${book.format}: ${book.title}`)
     if (page.errors.length) throw new Error(`桌面渲染报错：${page.errors.join('\n')}`)
-    stop(app)
+    await stop(app)
     app = null
-    await sleep(800)
+    await sleep(300)
   }
   const shelfDataDirectory = path.join(userData, 'shelf-interactions')
   fs.rmSync(shelfDataDirectory, { recursive: true, force: true })
@@ -244,9 +246,9 @@ try {
   await capture(page, 'packaged-shelf-interactions.png')
   if (page.errors.length) throw new Error(`桌面渲染报错：${page.errors.join('\n')}`)
   console.log('PASS packaged shelf: blank click, selection cancel, category creation, and right-click classification')
-  stop(app)
+  await stop(app)
   app = null
   console.log('Packaged TXT and EPUB desktop reader smoke test passed')
 } finally {
-  stop(app)
+  await stop(app)
 }

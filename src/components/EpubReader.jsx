@@ -365,7 +365,11 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     resizeObserver.observe(hostRef.current)
 
     book.loaded.navigation.then((navigation) => {
-      const toc = flattenNavigation(navigation.toc)
+      const spine = book.spine?.spineItems || []
+      const toc = flattenNavigation(navigation.toc).map((item) => ({
+        ...item,
+        spineIndex: spine.findIndex((section) => splitHref(section.href).hrefPath === splitHref(item.href).hrefPath),
+      }))
       tocRef.current = toc
       chaptersCallbackRef.current(toc)
     }).catch(() => chaptersCallbackRef.current([]))
