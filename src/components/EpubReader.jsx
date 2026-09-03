@@ -164,6 +164,16 @@ function epubNoteMarkerCss(pageBackground) {
 `
 }
 
+// 读者想法正文标记（微信读书风格虚线下划线）：样式注入书籍 iframe，
+// 颜色跟随阅读主题，深浅主题下都清晰但不刺眼。
+const EPUB_THOUGHT_MARKER_STYLE_ID = 'moyu-epub-thought-marker-style'
+function epubThoughtMarkerCss(theme) {
+  const lineColor = theme === 'night' ? 'rgba(232,236,239,.6)' : 'rgba(1,22,43,.5)'
+  return `
+.epub-thought-text{border-bottom:1.5px dashed ${lineColor}!important;padding-bottom:1px;cursor:pointer!important}
+`
+}
+
 function resolveTocHref(location, rendition, book, toc) {
   const currentPath = splitHref(location.start.href).hrefPath
   const candidates = toc.filter((item) => splitHref(item.href).hrefPath === currentPath)
@@ -225,7 +235,7 @@ function hasReadableContent(document) {
   return Boolean(visibleBodyText(body))
 }
 
-const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollectIntent, onShareIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onDismissPanel }, ref) {
+const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride, initialCfi, onProgress, onChapters, onShortcut, onWheel, onCollectIntent, onShareIntent, onThoughtIntent, notes = [], thoughts = [], onOpenThoughts, onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onFixTerm, onReaderContextMenu, translationActive }, ref) {
   const hostRef = useRef(null)
   const renditionRef = useRef(null)
   const bookRef = useRef(null)
@@ -235,10 +245,15 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   const selectionPayloadRef = useRef(null)
   const notesRef = useRef(notes)
   const injectNoteMarkersRef = useRef(null)
+  const thoughtsRef = useRef(thoughts)
+  const openThoughtsRef = useRef(onOpenThoughts)
+  const injectThoughtMarkersRef = useRef(null)
   const rewritesRef = useRef(rewrites)
   const openRewriteRef = useRef(onOpenRewrite)
   const injectRewritesRef = useRef(null)
   notesRef.current = notes
+  thoughtsRef.current = thoughts
+  openThoughtsRef.current = onOpenThoughts
   rewritesRef.current = rewrites
   openRewriteRef.current = onOpenRewrite
   const locationsPromiseRef = useRef(null)
@@ -489,14 +504,21 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
         view.document.addEventListener('contextmenu', async (event) => {
           const selectedText = view.document.defaultView?.getSelection()?.toString().trim()
           const payload = selectionPayloadRef.current
-          if (!selectedText || !payload) return
+          if (!selectedText || !payload) {
+            event.preventDefault()
+            onReaderContextMenu?.(event)
+            return
+          }
           event.preventDefault()
           const canLookupEntity = payload.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(payload.text)
           const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(payload.text))
-          const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
+          const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile), showThoughts: settings?.showReaderThoughts !== false })
           if (action === 'note') {
             // 收藏改为由 ReaderView 弹出 CollectNoteModal（高亮编辑 + 备注 + 标签）。
             onCollectIntent?.(payload)
+            closeSelectionPopup()
+          } else if (action === 'thought') {
+            onThoughtIntent?.(payload)
             closeSelectionPopup()
           } else if (action === 'share') {
             // 直接分享：生成分享图，不写入笔记。
@@ -505,6 +527,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
           }
           else if (action === 'dictionary') onLookupDict?.(payload)
           else if (action === 'rewrite') onRewrite?.(payload)
+          else if (action === 'fix-term') onFixTerm?.(payload)
           else if (action === 'lookup-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'generate')
           else if (action === 'view-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'view')
           else if (action === 'link-entity') onLookupEntity?.({ ...payload, readPosition: payload.cfi }, 'link')
@@ -541,7 +564,7 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
     })
 
     // 每次渲染新节（翻页/跳转/重排）后，重新在可见段落末尾注入评论气泡。
-    rendition.on('rendered', () => { injectNoteMarkersRef.current?.(); injectRewritesRef.current?.() })
+    rendition.on('rendered', () => { injectNoteMarkersRef.current?.(); injectThoughtMarkersRef.current?.(); injectRewritesRef.current?.() })
 
     if (initialCfiRef.current) {
       const restoreCfi = initialCfiRef.current
@@ -659,6 +682,57 @@ const EpubReader = forwardRef(function EpubReader({ data, settings, fontOverride
   injectNoteMarkersRef.current = injectNoteMarkers
 
   useEffect(() => { injectNoteMarkers() }, [injectNoteMarkers, notes, data, settings.theme])
+
+  // 有想法的句子包上虚线 span，点击打开想法面板。按 anchor.cfi 定位；
+  // 目标节未加载或 cfi 失效时跳过（翻到该节 rendered 后会重试）。
+  const injectThoughtMarkers = useCallback(() => {
+    const rendition = renditionRef.current
+    if (!rendition) return
+    const contentsList = rendition.getContents?.() || []
+    for (const contents of contentsList) {
+      try {
+        contents.document?.querySelectorAll('.epub-thought-text').forEach((node) => node.replaceWith(...node.childNodes))
+        contents.document?.body?.normalize()
+      } catch {}
+    }
+    if (settingsRef.current.showReaderThoughts === false) return
+    for (const thought of thoughtsRef.current || []) {
+      if (!thought.anchor?.cfi) continue
+      let range = null
+      try { range = rendition.getRange(thought.anchor.cfi) } catch { range = null }
+      if (!range?.startContainer) continue
+      const document = range.startContainer.ownerDocument
+      if (document?.head && !document.getElementById(EPUB_THOUGHT_MARKER_STYLE_ID)) {
+        const style = document.createElement('style')
+        style.id = EPUB_THOUGHT_MARKER_STYLE_ID
+        style.textContent = epubThoughtMarkerCss(settingsRef.current.theme)
+        document.head.appendChild(style)
+      }
+      const root = range.commonAncestorContainer.nodeType === 3 ? range.commonAncestorContainer.parentElement : range.commonAncestorContainer
+      const walker = document.createTreeWalker(root, document.defaultView.NodeFilter.SHOW_TEXT)
+      const nodes = []
+      while (walker.nextNode()) {
+        const node = walker.currentNode
+        try { if (range.intersectsNode(node)) nodes.push(node) } catch {}
+      }
+      nodes.reverse().forEach((node) => {
+        const start = node === range.startContainer ? range.startOffset : 0
+        const end = node === range.endContainer ? range.endOffset : node.data.length
+        if (end <= start) return
+        const selected = start ? node.splitText(start) : node
+        if (end - start < selected.data.length) selected.splitText(end - start)
+        const mark = document.createElement('span')
+        mark.className = 'epub-thought-text'
+        mark.title = '查看读者想法'
+        mark.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); openThoughtsRef.current?.() })
+        selected.replaceWith(mark)
+        mark.appendChild(selected)
+      })
+    }
+  }, [])
+  injectThoughtMarkersRef.current = injectThoughtMarkers
+
+  useEffect(() => { injectThoughtMarkers() }, [injectThoughtMarkers, thoughts, data, settings.theme])
 
   const injectRewrites = useCallback(() => {
     const rendition = renditionRef.current

@@ -1,0 +1,51 @@
+services:
+  moyu-cloud:
+    build: .
+    image: moyu-reader-cloud:production
+    restart: unless-stopped
+    environment:
+      PORT: "8787"
+      DATA_DIR: /data
+      SESSION_DAYS: "0"
+      MAX_SNAPSHOT_BYTES: "8589934592"
+      MAX_BOOK_BYTES: "1073741824"
+      ALLOW_PUBLIC_REGISTRATION: "true"
+      INVITE_CODE: "${INVITE_CODE:?Set INVITE_CODE in the server environment}"
+      NOVEL_ENGINE_URL: "http://so-novel:7765"
+      EPUB_MAKER_URL: "http://epub-maker:8080"
+    volumes:
+      - /var/lib/moyu-reader:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      catdice_internal:
+        aliases: [moyu-cloud]
+
+  # so-novel 搜书引擎（Web 模式）
+  so-novel:
+    image: ghcr.io/freeok/sonovel:latest
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Dmode=web"
+    networks:
+      catdice_internal:
+        aliases: [so-novel]
+
+  # cn-epub-maker TXT 转 EPUB 服务
+  epub-maker:
+    build: ./epub-maker
+    image: moyu-epub-maker:production
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+    networks:
+      catdice_internal:
+        aliases: [epub-maker]
+
+networks:
+  catdice_internal:
+    external: true

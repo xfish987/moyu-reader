@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { MoonStar } from 'lucide-react'
+import { BookOpen, CalendarDays, Clock3, MoonStar } from 'lucide-react'
 import AISettingsModal from '../components/AISettingsModal'
-import { ALL_BOOKS_ORDER_KEY, countSpinesHiddenForExpansion, layoutShelfBooks, orderBooksByIds, orderBooksWithNewFirst, hashSeed, shortCategoryLabel } from './shelfLayout'
+import Bookstore, { BookstorePreview } from '../components/Bookstore'
+import { ALL_BOOKS_ORDER_KEY, countSpinesHiddenForExpansion, layoutFaceOnlyBooks, layoutShelfBooks, orderBooksByIds, orderBooksWithNewFirst, hashSeed, shortCategoryLabel } from './shelfLayout'
+import { formatReadingDuration } from '../readingStats'
 import libraryIcon from './assets/dark-shelf/library.svg'
 import importIcon from './assets/dark-shelf/import.svg'
 import notesIcon from './assets/dark-shelf/notes.svg'
@@ -79,6 +81,7 @@ function FaceBook({ book, customCover, defaultCover, progress, onOpen, expanded,
         <img src={openBook} alt="" />
       </span>
       {percent ? <span className="v-face-progress" style={{ '--progress': `${percent}%` }} aria-hidden="true" /> : null}
+      {book.cloudOnly ? <span className="v-cloud-only" title="仅云端，点击下载">云</span> : null}
     </button>
   )
 }
@@ -93,6 +96,7 @@ function SpineBook({ book, customCover, defaultCover, progress, onOpen, hidden, 
       <span className="v-spine-reveal" aria-hidden="true">
         <img src={cover} alt="" />
       </span>
+      {book.cloudOnly ? <span className="v-cloud-only" title="仅云端，点击下载">云</span> : null}
     </button>
   )
 }
@@ -117,7 +121,9 @@ function ShelfRow({ row, progressMap, coversMap, defaultCover, onOpen, draggingC
     return () => observer.disconnect()
   }, [])
 
-  const layout = useMemo(() => layoutShelfBooks(row.books, width), [row.books, width])
+  // 首页"最近在读"行全部用正面封面：可见数量随容器宽度自适应（最少 3 本），不渲染书脊。
+  const faceOnly = row.key === 'recent'
+  const layout = useMemo(() => (faceOnly ? layoutFaceOnlyBooks(row.books, width) : layoutShelfBooks(row.books, width)), [faceOnly, row.books, width])
 
   useLayoutEffect(() => {
     const node = booksRef.current
@@ -230,7 +236,7 @@ function BottomDock({ onLibrary, onImport, onToggleTheme, onNotes, onSettings })
       <button className="is-theme-toggle" onClick={onToggleTheme} title="切换深浅主题" aria-label="切换深浅主题"><span className="v-theme-moon-mark"><MoonStar /></span></button>
       <div className="v-dock-side is-right">{[
         { id: 'notes', label: '笔记摘录', icon: notesIcon, onClick: onNotes },
-        { id: 'settings', label: '主题与背景', icon: appearanceIcon, onClick: onSettings },
+        { id: 'settings', label: '用户数据', icon: appearanceIcon, onClick: onSettings },
       ].map(action)}</div>
     </nav>
   )
@@ -251,11 +257,12 @@ function LibraryTopBar({ bookCount, query, onQueryChange, onClearAllData, onOpen
   )
 }
 
-export default function VirtualBookshelfHome({ books, progressMap, statusMap, coversMap, defaultCover, categories, tagsMap, categoryBookOrder, recentBookIds, onOpen, onAddBooks, onOpenLibrary, onOpenNotes, onOpenAppearance, onChooseDirectory, onClearAllData, onReorderCategories, onReorderBook, onToggleTheme, scrollMemory }) {
+export default function VirtualBookshelfHome({ books, progressMap, statusMap, readingStats, coversMap, defaultCover, categories, tagsMap, categoryBookOrder, recentBookIds, onOpen, onAddBooks, onDownloadedBook, onOpenLibrary, onOpenNotes, onOpenAppearance, onChooseDirectory, onClearAllData, onReorderCategories, onReorderBook, onToggleTheme, scrollMemory }) {
   const [query, setQuery] = useState('')
   const [draggingCategory, setDraggingCategory] = useState('')
   const [dropState, setDropState] = useState(null)
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
+  const [storeOpen, setStoreOpen] = useState(false)
   const sceneRef = useRef(null)
 
   useLayoutEffect(() => {
@@ -272,20 +279,18 @@ export default function VirtualBookshelfHome({ books, progressMap, statusMap, co
     const byId = new Map(books.map((book) => [book.id, book]))
     const needle = query.trim().toLocaleLowerCase('zh-CN')
     const matches = (book) => !needle || `${book.title} ${book.author || ''}`.toLocaleLowerCase('zh-CN').includes(needle)
-    const result = []
     const recent = recentBookIds.map((id) => byId.get(id)).filter(Boolean).filter(matches)
-    if (recent.length) result.push({ key: 'recent', label: '最近在读', managementKey: 'recent', books: recent, totalCount: recent.length })
-    const all = orderBooksWithNewFirst(books, categoryBookOrder[ALL_BOOKS_ORDER_KEY]).filter(matches)
-    if (all.length) result.push({ key: 'all', label: '全部', managementKey: 'all', books: all, totalCount: books.length })
-    for (const category of categories) {
-      const members = books.filter((book) => tagsMap[book.id]?.[0] === category)
-      const visible = orderBooksByIds(members, categoryBookOrder[category]).filter(matches)
-      if (visible.length || !needle) result.push({ key: category, label: category, managementKey: 'category', books: visible, totalCount: members.length, reorderable: true })
-    }
-    return result
-  }, [books, categories, categoryBookOrder, query, recentBookIds, tagsMap])
+    return recent.length ? [{ key: 'recent', label: '最近在读', managementKey: 'recent', books: recent, totalCount: recent.length }] : []
+  }, [books, query, recentBookIds])
 
   const visibleCategoryKeys = rows.filter((row) => row.reorderable).map((row) => row.key)
+  const totalSeconds = Number(readingStats?.totalSeconds) || 0
+  const readingDuration = formatReadingDuration(totalSeconds)
+  const stats = [
+    ['阅读天数', `${Object.keys(readingStats?.days || {}).length}`, '天', CalendarDays],
+    ['阅读时长', readingDuration.value, readingDuration.unit, Clock3],
+    ['已读书籍', `${books.filter((book) => Number(progressMap[book.id]?.percent) >= .99).length}`, '本', BookOpen],
+  ]
   const handleDragStart = (event, category) => {
     event.dataTransfer.setData('text/category-name', category)
     event.dataTransfer.effectAllowed = 'move'
@@ -313,10 +318,18 @@ export default function VirtualBookshelfHome({ books, progressMap, statusMap, co
     <main className="v-home" aria-label="书脊视图">
       <div className="v-bookshelf-scene" ref={sceneRef}>
         <LibraryTopBar bookCount={books.length} query={query} onQueryChange={setQuery} onClearAllData={onClearAllData} onOpenAiSettings={() => setAiSettingsOpen(true)} onChooseDirectory={onChooseDirectory} />
-        {rows.length ? <div className="v-shelf-stack">{rows.map((row) => <ShelfRow key={row.key} row={row} progressMap={progressMap} coversMap={coversMap} defaultCover={defaultCover} onOpen={onOpen} draggingCategory={draggingCategory} dropState={dropState} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} onDragEnd={() => { setDraggingCategory(''); setDropState(null) }} onMoveByKeyboard={moveByKeyboard} onOpenCategory={onOpenLibrary} onReorderBook={onReorderBook} />)}</div> : query ? <div className="v-empty-shelf"><strong>没有找到相关书籍</strong></div> : <div className="v-empty-shelf"><strong>书架还是空的</strong><button onClick={onAddBooks}>导入书籍</button></div>}
+        <div className="v-home-sections">
+          <BookstorePreview onOpen={() => setStoreOpen(true)} />
+          {rows[0] ? <ShelfRow row={rows[0]} progressMap={progressMap} coversMap={coversMap} defaultCover={defaultCover} onOpen={onOpen} draggingCategory={draggingCategory} dropState={dropState} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} onDragEnd={() => { setDraggingCategory(''); setDropState(null) }} onMoveByKeyboard={moveByKeyboard} onOpenCategory={onOpenLibrary} onReorderBook={onReorderBook} /> : <section className="v-recent-empty"><header><strong>最近在读</strong><button onClick={() => onOpenLibrary(null)}>打开完整书架 ›</button></header><p>{query ? '最近阅读中没有匹配的书' : '打开一本书后，它会留在这里方便继续阅读。'}</p></section>}
+          <section className="v-reading-overview" aria-label="阅读数据">
+            <header><span>READING RECORD</span><strong>阅读数据</strong></header>
+            <div className="v-reading-metrics">{stats.map(([label, value, unit, Icon]) => <div key={label}><span className="v-reading-label"><Icon aria-hidden="true" />{label}</span><strong><b>{value}</b><small>{unit}</small></strong></div>)}</div>
+          </section>
+        </div>
       </div>
       <BottomDock onLibrary={() => onOpenLibrary(null)} onImport={onAddBooks} onToggleTheme={onToggleTheme} onNotes={onOpenNotes} onSettings={onOpenAppearance} />
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} />
+      {storeOpen ? <Bookstore onClose={() => setStoreOpen(false)} onDownloaded={onDownloadedBook} /> : null}
     </main>
   )
 }

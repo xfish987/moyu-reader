@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, BookOpenText, ChevronLeft, ChevronRight, List, Maximize, Minimize2, MoreHorizontal, NotebookPen, Search, Settings2, Sparkles, Trash2, X } from 'lucide-react'
+import { ArrowLeft, BookMarked, Bookmark, BookmarkPlus, BookOpenCheck, BookOpenText, ChevronLeft, ChevronRight, Languages, List, Maximize, MessageCircle, Minimize2, MoreHorizontal, NotebookPen, Search, Settings2, Sparkles, Trash2, X } from 'lucide-react'
 import EpubReader from './EpubReader'
 import LargeTextReader from './LargeTextReader'
 import ReaderSettings from './ReaderSettings'
@@ -10,6 +10,7 @@ import AISettingsModal from './AISettingsModal'
 import EntityIdentityModal from './EntityIdentityModal'
 import RewritePanel from './RewritePanel'
 import DictionaryQuestionModal from './DictionaryQuestionModal'
+import ReaderThoughtsPanel from './ReaderThoughtsPanel'
 import { searchVariants, useChineseConversionReady } from '../chineseConversion'
 import { isCorruptProfile } from '../entityProfiles'
 import { buildCoverageNote, selectPreviousSummaries } from '../storyline'
@@ -45,16 +46,39 @@ function selectDictionaryEvidence(excerpts, question, selectedText, limit = 20) 
   return selected
 }
 
-export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, onBackfillNoteChapters, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, rewrites = [], onSaveRewrite, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
+export default function ReaderView({ book, source, settings, setSettings, savedProgress, immersive, onBack, onToggleImmersive, onProgress, shortcut, actionRef, notes, bookmarks, onAddBookmark, onDeleteBookmark, onAddNote, onDeleteNote, onBackfillNoteChapters, initialNote, onEncodingChange, epubFontOverride, onEpubFontOverrideChange, entityProfiles = [], onSaveEntityProfile, onUpdateEntityIdentity, onMergeEntityProfiles, onSplitEntityAlias, onDeleteEntityProfile, dictionaryEntries = [], onSaveDictEntry, onDeleteDictEntry, translationGlossary = [], onSaveTranslationTerm, onDeleteTranslationTerm, chapterTranslations = {}, onSaveChapterTranslation, translationSettings = { targetScript: 'simplified', display: 'bilingual', pretranslateNext: false }, onTranslationSettingsChange, rewrites = [], onSaveRewrite, companionEnabled, onToggleCompanion, storylineEntries = [], onSaveStorylineEntry, onDeleteStorylineEntry, companionChats = [], onSaveCompanionChats }) {
   const readerRef = useRef(null)
   const conversionReady = useChineseConversionReady(settings.scriptConversion || 'none')
   const activeChapterRef = useRef(null)
   const tocPanelRef = useRef(null)
   const wheelStateRef = useRef({ accumulated: 0, direction: 0, lockedUntil: 0 })
   const [panel, setPanel] = useState(null)
+  const [thoughtDraft, setThoughtDraft] = useState(null)
   const [collectDraft, setCollectDraft] = useState(null)
   // 统一换行为 \n，保证高亮偏移与正文一致。
   const openCollectDraft = (draft) => setCollectDraft(draft ? { ...draft, text: String(draft.text || '').replace(/\r\n/g, '\n') } : draft)
+  // 「显示读者想法」关闭时，任何入口都不允许打开想法面板（C5）
+  const openThoughtDraft = (draft) => {
+    if (settings.showReaderThoughts === false) return
+    setThoughtDraft(draft)
+    setPanel('thoughts')
+  }
+  // 点击正文虚线标记：仅打开想法面板（不带草稿）。
+  const openThoughtList = () => {
+    if (settings.showReaderThoughts === false) return
+    setThoughtDraft(null)
+    setPanel('thoughts')
+  }
+  // 当前书的全部读者想法，用于正文虚线标记。未登录/接口失败时视为空。
+  const [thoughts, setThoughts] = useState([])
+  const loadThoughts = useCallback(async () => {
+    if (settings.showReaderThoughts === false) { setThoughts([]); return }
+    try {
+      const result = await window.readerAPI.listReaderThoughts(book.fingerprint || book.id || book.path)
+      setThoughts(result.thoughts || [])
+    } catch { setThoughts([]) }
+  }, [book.fingerprint, book.id, book.path, settings.showReaderThoughts])
+  useEffect(() => { loadThoughts() }, [loadThoughts])
   // 直接分享：临时对象出分享图，不写入笔记。
   const [shareDraft, setShareDraftState] = useState(null)
   const setShareDraft = (draft) => setShareDraftState(draft ? { ...draft, text: String(draft.formattedText || draft.text || '').replace(/\r\n/g, '\n') } : draft)
@@ -99,6 +123,14 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
   const [profileTasks, setProfileTasks] = useState([])
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
   const [aiConfig, setAiConfig] = useState(null)
+  const [translationPanel, setTranslationPanel] = useState(null)
+  const [translationProgress, setTranslationProgress] = useState(0)
+  const [translationError, setTranslationError] = useState('')
+  const [activeTranslationKey, setActiveTranslationKey] = useState('')
+  const [translationEnabled, setTranslationEnabled] = useState(false)
+  const [translationTaskLabel, setTranslationTaskLabel] = useState('')
+  const [translationStartedAt, setTranslationStartedAt] = useState(0)
+  const translationRequestRef = useRef(0)
   const profileTasksRef = useRef([])
   const [identityProfile, setIdentityProfile] = useState(null)
   const [linkAlias, setLinkAlias] = useState('')
@@ -408,6 +440,135 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
       : Math.floor((progress.textFraction || 0) * (source.content?.length || 0) / 5000)
     return { unitKey: `seg-${order}`, order, label: `第 ${order + 1} 段（约 ${order * 5000} 字处）`, range: [order * 5000, (order + 1) * 5000] }
   }, [chapters, activeChapterIndex, source.kind, source.content, progress.absolutePosition, progress.textFraction])
+
+  const currentTranslationUnit = resolveCompanionUnit()
+  const currentTranslationUnitKey = currentTranslationUnit?.unitKey || ''
+  const translationCacheKey = (unit) => unit?.unitKey ? `${unit.unitKey}|${translationSettings.targetScript || 'simplified'}|${translationSettings.translationProfile || 'auto'}` : ''
+  const currentTranslationKey = translationCacheKey(currentTranslationUnit)
+  const activeTranslation = activeTranslationKey && chapterTranslations[activeTranslationKey]?.unitKey === currentTranslationUnitKey ? chapterTranslations[activeTranslationKey] : null
+  const glossaryVersion = JSON.stringify(translationGlossary.map((item) => [item.source, item.target]))
+  const activeTranslationGlossaryStale = Boolean(activeTranslation && ((activeTranslation.glossaryVersion !== undefined && activeTranslation.glossaryVersion !== glossaryVersion) || (activeTranslation.translationProfile || 'auto') !== (translationSettings.translationProfile || 'auto')))
+
+  const translateUnit = async (unit, { force = false, activate = true } = {}) => {
+    if (!unit) return setTranslationError('当前章节无法识别，请从目录进入一个章节后重试')
+    const cacheKey = translationCacheKey(unit)
+    const cached = chapterTranslations[cacheKey] || chapterTranslations[unit.unitKey]
+    if (cached && cached.targetScript === translationSettings.targetScript && (cached.translationProfile || 'auto') === (translationSettings.translationProfile || 'auto') && !force) {
+      if (activate) { setActiveTranslationKey(chapterTranslations[cacheKey] ? cacheKey : unit.unitKey); setTranslationEnabled(true) }
+      return
+    }
+    if (!aiConfig?.providers?.length) { setAiSettingsOpen(true); return }
+    const requestId = Date.now()
+    translationRequestRef.current = requestId
+    setTranslationEnabled(true)
+    setTranslationError('')
+    setTranslationProgress(4)
+    setTranslationTaskLabel(unit.label)
+    setTranslationStartedAt(Date.now())
+    if (activate) setActiveTranslationKey(cacheKey)
+    try {
+      const text = await readerRef.current?.getChapterText?.(unit)
+      if (!text) throw new Error('没有读取到当前章节正文')
+      const sourceParagraphs = text.split(/\r?\n+/).map((value) => value.trim()).filter(Boolean)
+      const batches = []
+      let batch = []
+      let batchSize = 0
+      for (const paragraph of sourceParagraphs) {
+        if (batch.length && batchSize + paragraph.length > 6000) { batches.push(batch); batch = []; batchSize = 0 }
+        batch.push(paragraph); batchSize += paragraph.length
+      }
+      if (batch.length) batches.push(batch)
+      const paragraphs = []
+      let providerName = ''
+      let model = ''
+      for (let index = 0; index < batches.length; index += 1) {
+        let result
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          result = await window.readerAPI.translateChapter({ requestId: String(requestId), text: batches[index].join('\n'), bookTitle: book.title, chapterLabel: unit.label, glossary: translationGlossary, targetScript: translationSettings.targetScript, translationProfile: translationSettings.translationProfile })
+          if (result?.ok && result.complete) break
+        }
+        if (translationRequestRef.current !== requestId) return
+        if (!result?.ok || !result.complete) {
+          if (result?.error?.code === 'PROVIDER_NOT_FOUND') setAiSettingsOpen(true)
+          throw new Error(result?.error?.message || `第 ${index + 1} 批存在漏译，已停止保存以保护段落对应关系`)
+        }
+        const offset = paragraphs.length
+        paragraphs.push(...result.paragraphs.map((item, paragraphIndex) => {
+          const original = String(item.original || '').trim()
+          const heading = original.replace(/\s+/g, '') === String(unit.label || '').replace(/\s+/g, '') || (offset + paragraphIndex === 0 && original.length < 90 && /^(chapter\s+\d+|第.{1,12}[章节卷回]|序章|楔子|prologue)/i.test(original))
+          return { ...item, kind: heading ? 'heading' : /^[-*•·]\s|^\d+[.)、]\s/.test(original) ? 'list' : 'paragraph' }
+        }))
+        providerName ||= result.providerName || ''
+        model ||= result.model || ''
+        setTranslationProgress(Math.round((index + 1) / batches.length * 100))
+      }
+      onSaveChapterTranslation?.(cacheKey, { paragraphs, providerName, model, complete: paragraphs.every((item) => item.translation), unitKey: unit.unitKey, chapterLabel: unit.label, translatedAt: Date.now(), targetScript: translationSettings.targetScript, translationProfile: translationSettings.translationProfile || 'auto', glossaryVersion: JSON.stringify(translationGlossary.map((item) => [item.source, item.target])) })
+      setTranslationProgress(100)
+      setTimeout(() => setTranslationProgress(0), 700)
+      if (activate && translationSettings.pretranslateNext && unit.order + 1 < chapters.length) {
+        const chapter = chapters[unit.order + 1]
+        setTimeout(() => translateUnit({ unitKey: `ch-${unit.order + 1}`, order: unit.order + 1, label: chapter.label, chapter }, { activate: false }), 900)
+      }
+    } catch (error) { if (translationRequestRef.current === requestId) { setTranslationError(error.message); setTranslationProgress(0) } }
+    finally { /* 每批完成后按实际段落进度更新 */ }
+  }
+
+  const translateCurrentChapter = (force = false) => translateUnit(resolveCompanionUnit(), { force, activate: true })
+
+  const cancelTranslation = () => {
+    setTranslationError('')
+    setActiveTranslationKey('')
+  }
+
+  const stopTranslation = () => {
+    window.readerAPI.cancelTranslation?.(String(translationRequestRef.current))
+    translationRequestRef.current += 1
+    setTranslationEnabled(false)
+    setTranslationProgress(0)
+    setTranslationTaskLabel('')
+  }
+
+  const togglePretranslateNext = () => {
+    const enabled = !translationSettings.pretranslateNext
+    onTranslationSettingsChange?.({ ...translationSettings, pretranslateNext: enabled })
+    const unit = resolveCompanionUnit()
+    if (enabled && !translationProgress && unit && unit.order + 1 < chapters.length) {
+      const chapter = chapters[unit.order + 1]
+      translateUnit({ unitKey: `ch-${unit.order + 1}`, order: unit.order + 1, label: chapter.label, chapter }, { activate: false })
+    }
+  }
+
+  const handleReaderContextMenu = async (event) => {
+    if (event?.target?.closest?.('button,input,textarea,select,a,.translation-sheet')) return
+    event?.preventDefault?.()
+    const action = await window.readerAPI.openSelectionMenu({ hasSelection: false, readerActions: true, translationActive: Boolean(activeTranslation), translationRunning: Boolean(translationProgress), hasTranslationCache: Boolean(chapterTranslations[currentTranslationKey]) })
+    if (action === 'translate') translateCurrentChapter()
+    else if (action === 'cancel-translation') cancelTranslation()
+    else if (action === 'translation-settings') setTranslationPanel('settings')
+    else if (action === 'term-library') setTranslationPanel('glossary')
+    else if (action === 'retranslate') translateCurrentChapter(true)
+    else if (action === 'stop-translation') stopTranslation()
+  }
+
+  useEffect(() => {
+    if (!translationEnabled || translationProgress || !currentTranslationKey) return
+    const cached = chapterTranslations[currentTranslationKey] || chapterTranslations[currentTranslationUnitKey]
+    if (cached?.targetScript === translationSettings.targetScript && (cached.translationProfile || 'auto') === (translationSettings.translationProfile || 'auto')) setActiveTranslationKey(currentTranslationKey)
+    else translateCurrentChapter(false)
+  }, [currentTranslationKey, translationEnabled, translationProgress])
+
+  const fixTranslationTerm = async (selection) => {
+    const term = String(selection?.text || '').trim().slice(0, 2400)
+    if (!term) return
+    if (!aiConfig?.providers?.length) { setAiSettingsOpen(true); return }
+    setTranslationPanel('glossary')
+    const pendingId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    onSaveTranslationTerm?.({ id: pendingId, source: term.length > 30 ? '正在从所选段落提取专名…' : term, target: '', status: 'translating', createdAt: Date.now() })
+    const result = await window.readerAPI.translateTerm({ term, context: selection?.currentExcerpt || selection?.text, bookTitle: book.title, targetScript: translationSettings.targetScript, translationProfile: translationSettings.translationProfile })
+    onDeleteTranslationTerm?.(pendingId)
+    if (result?.ok) result.terms.forEach((item, index) => onSaveTranslationTerm?.({ id: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`, source: item.source, target: item.target, type: item.type, status: 'done', createdAt: Date.now(), updatedAt: Date.now() }))
+    else onSaveTranslationTerm?.({ id: pendingId, source: term.length > 30 ? '段落专名提取失败' : term, target: '', status: 'error', error: result?.error?.message || '名词识别失败', createdAt: Date.now() })
+  }
 
   // force 用于"重新生成"：已有总结也照常入队（完成后 upsert 覆盖旧条目）。
   const enqueueCompanionUnit = useCallback((unit, force = false) => {
@@ -1217,8 +1378,11 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
     { id: 'add-bookmark', icon: BookmarkPlus, iconSize: 17, label: '添加书签', onClick: addBookmark },
     { id: 'bookmarks', icon: BookMarked, iconSize: 17, label: '书签', active: panel === 'bookmarks', onClick: () => setPanel(panel === 'bookmarks' ? null : 'bookmarks') },
     { id: 'notes', icon: NotebookPen, iconSize: 17, label: '摘录与笔记', active: panel === 'notes', onClick: () => setPanel(panel === 'notes' ? null : 'notes') },
+    ...(settings.showReaderThoughts !== false ? [{ id: 'thoughts', icon: MessageCircle, iconSize: 17, label: '读者想法', active: panel === 'thoughts', onClick: () => { setThoughtDraft(null); setPanel(panel === 'thoughts' ? null : 'thoughts') } }] : []),
     { id: 'profiles', icon: BookOpenCheck, iconSize: 17, label: '本书设定集', title: '本书设定集（打开/关闭独立窗口）', onClick: () => window.readerAPI.toggleProfilesWindow?.() },
     { id: 'dictionary', icon: BookOpenText, iconSize: 17, label: '字典百科', title: '字典百科（本书全部解释记录）', onClick: () => window.readerAPI.openDictionaryWindow?.('') },
+    { id: 'translation-glossary', icon: Languages, iconSize: 17, label: '名词库', title: '翻译名词库与申请记录', onClick: () => setTranslationPanel('glossary') },
+    { id: 'translation', icon: Languages, iconSize: 17, label: translationEnabled ? '停止翻译' : '开始翻译', title: translationEnabled ? '停止翻译伴读' : '翻译当前章节', active: translationEnabled, onClick: () => translationEnabled ? stopTranslation() : translateCurrentChapter(false) },
     { id: 'companion', icon: Sparkles, iconSize: 17, label: 'AI陪读', title: 'AI陪读（F2 开始 / F3 停止）', active: companionEnabled, pinned: false, onClick: onToggleCompanion },
     { id: 'search', icon: Search, iconSize: 17, label: '全书搜索', active: panel === 'search', onClick: () => setPanel(panel === 'search' ? null : 'search') },
     { id: 'settings', icon: Settings2, iconSize: 18, label: '阅读设置', active: panel === 'settings', onClick: () => setPanel(panel === 'settings' ? null : 'settings') },
@@ -1261,29 +1425,49 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         </header>
       ) : null}
 
-      <section className="reading-stage" onClick={() => panel && setPanel(null)} onWheel={handlePageWheel}>
-        {source.kind === 'text' ? (
-          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} initialFraction={progress.percent ?? savedProgress?.percent ?? null} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
+      <section className="reading-stage" onClick={() => panel && setPanel(null)} onWheel={handlePageWheel} onContextMenu={handleReaderContextMenu}>
+        {activeTranslation ? (
+          <article className={`translation-sheet ${translationSettings.display === 'translated' ? 'translated-only' : ''}`} onContextMenu={handleReaderContextMenu}>
+            <header><Languages size={17} /><strong>{activeTranslation.chapterLabel}</strong><span>{activeTranslation.providerName} · {activeTranslation.model}</span></header>
+            {activeTranslation.paragraphs.map((item, index) => <section className={`translation-block is-${item.kind || 'paragraph'}`} key={index}>{translationSettings.display !== 'translated' ? item.kind === 'heading' ? <h2 className="translation-original">{item.original}</h2> : <p className="translation-original">{item.original}</p> : null}{item.kind === 'heading' ? <h2 className="translation-target">{item.translation}</h2> : <p className="translation-target">{item.translation}</p>}</section>)}
+          </article>
+        ) : null}
+        <div className={`translation-source-underlay ${activeTranslation ? 'is-hidden' : ''}`}>{source.kind === 'text' ? (
+          <TextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} content={source.content} settings={settings} initialPage={progress.page ?? savedProgress?.page} initialFraction={progress.percent ?? savedProgress?.percent ?? null} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} onThoughtIntent={openThoughtDraft} notes={notes} thoughts={thoughts} onOpenThoughts={openThoughtList} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onFixTerm={fixTranslationTerm} />
         ) : source.kind === 'text-large' ? (
-          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text-large')} onRewrite={startRewrite} onOpenRewrite={openRewrite} />
+          <LargeTextReader key={`${settings.scriptConversion || 'none'}-${conversionReady}`} ref={readerRef} book={book} source={source} settings={settings} savedProgress={progress || savedProgress} onProgress={updateProgress} onChapters={updateChapters} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} onThoughtIntent={openThoughtDraft} notes={notes} thoughts={thoughts} onOpenThoughts={openThoughtList} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'text-large')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'text-large')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onFixTerm={fixTranslationTerm} />
         ) : (
-          <EpubReader key={`${settings.scriptConversion || 'none'}-${settings.layoutMode || 'portrait'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} notes={notes} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'epub')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onDismissPanel={() => setPanel(null)} />
-        )}
+          <EpubReader key={`${settings.scriptConversion || 'none'}-${settings.layoutMode || 'portrait'}-${conversionReady}`} ref={readerRef} data={source.data} settings={settings} fontOverride={epubFontOverride} initialCfi={progress.cfi || savedProgress?.cfi} onProgress={updateProgress} onChapters={updateChapters} onShortcut={shortcut} onWheel={handlePageWheel} onCollectIntent={openCollectDraft} onShareIntent={setShareDraft} onThoughtIntent={openThoughtDraft} notes={notes} thoughts={thoughts} onOpenThoughts={openThoughtList} onLookupEntity={openEntityLookup} onCheckEntityProfile={checkEntityProfile} hasAnyProfile={entityProfiles.length > 0} dictEntries={dictionaryEntries.filter((item) => item.anchor?.kind === 'epub')} onLookupDict={openDictionary} onOpenDictEntry={openDictEntry} rewrites={rewrites.filter((item) => item.anchor?.kind === 'epub')} onRewrite={startRewrite} onOpenRewrite={openRewrite} onFixTerm={fixTranslationTerm} onReaderContextMenu={handleReaderContextMenu} translationActive={Boolean(activeTranslation || translationProgress)} onDismissPanel={() => setPanel(null)} />
+        )}</div>
+
+        {translationError ? <div className="translation-error">{translationError}<button onClick={() => setTranslationError('')}>×</button></div> : null}
 
         <button className="page-zone previous" onClick={() => readerRef.current?.goLeft ? readerRef.current.goLeft() : readerRef.current?.prev()} aria-label="向左翻页"><ChevronLeft size={22} /></button>
         <button className="page-zone next" onClick={() => readerRef.current?.goRight ? readerRef.current.goRight() : readerRef.current?.next()} aria-label="向右翻页"><ChevronRight size={22} /></button>
       </section>
+      {(translationEnabled || activeTranslation || translationProgress > 0) ? <div className="translation-companion-bar">
+        <div className="translation-companion-status"><Languages size={14} /><span>{translationProgress ? `正在翻译《${translationTaskLabel || activeChapter?.label || '当前章节'}》` : activeTranslation ? `正在显示《${activeTranslation.chapterLabel}》译文` : '翻译伴读已开启'}</span>{activeTranslationGlossaryStale ? <small title="现有译文仍可阅读，重新翻译后才会采用新名词库">名词库已更新</small> : null}{translationProgress ? <><div className="translation-bar-track"><i style={{ width: `${translationProgress}%` }} /></div><b>{translationProgress}%</b><small>{translationStartedAt && translationProgress > 5 ? `约 ${Math.max(1, Math.ceil(((Date.now() - translationStartedAt) / translationProgress * (100 - translationProgress)) / 60000))} 分钟` : '估算中'}</small></> : null}</div>
+        <div className="translation-companion-actions">
+          {activeTranslation ? <button onClick={cancelTranslation}>隐藏译文</button> : (chapterTranslations[currentTranslationKey] || chapterTranslations[currentTranslationUnitKey]) ? <button onClick={() => setActiveTranslationKey(chapterTranslations[currentTranslationKey] ? currentTranslationKey : currentTranslationUnitKey)}>显示译文</button> : null}
+          <button onClick={() => translateCurrentChapter(true)} disabled={Boolean(translationProgress)}>重新翻译</button>
+          <button className={translationSettings.pretranslateNext ? 'active' : ''} onClick={togglePretranslateNext}>预译下一章 {translationSettings.pretranslateNext ? '开' : '关'}</button>
+          <button onClick={() => setTranslationPanel('glossary')}>名词库</button>
+          <button onClick={translationEnabled ? stopTranslation : () => translateCurrentChapter(false)}>{translationEnabled ? '停止' : '开始'}</button>
+        </div>
+      </div> : null}
       <RewritePanel entry={activeRewrite} streamText={rewriteStreamText} requirement={rewriteDraft.requirement} targetLength={rewriteDraft.targetLength} busy={rewriteBusy} error={rewriteError} onRequirement={(requirement) => setRewriteDraft((current) => ({ ...current, requirement }))} onTargetLength={(targetLength) => setRewriteDraft((current) => ({ ...current, targetLength }))} onGenerate={generateRewrite} onApply={() => patchRewrite({ applied: true })} onUndo={() => patchRewrite({ applied: false })} onClose={() => setRewriteId('')} />
       <DictionaryQuestionModal selection={dictQuestionSelection} onClose={() => setDictQuestionSelection(null)} onSubmit={askDictionary} />
       {collectDraft ? (
         <CollectNoteModal
           text={collectDraft.text}
           initialSource={`《${book.title}》${collectDraft.chapterLabel ? ` · ${collectDraft.chapterLabel}` : ''}`}
+          initialAuthor={book.author || ''}
           onCancel={() => setCollectDraft(null)}
-          onSave={({ title, source: noteSource, tags, highlights }) => {
+          onSave={({ title, source: noteSource, author, tags, highlights }) => {
             const note = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: collectDraft.text, createdAt: Date.now() }
             if (title) note.title = title
             if (noteSource) note.source = noteSource
+            if (author) note.author = author
             if (tags?.length) note.tags = tags
             if (highlights?.length) note.highlights = highlights
             if (collectDraft.paragraphIndex !== undefined) note.paragraphIndex = collectDraft.paragraphIndex
@@ -1301,6 +1485,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
           note={{ text: shareDraft.text, chapter: shareDraft.chapterLabel, createdAt: Date.now() }}
           book={book}
           appearanceTheme={settings.theme}
+          selectHighlights
           onClose={() => setShareDraft(null)}
         />
       ) : null}
@@ -1373,6 +1558,7 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         </div>
       ) : null}
       {panel === 'settings' && !immersive ? <ReaderSettings settings={settings} onChange={setSettings} encoding={source.kind.startsWith('text') ? source.encoding : null} onEncodingChange={onEncodingChange} epubFontOverride={source.kind === 'epub' ? epubFontOverride : undefined} onEpubFontOverrideChange={onEpubFontOverrideChange} /> : null}
+      {panel === 'thoughts' && !immersive && settings.showReaderThoughts !== false ? <ReaderThoughtsPanel book={book} draft={thoughtDraft} onChanged={loadThoughts} onClose={() => { setThoughtDraft(null); setPanel(null) }} /> : null}
       {panel === 'toc' && !immersive ? (
         <aside className="toc-panel" ref={tocPanelRef}>
           <div className="toc-title"><List size={16} /><strong>目录</strong><span>{percent}% · {chapters.length} 章</span><button className="panel-close" onClick={() => setPanel(null)} title="关闭" aria-label="关闭面板"><X size={14} /></button></div>
@@ -1437,6 +1623,22 @@ export default function ReaderView({ book, source, settings, setSettings, savedP
         </aside>
       ) : null}
       {identityProfile ? <EntityIdentityModal profile={entityProfiles.find((item) => item.id === identityProfile.id) || identityProfile} profiles={entityProfiles} onSave={onUpdateEntityIdentity} onMerge={onMergeEntityProfiles} onSplit={onSplitEntityAlias} onClose={() => setIdentityProfile(null)} /> : null}
+      {translationPanel ? <div className="translation-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setTranslationPanel(null)}>
+        <section className="translation-modal">
+          <header><div><Languages size={18} /><strong>{translationPanel === 'settings' ? '翻译设置' : '名词库'}</strong></div><button onClick={() => setTranslationPanel(null)} aria-label="关闭"><X size={17} /></button></header>
+          {translationPanel === 'settings' ? <div className="translation-settings">
+            <label><span>翻译类型</span><select value={translationSettings.translationProfile || 'auto'} onChange={(event) => onTranslationSettingsChange?.({ ...translationSettings, translationProfile: event.target.value })}><option value="auto">自动判断</option><option value="koreanWeb">韩国 Web 网络小说</option><option value="japaneseLight">日本轻小说</option><option value="englishWeb">英文网络小说</option><option value="literature">一般文学</option></select></label>
+            <label><span>翻译语言</span><select value={translationSettings.targetScript} onChange={(event) => onTranslationSettingsChange?.({ ...translationSettings, targetScript: event.target.value })}><option value="simplified">简体中文</option><option value="traditional">繁体中文</option></select></label>
+            <label><span>阅读显示</span><select value={translationSettings.display} onChange={(event) => onTranslationSettingsChange?.({ ...translationSettings, display: event.target.value })}><option value="bilingual">原文 + 中文译文</option><option value="translated">只显示中文译文</option></select></label>
+            <p>每次只翻译当前章节；开启“预译下一章”后会连续缓存一章。正文和名词库会发送到你选择的 AI 供应商。</p>
+          </div> : <div className="translation-glossary">
+            <p>翻译章节时会把这里的全部对照交给 AI，确保人名与专有名词始终一致。</p>
+            <div className="glossary-head"><span>原文名词</span><span>固定中文译名</span><span></span></div>
+            {translationGlossary.length ? translationGlossary.map((entry) => <div className="glossary-row" key={entry.id}><input value={entry.source} onChange={(event) => onSaveTranslationTerm?.({ ...entry, source: event.target.value, updatedAt: Date.now() })} /><input value={entry.target} placeholder={entry.status === 'translating' ? 'AI 正在翻译…' : entry.error || '输入中文译名'} onChange={(event) => onSaveTranslationTerm?.({ ...entry, target: event.target.value, status: 'done', updatedAt: Date.now() })} /><button onClick={() => onDeleteTranslationTerm?.(entry.id)} title="删除"><Trash2 size={14} /></button></div>) : <div className="glossary-empty">选中人名或专有名词，右键选择“名词固定”即可加入。</div>}
+            <div className="glossary-save-note">修改会自动保存</div>
+          </div>}
+        </section>
+      </div> : null}
       <AISettingsModal open={aiSettingsOpen} onClose={() => setAiSettingsOpen(false)} onChange={(value) => setAiConfig(value)} />
     </main>
   )

@@ -15,7 +15,7 @@ export function truncateCompanionText(text) {
   return `${value.slice(0, 14400)}\n……（中间内容省略）……\n${value.slice(-9600)}`
 }
 
-const TextReader = forwardRef(function TextReader({ content, settings, initialPage, initialFraction = null, onProgress, onChapters, onCollectIntent, onShareIntent, onBoundaryNext, onBoundaryPrev, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
+const TextReader = forwardRef(function TextReader({ content, settings, initialPage, initialFraction = null, onProgress, onChapters, onCollectIntent, onShareIntent, onThoughtIntent, onBoundaryNext, onBoundaryPrev, notes = [], thoughts = [], onOpenThoughts, onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onFixTerm }, ref) {
   const scrollMode = false
   const scrollModeRef = useRef(false)
   const initialFractionRef = useRef(initialFraction)
@@ -59,6 +59,30 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const displayContent = useMemo(() => convertChinese(content, settings.scriptConversion), [content, settings.scriptConversion])
   const textBlocks = useMemo(() => layoutTxtBlocks(displayContent), [displayContent])
   const paragraphs = useMemo(() => textBlocks.map((block) => block.text), [textBlocks])
+
+  // 段落下标 → 该段内带想法的字符区间（虚线标记）。优先用 anchor 的
+  // startOffset/endOffset，校验失败时退回按 quote 文本在段内查找。
+  const thoughtRangesByParagraph = useMemo(() => {
+    const map = new Map()
+    if (settings.showReaderThoughts === false) return map
+    for (const thought of thoughts || []) {
+      const anchor = thought.anchor || {}
+      const quote = String(thought.quote || '').trim()
+      if (!quote || anchor.cfi) continue
+      const index = Number(anchor.paragraphIndex)
+      if (!Number.isFinite(index) || index < 0 || index >= paragraphs.length) continue
+      const paragraph = paragraphs[index]
+      let start = Number(anchor.startOffset)
+      let end = Number(anchor.endOffset)
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || paragraph.slice(start, end) !== quote) {
+        start = paragraph.indexOf(quote)
+        end = start >= 0 ? start + quote.length : -1
+      }
+      if (start < 0 || end <= start) continue
+      map.set(index, [...(map.get(index) || []), { start, end: Math.min(paragraph.length, end) }])
+    }
+    return map
+  }, [thoughts, paragraphs, settings.showReaderThoughts])
 
   // 每个渲染段落（trim 后）在 content 中的字符区间，用于把主进程给的字符
   // anchor 映射成段落下标。与上面 split/trim/filter 的结果一一对应。
@@ -603,10 +627,14 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     setSelection(nextSelection)
     const canLookupEntity = nextSelection.text.length <= 24 && !/[\r\n。！？!?，,；;：:]/.test(nextSelection.text)
     const hasEntityProfile = canLookupEntity && Boolean(onCheckEntityProfile?.(nextSelection.text))
-    const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile) })
+    const action = await window.readerAPI.openSelectionMenu({ hasSelection: true, canLookupEntity, hasEntityProfile, hasAnyProfile: Boolean(hasAnyProfile), showThoughts: settings?.showReaderThoughts !== false })
     if (action === 'note') {
       // 收藏改为由 ReaderView 弹出 CollectNoteModal（高亮编辑 + 备注 + 标签）。
       onCollectIntent?.(nextSelection)
+      window.getSelection()?.removeAllRanges()
+      setSelection(null)
+    } else if (action === 'thought') {
+      onThoughtIntent?.(nextSelection)
       window.getSelection()?.removeAllRanges()
       setSelection(null)
     } else if (action === 'share') {
@@ -617,6 +645,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
     }
     else if (action === 'dictionary') onLookupDict?.(nextSelection)
     else if (action === 'rewrite') onRewrite?.(nextSelection)
+    else if (action === 'fix-term') onFixTerm?.(nextSelection)
     else if (action === 'lookup-entity') onLookupEntity?.(nextSelection, 'generate')
     else if (action === 'view-entity') onLookupEntity?.(nextSelection, 'view')
     else if (action === 'link-entity') onLookupEntity?.(nextSelection, 'link')
@@ -663,7 +692,8 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const titleFontFamily = getReaderFontStack(titleFont)
   const bodyFontWeight = getNearestReaderFontWeight(bodyFont, settings.fontWeight, 400)
   const titleFontWeight = getNearestReaderFontWeight(titleFont, settings.titleFontWeight, 700)
-  const columnGap = settings.layoutMode === 'landscape' ? 56 : 0
+  // 双页不是两张独立纸卡：让两栏在同一连续画布上相接。
+  const columnGap = 0
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>
@@ -695,12 +725,19 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
               const end = Number.isFinite(note.endOffset) ? note.endOffset : start + (note.text?.length || 0)
               return start < 0 ? null : { start: Math.max(0, start), end: Math.min(paragraph.length, end) }
             }).filter((range) => range && range.end > range.start)
+            const thoughtRanges = thoughtRangesByParagraph.get(index) || []
+            const openThoughtsFromText = (event) => {
+              event.stopPropagation()
+              onOpenThoughts?.()
+            }
             const renderSlice = (start, end, key) => {
-              const boundaries = [...new Set([start, end, ...noteRanges.flatMap((range) => [Math.max(start, range.start), Math.min(end, range.end)])])].filter((value) => value >= start && value <= end).sort((a, b) => a - b)
+              const boundaries = [...new Set([start, end, ...noteRanges.flatMap((range) => [Math.max(start, range.start), Math.min(end, range.end)]), ...thoughtRanges.flatMap((range) => [Math.max(start, range.start), Math.min(end, range.end)])])].filter((value) => value >= start && value <= end).sort((a, b) => a - b)
               return boundaries.slice(0, -1).map((from, partIndex) => {
                 const to = boundaries[partIndex + 1]
                 const collected = noteRanges.some((range) => range.start < to && range.end > from)
-                return <span className={collected ? 'reader-collected-text' : undefined} key={`${key}-${partIndex}`}>{paragraph.slice(from, to)}</span>
+                const marked = thoughtRanges.some((range) => range.start < to && range.end > from)
+                const className = [collected && 'reader-collected-text', marked && 'reader-thought-text'].filter(Boolean).join(' ') || undefined
+                return <span className={className} key={`${key}-${partIndex}`} {...(marked ? { title: '查看读者想法', onClick: openThoughtsFromText } : {})}>{paragraph.slice(from, to)}</span>
               })
             }
             const paragraphRewrites = rewrites.filter((item) => item.anchor?.paragraphIndex === index)

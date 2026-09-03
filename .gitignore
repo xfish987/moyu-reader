@@ -16,3 +16,10 @@ capacitor.config.json
 .playwright-mcp/
 *.err
 .playwright-cli/
+cloud-server/node_modules/
+cloud-server/cloud-data/
+cloud-server/epub-maker/__pycache__/
+.tools/
+test-results/
+kimi-debug-session_*.zip
+design-reference/

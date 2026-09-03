@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { MAX_SECTION_GAP, countSpinesHiddenForExpansion, coverCountForShelf, coverWidthForShelf, layoutShelfBooks, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst, shortSpineTitle, spineMetrics } from './src/ui-b/shelfLayout.js'
+import { MAX_SECTION_GAP, countSpinesHiddenForExpansion, coverCountForShelf, coverWidthForShelf, layoutFaceOnlyBooks, layoutShelfBooks, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst, shortSpineTitle, spineMetrics } from './src/ui-b/shelfLayout.js'
 
 const books = Array.from({ length: 40 }, (_, index) => ({ id: `book-${index}`, title: `第${index}本测试书籍` }))
 
@@ -25,6 +25,22 @@ for (const width of [206, 304, 520, 700, 920, 1100]) {
 const sparseLayout = layoutShelfBooks(books.slice(0, 7), 520)
 assert.equal(sparseLayout.spines.length, 4)
 assert.ok(sparseLayout.sectionGap <= MAX_SECTION_GAP)
+
+// 首页"最近在读"行：纯正面封面，最少 3 本，数量随宽度递增，且任何宽度下不溢出容器。
+assert.equal(layoutFaceOnlyBooks(books, 302).covers.length, 3)
+assert.equal(layoutFaceOnlyBooks(books.slice(0, 2), 1200).covers.length, 2)
+let lastFaceCount = 0
+for (const width of [302, 520, 760, 1000, 1200, 1600]) {
+  const layout = layoutFaceOnlyBooks(books, width)
+  assert.equal(layout.spines.length, 0)
+  assert.equal(layout.sectionGap, 0)
+  assert.ok(layout.covers.length >= 3, `recent row shows at least 3 faces at ${width}px`)
+  assert.ok(layout.covers.length <= books.length)
+  assert.ok(layout.covers.length >= lastFaceCount, `face count should grow at ${width}px`)
+  const occupied = layout.covers.length * layout.coverWidth + Math.max(0, layout.covers.length - 1) * layout.coverGap
+  assert.ok(occupied <= width + 0.01, `faces should fit at ${width}px`)
+  lastFaceCount = layout.covers.length
+}
 
 assert.equal(shortSpineTitle('一二三四五六七八九十十一'), '一二三四五六七八九')
 assert.equal(spineMetrics(books[0]).color, spineMetrics(books[0]).color)

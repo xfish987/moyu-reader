@@ -1,6 +1,7 @@
 import sourceHanSansRegularUrl from './assets/reader-fonts/SourceHanSansCN-Regular.otf'
 import sourceHanSansBoldUrl from './assets/reader-fonts/SourceHanSansCN-Bold.otf'
 import lxgwWenKaiUrl from './assets/reader-fonts/LXGWWenKaiGBScreen.ttf'
+import chillKaiUrl from './assets/reader-fonts/families/ChillKai.woff2'
 import pingFangRegularUrl from './assets/reader-fonts/families/PingFang-Regular.ttf'
 import pingFangBoldUrl from './assets/reader-fonts/families/PingFang-Bold.ttf'
 import fengYaRegularUrl from './assets/reader-fonts/families/FZFengYa-Regular.ttf'
@@ -34,6 +35,7 @@ const EPUB_FONT_URLS = Object.fromEntries(Object.entries({
   sourceHanSansRegular: sourceHanSansRegularUrl,
   sourceHanSansBold: sourceHanSansBoldUrl,
   lxgwWenKai: lxgwWenKaiUrl,
+  chillKai: chillKaiUrl,
   pingFangRegular: pingFangRegularUrl,
   pingFangBold: pingFangBoldUrl,
   fengYaRegular: fengYaRegularUrl,
@@ -92,6 +94,7 @@ export const READER_FONT_OPTIONS = [
   { label: '思源宋体', value: 'serif', faces: REGULAR_BOLD_FACES },
   { label: '思源黑体', value: 'sans', faces: REGULAR_BOLD_FACES },
   { label: '霞鹜文楷', value: 'kai', faces: [{ label: 'Regular', value: 400 }, { label: 'Bold（合成）', value: 700 }] },
+  { label: '寒蝉全楷体', value: 'chillkai', faces: [{ label: 'Regular', value: 400 }, { label: 'Bold（合成）', value: 700 }] },
   { label: '苹方', value: 'pingfang', faces: REGULAR_BOLD_FACES },
   { label: '方正风雅楷宋（简繁）', value: 'fengya', faces: [{ label: 'Regular', value: 400 }, { label: 'DemiBold', value: 600 }] },
   { label: '方正筑紫明朝', value: 'tsukumin', faces: REGULAR_BOLD_FACES },
@@ -143,6 +146,7 @@ const READER_FONT_STACKS = {
   serif: '"Moyu Source Han Serif", "Source Han Serif SC", "Songti SC", SimSun, serif',
   sans: '"Moyu Source Han Sans", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif',
   kai: '"Moyu LXGW WenKai", "LXGW WenKai", KaiTi, STKaiti, serif',
+  chillkai: '"Moyu ChillKai", "ChillKai", "LXGW WenKai", KaiTi, STKaiti, serif',
   pingfang: '"Moyu PingFang", "PingFang SC", "Microsoft YaHei", sans-serif',
   fengya: '"Moyu FZ FengYa", "FZ FengYa", "Songti SC", serif',
   tsukumin: '"Moyu FZ TsukuMin", "FZ TsukuMin", "Songti SC", serif',
@@ -168,6 +172,7 @@ export function installReaderFonts(document) {
     @font-face { font-family: "Moyu Source Han Sans"; src: url("${EPUB_FONT_URLS.sourceHanSansRegular}") format("opentype"); font-weight: 400; font-style: normal; }
     @font-face { font-family: "Moyu Source Han Sans"; src: url("${EPUB_FONT_URLS.sourceHanSansBold}") format("opentype"); font-weight: 700; font-style: normal; }
     @font-face { font-family: "Moyu LXGW WenKai"; src: url("${EPUB_FONT_URLS.lxgwWenKai}") format("truetype"); font-weight: 400; font-style: normal; }
+    @font-face { font-family: "Moyu ChillKai"; src: url("${EPUB_FONT_URLS.chillKai}") format("woff2"); font-weight: 400; font-style: normal; }
     @font-face { font-family: "Moyu PingFang"; src: url("${EPUB_FONT_URLS.pingFangRegular}") format("truetype"); font-weight: 400; font-style: normal; }
     @font-face { font-family: "Moyu PingFang"; src: url("${EPUB_FONT_URLS.pingFangBold}") format("truetype"); font-weight: 700; font-style: normal; }
     @font-face { font-family: "Moyu FZ FengYa"; src: url("${EPUB_FONT_URLS.fengYaRegular}") format("truetype"); font-weight: 400; font-style: normal; }

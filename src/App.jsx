@@ -13,6 +13,7 @@ import BackgroundLayer from './ui-b/BackgroundLayer'
 import { DEFAULT_APPEARANCE, DEFAULT_COVERS, normalizeAppearance } from './ui-b/appearance'
 import VirtualBookshelfHome from './ui-b/VirtualBookshelfHome'
 import { ALL_BOOKS_ORDER_KEY, moveBeforeOrAfter, orderBooksByIds, orderBooksWithNewFirst } from './ui-b/shelfLayout'
+import { addReadingInterval } from './readingStats'
 
 const DEFAULT_SETTINGS = {
   fontFamily: 'serif',
@@ -27,6 +28,7 @@ const DEFAULT_SETTINGS = {
   opacity: 0.92,
   theme: 'light',
   showProgress: true,
+  showReaderThoughts: true,
   scriptConversion: 'none',
   layoutMode: 'portrait',
 }
@@ -50,6 +52,11 @@ export default function App() {
   const [bookMetadata, setBookMetadata] = useStoredState('reader:book-metadata', {})
   const [entityProfilesMap, setEntityProfilesMap] = useStoredState('reader:entity-profiles', {})
   const [dictionaryMap, setDictionaryMap] = useStoredState('reader:dictionary', {})
+  const [translationGlossaryMap, setTranslationGlossaryMap, translationGlossaryReady] = useStoredState('reader:translation-glossary', {})
+  const [chapterTranslationsMap, setChapterTranslationsMap, chapterTranslationsReady] = useStoredState('reader:chapter-translations', {})
+  const [translationSettings, setTranslationSettings, translationSettingsReady] = useStoredState('reader:translation-settings', { targetScript: 'simplified', display: 'bilingual', pretranslateNext: false, translationProfile: 'auto' })
+  const translationAccountRef = useRef('')
+  const translationHydratingRef = useRef(false)
   const [rewritesMap, setRewritesMap] = useStoredState('reader:rewrites', {})
   const [companionMap, setCompanionMap] = useStoredState('reader:companion-enabled', {})
   const [companionChatsMap, setCompanionChatsMap] = useStoredState('reader:companion-chats', {})
@@ -58,12 +65,14 @@ export default function App() {
   const [recentBookIds, setRecentBookIds, recentBooksReady] = useStoredState('reader:recent-books', [])
   const [categoryBookOrder, setCategoryBookOrder] = useStoredState('reader:shelf-book-order', {})
   const [epubFontOverrides, setEpubFontOverrides] = useStoredState('reader:epub-font-overrides', {})
+  const [readingStats, setReadingStats] = useStoredState('reader:reading-stats', { totalSeconds: 0, days: {} })
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [shortcutSettingsOpen, setShortcutSettingsOpen] = useState(false)
   const [homeView, setHomeView] = useState('virtual')
   const [libraryView, setLibraryView] = useState('shelf')
   const [libraryTarget, setLibraryTarget] = useState(null)
   const [directoryBooks, setDirectoryBooks] = useState([])
+  const [cloudBooks, setCloudBooks] = useState([])
   const [activeBook, setActiveBook] = useState(null)
   const [source, setSource] = useState(null)
   const [loading, setLoading] = useState(Boolean(directory))
@@ -126,6 +135,23 @@ export default function App() {
   }, [directory, showError])
 
   useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    if (!activeBook) return undefined
+    let previous = Date.now()
+    let tracking = document.visibilityState === 'visible' && document.hasFocus()
+    const record = () => {
+      const now = Date.now()
+      const start = previous
+      previous = now
+      if (tracking) setReadingStats((current) => addReadingInterval(current, start, now))
+    }
+    const updateTracking = () => { record(); tracking = document.visibilityState === 'visible' && document.hasFocus(); previous = Date.now() }
+    const timer = setInterval(record, 30_000)
+    window.addEventListener('focus', updateTracking)
+    window.addEventListener('blur', updateTracking)
+    document.addEventListener('visibilitychange', updateTracking)
+    return () => { clearInterval(timer); record(); window.removeEventListener('focus', updateTracking); window.removeEventListener('blur', updateTracking); document.removeEventListener('visibilitychange', updateTracking) }
+  }, [activeBook, setReadingStats])
   useEffect(() => { window.readerAPI?.setPinned(pinned) }, [pinned])
   // 老板键是全局快捷键，注册在主进程：配置变化时同步过去重注册。
   useEffect(() => { window.readerAPI?.updateBossKey?.(shortcuts.boss || DEFAULT_SHORTCUTS.boss) }, [shortcuts.boss])
@@ -154,13 +180,74 @@ export default function App() {
     }
   }
 
-  const books = useMemo(() => {
+  const localBooks = useMemo(() => {
     const hidden = new Set(hiddenBooks)
     const merged = new Map()
     directoryBooks.forEach((book) => merged.set(book.id || book.path, book))
     manualBooks.forEach((book) => merged.set(book.id || book.path, book))
     return [...merged.values()].filter((book) => !hidden.has(book.path) && !hidden.has(book.id)).sort((a, b) => b.modifiedAt - a.modifiedAt)
   }, [directoryBooks, hiddenBooks, manualBooks])
+
+  const books = useMemo(() => {
+    const merged = new Map(cloudBooks.map((book) => [book.clientBookId, { ...book, id: book.clientBookId, cloudId: book.id, cloudOnly: true, path: '' }]))
+    localBooks.forEach((book) => merged.set(book.id, book))
+    return [...merged.values()]
+  }, [cloudBooks, localBooks])
+
+  const refreshCloudLibrary = useCallback(() => {
+    if (!window.readerAPI?.listCloudLibrary) return Promise.resolve()
+    // 断网或登录失效时保留上次列表，云端书籍不从书架静默消失（C2）
+    return window.readerAPI.listCloudLibrary().then((result) => setCloudBooks(result.books || [])).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    refreshCloudLibrary()
+    const refreshCloud = () => refreshCloudLibrary()
+    window.addEventListener('moyu-cloud-changed', refreshCloud)
+    return () => window.removeEventListener('moyu-cloud-changed', refreshCloud)
+  }, [refreshCloudLibrary])
+
+  useEffect(() => {
+    let disposed = false
+    const hydrateTranslations = async () => {
+      if (!window.readerAPI?.getCloudStatus || !window.readerAPI?.getCloudTranslationData) return
+      try {
+        const status = await window.readerAPI.getCloudStatus()
+        if (disposed) return
+        if (!status?.authenticated || !status.user?.id) {
+          if (translationAccountRef.current) {
+            translationAccountRef.current = ''
+            translationHydratingRef.current = true
+            setTranslationGlossaryMap({}); setChapterTranslationsMap({})
+            setTimeout(() => { translationHydratingRef.current = false }, 0)
+          }
+          return
+        }
+        translationHydratingRef.current = true
+        const remote = await window.readerAPI.getCloudTranslationData()
+        if (disposed) return
+        translationAccountRef.current = status.user.id
+        if (remote?.data) {
+          setTranslationGlossaryMap(remote.data.glossaryMap || {})
+          setChapterTranslationsMap(remote.data.chapterTranslationsMap || {})
+          setTranslationSettings({ targetScript: 'simplified', display: 'bilingual', pretranslateNext: false, translationProfile: 'auto', ...(remote.data.settings || {}) })
+        } else {
+          setTranslationGlossaryMap({})
+          setChapterTranslationsMap({})
+        }
+        setTimeout(() => { translationHydratingRef.current = false }, 0)
+      } catch { translationAccountRef.current = '' }
+    }
+    hydrateTranslations()
+    window.addEventListener('moyu-cloud-changed', hydrateTranslations)
+    return () => { disposed = true; window.removeEventListener('moyu-cloud-changed', hydrateTranslations) }
+  }, [setTranslationGlossaryMap, setChapterTranslationsMap, setTranslationSettings])
+
+  useEffect(() => {
+    if (!translationGlossaryReady || !chapterTranslationsReady || !translationSettingsReady || !translationAccountRef.current || translationHydratingRef.current || !window.readerAPI?.saveCloudTranslationData) return undefined
+    const timer = setTimeout(() => window.readerAPI.saveCloudTranslationData({ glossaryMap: translationGlossaryMap, chapterTranslationsMap, settings: translationSettings }).catch(() => {}), 1200)
+    return () => clearTimeout(timer)
+  }, [translationGlossaryMap, chapterTranslationsMap, translationSettings, translationGlossaryReady, chapterTranslationsReady, translationSettingsReady])
 
   useEffect(() => {
     if (!window.readerAPI?.describeBookPaths) return
@@ -239,7 +326,11 @@ export default function App() {
     })
   }, [books, lastBookId, loading, progressMap, recentBooksReady, setRecentBookIds])
 
-  const removeBook = (book) => {
+  const removeBook = async (book, { deleteCloud = false } = {}) => {
+    if (deleteCloud) {
+      try { await window.readerAPI.deleteCloudLibraryBook(book) }
+      catch (error) { showError('删除云端书籍', error); return false }
+    }
     setManualBooks((current) => current.filter((item) => item.id !== book.id && item.path !== book.path))
     setHiddenBooks((current) => current.includes(book.id) ? current : [...current, book.id])
     // 书籍删除时，字典百科解释、设定集与 AI 陪读数据随这本书的阅读数据一起消失。
@@ -251,6 +342,9 @@ export default function App() {
     setStorylineMap((current) => { if (!(book.id in current)) return current; const next = { ...current }; delete next[book.id]; return next })
     setRecentBookIds((current) => current.filter((id) => id !== book.id))
     setCategoryBookOrder((current) => Object.fromEntries(Object.entries(current).map(([category, ids]) => [category, ids.filter((id) => id !== book.id)])))
+    showSuccess(deleteCloud ? '已从本机书架和云端个人书库删除' : '已移出书架')
+    window.dispatchEvent(new Event('moyu-cloud-changed'))
+    return true
   }
 
   const relocateBook = async (book) => {
@@ -267,11 +361,12 @@ export default function App() {
     }
   }
 
-  const deleteSource = async (book) => {
+  const deleteSource = async (book, options = {}) => {
     try {
+      if (options.deleteCloud) await window.readerAPI.deleteCloudLibraryBook(book)
       await window.readerAPI.deleteSource(book.path)
-      removeBook(book)
-      showSuccess('源文件已移入回收站')
+      await removeBook(book)
+      showSuccess(options.deleteCloud ? '本地源文件已移入回收站，云端副本已删除' : '源文件已移入回收站')
       return true
     } catch (error) {
       showError('删除源文件', error)
@@ -282,11 +377,17 @@ export default function App() {
   const openBook = async (book) => {
     setLoading(true)
     try {
-      const nextSource = await window.readerAPI.openBook(book.path)
-      setActiveBook(book)
+      let availableBook = book
+      if (book.cloudOnly) {
+        showSuccess(`正在下载《${book.title}》…`)
+        availableBook = await window.readerAPI.downloadCloudLibraryBook(book)
+        mergeManualBooks([availableBook])
+      }
+      const nextSource = await window.readerAPI.openBook(availableBook.path)
+      setActiveBook(availableBook)
       setSource(nextSource)
-      setLastBookId(book.id)
-      setRecentBookIds((current) => [book.id, ...current.filter((id) => id !== book.id)])
+      setLastBookId(availableBook.id)
+      setRecentBookIds((current) => [availableBook.id, ...current.filter((id) => id !== availableBook.id)])
       return true
     } catch (error) {
       showError(`打开《${book.title}》`, error)
@@ -633,6 +734,13 @@ export default function App() {
           dictionaryEntries={dictionaryMap[activeBook.id] || []}
           onSaveDictEntry={saveDictEntry}
           onDeleteDictEntry={deleteDictEntry}
+          translationGlossary={translationGlossaryMap[activeBook.id] || []}
+          onSaveTranslationTerm={(entry) => setTranslationGlossaryMap((current) => { const list = current[activeBook.id] || []; return { ...current, [activeBook.id]: [...list.filter((item) => item.id !== entry.id), entry] } })}
+          onDeleteTranslationTerm={(id) => setTranslationGlossaryMap((current) => ({ ...current, [activeBook.id]: (current[activeBook.id] || []).filter((item) => item.id !== id) }))}
+          chapterTranslations={chapterTranslationsMap[activeBook.id] || {}}
+          onSaveChapterTranslation={(key, entry) => setChapterTranslationsMap((current) => ({ ...current, [activeBook.id]: { ...(current[activeBook.id] || {}), [key]: entry } }))}
+          translationSettings={translationSettings}
+          onTranslationSettingsChange={setTranslationSettings}
           rewrites={rewritesMap[activeBook.id] || []}
           onSaveRewrite={(entry) => setRewritesMap((current) => { const list = current[activeBook.id] || []; const exists = list.some((item) => item.id === entry.id); return { ...current, [activeBook.id]: exists ? list.map((item) => item.id === entry.id ? entry : item) : [...list, entry] } })}
           companionEnabled={Boolean(companionMap[activeBook.id])}
@@ -648,6 +756,7 @@ export default function App() {
           books={books}
           progressMap={progressMap}
           statusMap={statusMap}
+          readingStats={readingStats}
           coversMap={coversMap}
           defaultCover={appearance.theme === 'night' ? DEFAULT_COVERS.dark : DEFAULT_COVERS.light}
           categories={categories}
@@ -656,6 +765,7 @@ export default function App() {
           recentBookIds={recentBookIds}
           onOpen={openBook}
           onAddBooks={addBooks}
+          onDownloadedBook={(book) => { if (book) { mergeManualBooks([book]); showSuccess(`《${book.title}》已下载并加入书架`) } }}
           onOpenLibrary={openLibraryTarget}
           onOpenNotes={() => { setLibraryView('notes'); setHomeView('library') }}
           onSearch={() => { setLibraryView('shelf'); setHomeView('library'); setTimeout(() => document.querySelector('.shelf-search input')?.focus(), 80) }}

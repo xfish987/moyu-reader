@@ -281,14 +281,15 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, sourcePres
           text={editTarget.note.text}
           initialTitle={editTarget.note.title || ''}
           initialSource={editTarget.note.source || `《${editTarget.book.title}》`}
+          initialAuthor={editTarget.note.author || editTarget.book.author || ''}
           initialTags={editTarget.note.tags || []}
           availableTags={tagsForBook(editTarget.book.id)}
           availableSources={sourcesForBook(editTarget.book)}
           onSaveSourcePreset={(source) => onSaveSourcePreset(editTarget.book.id, source)}
           initialHighlights={editTarget.note.highlights || []}
           onCancel={() => setEditTarget(null)}
-          onSave={({ title, source, tags, highlights }) => {
-            onUpdateNote(editTarget.book.id, { ...editTarget.note, title, source, tags, highlights, updatedAt: Date.now() })
+          onSave={({ title, source, author, tags, highlights }) => {
+            onUpdateNote(editTarget.book.id, { ...editTarget.note, title, source, author, tags, highlights, updatedAt: Date.now() })
             setEditTarget(null)
           }}
         />
@@ -300,10 +301,11 @@ export default function NotesLibrary({ books, bookMetadata, notesMap, sourcePres
           availableSources={sourcesForBook(addTarget)}
           onSavePreset={(source) => onSaveSourcePreset(addTarget.id, source)}
           onCancel={() => setAddTarget(null)}
-          onSave={({ text, title, source, tags, highlights }) => {
+          onSave={({ text, title, source, author, tags, highlights }) => {
             const note = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text, custom: true, createdAt: Date.now() }
             if (title) note.title = title
             if (source) note.source = source
+            if (author) note.author = author
             if (tags?.length) note.tags = tags
             if (highlights?.length) note.highlights = highlights
             onAddNote(addTarget.id, note)

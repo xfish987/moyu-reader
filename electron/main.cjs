@@ -87,6 +87,9 @@ const STORE_KEYS = new Set([
   'reader:window-bounds',
   'reader:entity-profiles',
   'reader:dictionary',
+  'reader:translation-glossary',
+  'reader:chapter-translations',
+  'reader:translation-settings',
   'reader:rewrites',
   'reader:companion-enabled',
   'reader:storyline',
@@ -95,6 +98,7 @@ const STORE_KEYS = new Set([
   'reader:recent-books',
   'reader:shelf-book-order',
   'reader:epub-font-overrides',
+  'reader:reading-stats',
 ])
 let storeCache = null
 let storeWriteQueue = Promise.resolve()
@@ -108,6 +112,148 @@ const aiConfigFile = () => path.join(storeDirectory(), AI_CONFIG_FILE_NAME)
 const backupDirectory = () => path.join(storeDirectory(), 'backups')
 const epubCacheDirectory = () => path.join(app.getPath('userData'), 'cache', 'epub')
 const backgroundDirectory = (scope) => path.join(app.getPath('userData'), 'ui-assets', 'backgrounds', scope)
+const cloudSessionFile = () => path.join(storeDirectory(), 'cloud-session.json')
+const cloudBookDirectory = () => path.join(app.getPath('userData'), 'cloud-books')
+const CLOUD_DEVICE_KEYS = new Set(['reader:directory', 'reader:manual-books', 'reader:window-bounds', 'reader:pinned'])
+
+function validateCloudUrl(value) {
+  let url
+  try { url = new URL(String(value || '').trim()) } catch { throw new Error('云服务器地址无效') }
+  const loopback = ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) throw new Error('云服务器必须使用 HTTPS')
+  if (url.username || url.password || url.search || url.hash) throw new Error('云服务器地址不能包含凭据或查询参数')
+  const pathname = url.pathname.replace(/\/+$/, '')
+  return `${url.origin}${pathname === '/' ? '' : pathname}`
+}
+
+async function readCloudSession() {
+  try {
+    const saved = JSON.parse(await fs.readFile(cloudSessionFile(), 'utf8'))
+    if (!saved?.encryptedToken || !safeStorage.isEncryptionAvailable()) return { serverUrl: saved?.serverUrl || '', token: '' }
+    return { serverUrl: saved.serverUrl || '', token: safeStorage.decryptString(Buffer.from(saved.encryptedToken, 'base64')) }
+  } catch { return { serverUrl: '', token: '' } }
+}
+
+async function writeCloudSession(serverUrl, token = '') {
+  await fs.mkdir(storeDirectory(), { recursive: true })
+  const saved = { serverUrl }
+  if (token) {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，无法安全保存登录状态')
+    saved.encryptedToken = safeStorage.encryptString(token).toString('base64')
+  }
+  await fs.writeFile(cloudSessionFile(), `${JSON.stringify(saved, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+}
+
+async function cloudRequest(route, { method = 'GET', body, serverUrl, token } = {}) {
+  const session = await readCloudSession()
+  const origin = validateCloudUrl(serverUrl || session.serverUrl)
+  const headers = { accept: 'application/json' }
+  const hadToken = Boolean(token || session.token)
+  if (hadToken) headers.authorization = `Bearer ${token || session.token}`
+  if (body !== undefined) headers['content-type'] = 'application/json'
+  const response = await net.fetch(`${origin}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30_000) })
+  const result = await response.json().catch(() => ({}))
+  if (response.status === 401 && hadToken) await writeCloudSession(origin, '').catch(() => {})
+  if (!response.ok) throw new Error(result.error || `云服务器请求失败（${response.status}）`)
+  return { result, origin }
+}
+
+async function addDirectoryToZip(zip, source, target, seen = new Set()) {
+  let entries
+  try { entries = await fs.readdir(source, { withFileTypes: true }) } catch { return }
+  for (const entry of entries) {
+    const fullPath = path.join(source, entry.name)
+    const zipPath = `${target}/${entry.name}`.replaceAll('\\', '/')
+    if (entry.isDirectory()) await addDirectoryToZip(zip, fullPath, zipPath, seen)
+    else if (entry.isFile()) {
+      const key = path.resolve(fullPath).toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      zip.file(zipPath, await fs.readFile(fullPath), { compression: 'STORE' })
+    }
+  }
+}
+
+async function createCloudSnapshot() {
+  await storeWriteQueue
+  await aiConfigWriteQueue
+  const zip = new JSZip()
+  const store = await loadStore()
+  zip.file('data/reader-data.json', `${JSON.stringify(store, null, 2)}\n`)
+  const ai = await loadAiConfig()
+  const portableAi = { ...ai, providers: (ai.providers || []).map(({ encryptedKey, ...provider }) => ({ ...provider, needsApiKey: Boolean(encryptedKey) })) }
+  zip.file('data/ai-settings.json', `${JSON.stringify(portableAi, null, 2)}\n`)
+  await addDirectoryToZip(zip, path.join(app.getPath('userData'), 'ui-assets'), 'ui-assets')
+
+  const seen = new Set()
+  const directory = store?.data?.['reader:directory']
+  if (directory && fsSync.existsSync(directory)) await addDirectoryToZip(zip, directory, 'books/library', seen)
+  const manualBooks = Array.isArray(store?.data?.['reader:manual-books']) ? store.data['reader:manual-books'] : []
+  for (const book of manualBooks) {
+    if (!book?.path || !fsSync.existsSync(book.path)) continue
+    const key = path.resolve(book.path).toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    zip.file(`books/manual/${path.basename(book.path)}`, await fs.readFile(book.path), { compression: 'STORE' })
+  }
+  zip.file('manifest.json', JSON.stringify({ version: 1, createdAt: new Date().toISOString(), includes: ['全部阅读数据', '笔记与高亮', '阅读进度', 'AI 记录与设置（API Key 除外）', '书籍文件', '自定义背景'] }, null, 2))
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } })
+}
+
+function portableCloudData(store) {
+  return Object.fromEntries(Object.entries(store?.data || {}).filter(([key]) => STORE_KEYS.has(key) && !CLOUD_DEVICE_KEYS.has(key)))
+}
+
+function mergeItems(remote = [], local = []) {
+  if (![...remote, ...local].some((item) => item && typeof item === 'object')) return [...new Set([...remote, ...local])]
+  const items = new Map()
+  for (const item of [...remote, ...local]) {
+    const id = item?.id || JSON.stringify(item)
+    const previous = items.get(id)
+    if (!previous || Number(item?.updatedAt || item?.createdAt || 0) >= Number(previous?.updatedAt || previous?.createdAt || 0)) items.set(id, item)
+  }
+  return [...items.values()]
+}
+
+function mergeBookMaps(remote = {}, local = {}) {
+  const merged = { ...remote }
+  for (const [bookId, value] of Object.entries(local || {})) {
+    const previous = merged[bookId]
+    if (Array.isArray(value)) merged[bookId] = mergeItems(Array.isArray(previous) ? previous : [], value)
+    else if (!previous || Number(value?.updatedAt || 0) >= Number(previous?.updatedAt || 0)) merged[bookId] = value
+  }
+  return merged
+}
+
+const CLOUD_MERGE_MAP_KEYS = new Set(['reader:progress', 'reader:tags', 'reader:notes', 'reader:note-source-presets', 'reader:covers', 'reader:book-status', 'reader:bookmarks', 'reader:book-metadata', 'reader:entity-profiles', 'reader:dictionary', 'reader:rewrites', 'reader:companion-enabled', 'reader:storyline', 'reader:companion-chats', 'reader:shelf-book-order', 'reader:epub-font-overrides'])
+
+function mergeReadingStats(remote = {}, local = {}) {
+  const days = { ...(remote?.days || {}) }
+  for (const [day, value] of Object.entries(local?.days || {})) days[day] = Math.max(Number(days[day] || 0), Number(value) || 0)
+  return { totalSeconds: Math.max(Number(remote?.totalSeconds || 0), Number(local?.totalSeconds || 0)), days }
+}
+
+function mergeCloudData(remote, local, preferRemote) {
+  if (preferRemote) return { ...local, ...remote }
+  const result = { ...remote, ...local }
+  for (const key of new Set([...Object.keys(remote || {}), ...Object.keys(local || {})])) {
+    if (CLOUD_MERGE_MAP_KEYS.has(key)) result[key] = mergeBookMaps(remote?.[key], local?.[key])
+    else if (key === 'reader:reading-stats') result[key] = mergeReadingStats(remote?.[key], local?.[key])
+    else if (Array.isArray(remote?.[key]) || Array.isArray(local?.[key])) result[key] = mergeItems(remote?.[key] || [], local?.[key] || [])
+  }
+  return result
+}
+
+async function localLibraryBooks() {
+  const store = await loadStore()
+  const found = []
+  const directory = store?.data?.['reader:directory']
+  if (directory && fsSync.existsSync(directory)) found.push(...await scanBooks(directory))
+  const manual = Array.isArray(store?.data?.['reader:manual-books']) ? store.data['reader:manual-books'] : []
+  const described = await Promise.all(manual.map((book) => book?.path && fsSync.existsSync(book.path) ? describeBook(book.path).catch(() => null) : null))
+  found.push(...described.filter(Boolean))
+  return [...new Map(found.map((book) => [book.id, book])).values()]
+}
 
 function assertBackgroundPath(filePath) {
   const root = path.resolve(path.join(app.getPath('userData'), 'ui-assets', 'backgrounds'))
@@ -436,14 +582,15 @@ async function readEpubMetadata(filePath, stats) {
   if (epubMetadataCache.has(cacheKey)) return epubMetadataCache.get(cacheKey)
   const promise = (async () => {
     const zip = await JSZip.loadAsync(await fs.readFile(filePath))
+    const xmlText = (text) => String(text || '').replace(/^[\uFEFF\s]+/, '')
     const containerEntry = findZipEntry(zip, 'META-INF/container.xml')
     if (!containerEntry) return {}
-    const container = new DOMParser().parseFromString(await containerEntry.async('text'), 'application/xml')
+    const container = new DOMParser().parseFromString(xmlText(await containerEntry.async('text')), 'application/xml')
     const rootfile = xmlElements(container, 'rootfile')[0]
     const opfPath = normalizeZipPath(rootfile?.getAttribute('full-path'))
     const opfEntry = findZipEntry(zip, opfPath)
     if (!opfEntry) return {}
-    const opf = new DOMParser().parseFromString(await opfEntry.async('text'), 'application/xml')
+    const opf = new DOMParser().parseFromString(xmlText(await opfEntry.async('text')), 'application/xml')
     const metadata = xmlElements(opf, 'metadata')[0]
     const title = xmlElements(metadata || opf, 'title')[0]?.textContent?.replace(/\s+/g, ' ').trim()
     const author = xmlElements(metadata || opf, 'creator')[0]?.textContent?.replace(/\s+/g, ' ').trim()
@@ -657,8 +804,8 @@ async function createWindow() {
     x: restored.x,
     y: restored.y,
     // 568×320 是手机横屏阅读仍可用的最小窗口。
-    minWidth: 568,
-    minHeight: 320,
+    minWidth: 390,
+    minHeight: 640,
     frame: false,
     thickFrame: true,
     resizable: true,
@@ -1568,6 +1715,334 @@ ipcMain.handle('user-data:export-folder', async () => {
   return { folder: target, exeCopied, booksCopied }
 })
 
+ipcMain.handle('cloud:status', async (_event, serverUrl) => {
+  const session = await readCloudSession()
+  const target = serverUrl || session.serverUrl
+  if (!target) return { serverUrl: '', authenticated: false }
+  try {
+    const { result, origin } = await cloudRequest('/v1/account', { serverUrl: target })
+    return { serverUrl: origin, authenticated: true, user: result.user }
+  } catch (error) {
+    return { serverUrl: target, authenticated: false, error: error.message }
+  }
+})
+
+ipcMain.handle('cloud:register', async (_event, payload) => {
+  const { result, origin } = await cloudRequest('/v1/auth/register', { method: 'POST', serverUrl: payload?.serverUrl, body: { username: payload?.username, password: payload?.password, inviteCode: payload?.inviteCode }, token: '' })
+  await writeCloudSession(origin, result.token)
+  return { serverUrl: origin, user: result.user }
+})
+
+ipcMain.handle('cloud:login', async (_event, payload) => {
+  const { result, origin } = await cloudRequest('/v1/auth/login', { method: 'POST', serverUrl: payload?.serverUrl, body: { username: payload?.username, password: payload?.password }, token: '' })
+  await writeCloudSession(origin, result.token)
+  return { serverUrl: origin, user: result.user }
+})
+
+ipcMain.handle('cloud:logout', async () => {
+  const session = await readCloudSession()
+  if (session.serverUrl && session.token) await cloudRequest('/v1/auth/logout', { method: 'POST' }).catch(() => {})
+  await writeCloudSession(session.serverUrl, '')
+  return true
+})
+
+ipcMain.handle('cloud:change-password', async (_event, payload) => {
+  const session = await readCloudSession()
+  const { result } = await cloudRequest('/v1/account/password', { method: 'POST', body: { currentPassword: payload?.currentPassword, newPassword: payload?.newPassword } })
+  await writeCloudSession(session.serverUrl, result.token)
+  return { user: result.user }
+})
+
+ipcMain.handle('cloud:choose-avatar', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { title: '选择头像', properties: ['openFile'], filters: [{ name: '头像图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] })
+  if (result.canceled || !result.filePaths[0]) return null
+  const filePath = result.filePaths[0]
+  const info = await fs.stat(filePath)
+  if (info.size > 15 * 1024 * 1024) throw new Error('头像图片不能超过 15 MB')
+  const extension = path.extname(filePath).toLowerCase()
+  const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg'
+  return `data:${mime};base64,${(await fs.readFile(filePath)).toString('base64')}`
+})
+
+ipcMain.handle('cloud:update-profile', async (_event, payload) => (await cloudRequest('/v1/account/profile', { method: 'PATCH', body: { nickname: payload?.nickname, avatar: payload?.avatar } })).result)
+ipcMain.handle('cloud:clear-account', async (_event, confirmation) => (await cloudRequest('/v1/account/clear', { method: 'POST', body: { confirmation } })).result)
+ipcMain.handle('cloud:delete-account', async (_event, confirmation) => {
+  const result = (await cloudRequest('/v1/account', { method: 'DELETE', body: { confirmation } })).result
+  const session = await readCloudSession(); await writeCloudSession(session.serverUrl, '')
+  return result
+})
+ipcMain.handle('cloud:export-account', async () => {
+  const exported = (await cloudRequest('/v1/account/export')).result
+  const result = await dialog.showSaveDialog(mainWindow, { title: '导出账户数据', defaultPath: path.join(app.getPath('documents'), `墨读账户数据-${new Date().toISOString().slice(0,10)}.json`), filters: [{ name: 'JSON 数据', extensions: ['json'] }] })
+  if (result.canceled || !result.filePath) return null
+  await fs.writeFile(result.filePath, `${JSON.stringify(exported, null, 2)}\n`, 'utf8')
+  return result.filePath
+})
+
+ipcMain.handle('cloud:upload', async () => {
+  const session = await readCloudSession()
+  if (!session.serverUrl || !session.token) throw new Error('请先登录账户')
+  const snapshot = await createCloudSnapshot()
+  const response = await net.fetch(`${validateCloudUrl(session.serverUrl)}/v1/snapshot`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/zip', 'content-length': String(snapshot.length) },
+    body: snapshot,
+    signal: AbortSignal.timeout(30 * 60_000),
+  })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || `上传失败（${response.status}）`)
+  return result
+})
+
+ipcMain.handle('cloud:restore-snapshot', async () => {
+  const session = await readCloudSession()
+  if (!session.serverUrl || !session.token) throw new Error('请先登录账户')
+  const response = await net.fetch(`${validateCloudUrl(session.serverUrl)}/v1/snapshot`, { headers: { authorization: `Bearer ${session.token}` }, signal: AbortSignal.timeout(30 * 60_000) })
+  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || '下载云端备份失败') }
+  const zip = await JSZip.loadAsync(Buffer.from(await response.arrayBuffer()))
+  const storeEntry = zip.file('data/reader-data.json')
+  if (!storeEntry) throw new Error('云端备份格式无效，缺少阅读数据')
+  const restoredStore = JSON.parse(await storeEntry.async('string'))
+  if (!restoredStore?.data || typeof restoredStore.data !== 'object') throw new Error('云端备份数据无效')
+
+  await storeWriteQueue
+  await aiConfigWriteQueue
+
+  const extractEntries = async (prefix, targetRoot) => {
+    const entries = Object.values(zip.files).filter((entry) => !entry.dir && entry.name.startsWith(prefix))
+    for (const entry of entries) {
+      const relative = entry.name.slice(prefix.length)
+      if (!relative || relative.includes('..')) continue
+      const target = path.join(targetRoot, ...relative.split('/'))
+      await fs.mkdir(path.dirname(target), { recursive: true })
+      await fs.writeFile(target, await entry.async('nodebuffer'), { mode: 0o600 })
+    }
+    return entries.length
+  }
+
+  // 书籍文件：原目录仍然存在则沿用，避免重复占用磁盘；否则解压到 userData/restored-books
+  const restoredRoot = path.join(app.getPath('userData'), 'restored-books')
+  const originalDirectory = restoredStore.data['reader:directory']
+  if (originalDirectory && fsSync.existsSync(originalDirectory)) {
+    // 保留原路径
+  } else {
+    const libraryTarget = path.join(restoredRoot, 'library')
+    const count = await extractEntries('books/library/', libraryTarget)
+    if (count) restoredStore.data['reader:directory'] = libraryTarget
+    else delete restoredStore.data['reader:directory']
+  }
+  const manualBooks = Array.isArray(restoredStore.data['reader:manual-books']) ? restoredStore.data['reader:manual-books'] : []
+  for (const book of manualBooks) {
+    if (!book?.path || fsSync.existsSync(book.path)) continue
+    const entry = zip.file(`books/manual/${path.basename(book.path)}`)
+    if (!entry) continue
+    const target = path.join(restoredRoot, 'manual', path.basename(book.path))
+    await fs.mkdir(path.dirname(target), { recursive: true })
+    await fs.writeFile(target, await entry.async('nodebuffer'), { mode: 0o600 })
+    book.path = target
+  }
+
+  await extractEntries('ui-assets/', path.join(app.getPath('userData'), 'ui-assets'))
+
+  // AI 设置：备份不含 API Key，保留本机已有 Key
+  const aiEntry = zip.file('data/ai-settings.json')
+  if (aiEntry) {
+    try {
+      const portable = JSON.parse(await aiEntry.async('string'))
+      const localAi = await loadAiConfig()
+      const localKeys = new Map((localAi.providers || []).filter((provider) => provider.encryptedKey).map((provider) => [provider.id, provider.encryptedKey]))
+      const mergedAi = { ...portable, providers: (portable.providers || []).map((provider) => localKeys.has(provider.id) ? { ...provider, encryptedKey: localKeys.get(provider.id) } : provider) }
+      await fs.mkdir(storeDirectory(), { recursive: true })
+      await fs.writeFile(aiConfigFile(), `${JSON.stringify(mergedAi, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+      aiConfigCache = mergedAi
+    } catch { /* AI 设置损坏不阻塞主数据恢复 */ }
+  }
+
+  storeCache = restoredStore
+  await queueStoreWrite()
+  app.relaunch()
+  app.exit(0)
+})
+
+ipcMain.handle('cloud:sync-data', async () => {
+  const store = await loadStore()
+  const local = portableCloudData(store)
+  const { result } = await cloudRequest('/v1/sync')
+  const remote = result.sync?.data || null
+  const data = store.data || {}
+  const hasLocalLibrary = Boolean(data['reader:directory'] || (data['reader:manual-books'] || []).length
+    || Object.keys(data['reader:progress'] || {}).length || Object.values(data['reader:notes'] || {}).some((items) => items?.length)
+    || Object.keys(data['reader:covers'] || {}).length || Object.values(data['reader:bookmarks'] || {}).some((items) => items?.length))
+  const merged = remote ? mergeCloudData(remote, local, !hasLocalLibrary) : local
+  // 先推云端，成功后再落本地；失败时本地数据保持原样（C3）
+  const saved = await cloudRequest('/v1/sync', { method: 'PUT', body: { data: merged } })
+  storeCache = { ...store, data: { ...data, ...merged } }
+  await queueStoreWrite()
+  return { sync: saved.result.sync, restored: Boolean(remote && !hasLocalLibrary), changed: Boolean(remote) }
+})
+
+ipcMain.handle('cloud:translation-get', async () => (await cloudRequest('/v1/translation-data')).result)
+ipcMain.handle('cloud:translation-save', async (_event, data) => (await cloudRequest('/v1/translation-data', { method: 'PUT', body: { data } })).result)
+
+ipcMain.handle('cloud:library-list', async () => (await cloudRequest('/v1/library/books')).result)
+
+ipcMain.handle('cloud:sync-overview', async () => {
+  const store = await loadStore()
+  const data = store.data || {}
+  const manualBooks = Array.isArray(data['reader:manual-books']) ? data['reader:manual-books'] : []
+  let directoryCount = 0
+  const directory = data['reader:directory']
+  if (directory) {
+    try {
+      // 轻量统计：只看目录顶层文件名，不做 describeBook，目录不存在按 0
+      directoryCount = (await fs.readdir(directory)).filter((name) => ['.txt', '.epub'].includes(path.extname(name).toLowerCase())).length
+    } catch { /* 目录不存在按 0 */ }
+  }
+  const { result } = await cloudRequest('/v1/account')
+  const user = result.user || {}
+  return {
+    localUpdatedAt: store.updatedAt || null,
+    cloudSyncAt: user.sync?.updatedAt || null,
+    snapshotAt: user.snapshot?.updatedAt || null,
+    libraryCount: Number(user.libraryCount) || 0,
+    localBookCount: manualBooks.length + directoryCount,
+  }
+})
+
+ipcMain.handle('cloud:library-upload-all', async (event) => {
+  const books = await localLibraryBooks()
+  const remote = (await cloudRequest('/v1/library/books')).result.books || []
+  const remoteIds = new Set(remote.map((book) => book.clientBookId))
+  const pending = books.filter((book) => !remoteIds.has(book.id))
+  let uploaded = 0
+  for (const [index, book] of pending.entries()) {
+    event.sender.send('cloud:library-progress', { current: index + 1, total: pending.length, title: book.title })
+    const data = await fs.readFile(book.path)
+    const session = await readCloudSession()
+    const metadata = Buffer.from(JSON.stringify({ clientBookId: book.id, title: book.title, author: book.author || '', extension: path.extname(book.path).toLowerCase() })).toString('base64url')
+    const response = await net.fetch(`${validateCloudUrl(session.serverUrl)}/v1/library/books`, { method: 'POST', headers: { authorization: `Bearer ${session.token}`, 'content-type': book.format === 'EPUB' ? 'application/epub+zip' : 'text/plain', 'content-length': String(data.length), 'x-moyu-library-book': metadata }, body: data, signal: AbortSignal.timeout(30 * 60_000) })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(`《${book.title}》上传失败：${result.error || response.status}`)
+    uploaded += 1
+  }
+  return { total: books.length, uploaded, skipped: books.length - pending.length, books: (await cloudRequest('/v1/library/books')).result.books }
+})
+
+ipcMain.handle('cloud:library-download', async (_event, cloudBook) => {
+  const id = String(cloudBook?.cloudId || cloudBook?.id || '')
+  if (!/^[0-9a-f-]+$/.test(id)) throw new Error('云端书籍标识无效')
+  const extension = cloudBook?.format === 'EPUB' ? '.epub' : '.txt'
+  await fs.mkdir(cloudBookDirectory(), { recursive: true })
+  const target = path.join(cloudBookDirectory(), `${id}${extension}`)
+  if (!fsSync.existsSync(target)) {
+    const session = await readCloudSession()
+    const response = await net.fetch(`${validateCloudUrl(session.serverUrl)}/v1/library/books/${id}`, { headers: { authorization: `Bearer ${session.token}` }, signal: AbortSignal.timeout(30 * 60_000) })
+    if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || '云端书籍下载失败') }
+    const temporary = `${target}.${process.pid}.tmp`
+    await fs.writeFile(temporary, Buffer.from(await response.arrayBuffer()), { mode: 0o600 })
+    await fs.rename(temporary, target)
+  }
+  return describeBook(target)
+})
+
+ipcMain.handle('cloud:library-delete', async (_event, localBook) => {
+  const localId = String(localBook?.id || '')
+  if (!localId) throw new Error('书籍标识无效')
+  const remote = (await cloudRequest('/v1/library/books')).result.books || []
+  const match = remote.find((book) => book.clientBookId === localId || book.id === localBook?.cloudId)
+  if (!match) return { ok: true, existed: false }
+  const result = await cloudRequest(`/v1/library/books/${encodeURIComponent(match.id)}`, { method: 'DELETE' })
+  return { ...result.result, existed: true }
+})
+
+ipcMain.handle('cloud:store-list', async (_event, filters = {}) => {
+  const query = new URLSearchParams()
+  if (filters.q) query.set('q', String(filters.q).slice(0, 100))
+  if (filters.category) query.set('category', String(filters.category).slice(0, 40))
+  return (await cloudRequest(`/v1/store/books?${query}`)).result
+})
+
+ipcMain.handle('cloud:store-choose-upload', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { title: '选择要上传到书城的书籍', properties: ['openFile'], filters: [{ name: '电子书', extensions: ['txt', 'epub'] }] })
+  if (result.canceled || !result.filePaths[0]) return null
+  const filePath = result.filePaths[0]
+  const info = await fs.stat(filePath)
+  const extension = path.extname(filePath).toLowerCase()
+  let title = path.basename(filePath, path.extname(filePath))
+  let author = ''
+  // EPUB 自动读取书名与作者作为预填，可在上传对话框中修改
+  if (extension === '.epub') {
+    const metadata = await readEpubMetadata(filePath, info)
+    if (metadata.title) title = metadata.title
+    if (metadata.author) author = metadata.author
+  }
+  return { path: filePath, title, author, extension, size: info.size }
+})
+
+ipcMain.handle('cloud:store-upload', async (_event, payload) => {
+  const filePath = path.resolve(String(payload?.path || ''))
+  const extension = path.extname(filePath).toLowerCase()
+  if (!['.txt', '.epub'].includes(extension)) throw new Error('只支持 TXT 和 EPUB')
+  const data = await fs.readFile(filePath)
+  const session = await readCloudSession()
+  const origin = validateCloudUrl(session.serverUrl)
+  const metadata = Buffer.from(JSON.stringify({ title: String(payload?.title || '').trim(), author: String(payload?.author || '').trim(), category: String(payload?.category || '').trim(), extension })).toString('base64url')
+  const response = await net.fetch(`${origin}/v1/store/books`, { method: 'POST', headers: { authorization: `Bearer ${session.token}`, 'content-type': extension === '.epub' ? 'application/epub+zip' : 'text/plain', 'content-length': String(data.length), 'x-moyu-book': metadata }, body: data, signal: AbortSignal.timeout(30 * 60_000) })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || `上传失败（${response.status}）`)
+  // EPUB 自动提取封面上传；失败不影响书籍本身
+  if (extension === '.epub' && result.book?.id) {
+    try {
+      const info = await fs.stat(filePath)
+      const cover = (await readEpubMetadata(filePath, info)).cover
+      if (cover?.startsWith('data:')) {
+        const [mime, base64] = [cover.slice(5, cover.indexOf(';')), cover.slice(cover.indexOf(',') + 1)]
+        await net.fetch(`${origin}/v1/store/books/${result.book.id}/cover`, { method: 'PUT', headers: { authorization: `Bearer ${session.token}`, 'content-type': mime, 'content-length': String(Buffer.byteLength(base64, 'base64')) }, body: Buffer.from(base64, 'base64'), signal: AbortSignal.timeout(120_000) })
+      }
+    } catch { /* 封面缺失不阻塞上传 */ }
+  }
+  return result
+})
+
+ipcMain.handle('cloud:store-download', async (_event, book) => {
+  const extension = book?.format === 'EPUB' ? '.epub' : '.txt'
+  const result = await dialog.showSaveDialog(mainWindow, { title: '下载书籍', defaultPath: path.join(app.getPath('downloads'), `${String(book?.title || '电子书').replace(/[\\/:*?"<>|]/g, '_')}${extension}`), filters: [{ name: book?.format || '电子书', extensions: [extension.slice(1)] }] })
+  if (result.canceled || !result.filePath) return null
+  const session = await readCloudSession()
+  const response = await net.fetch(`${validateCloudUrl(session.serverUrl)}/v1/store/books/${encodeURIComponent(String(book?.id || ''))}`, { headers: { authorization: `Bearer ${session.token}` }, signal: AbortSignal.timeout(30 * 60_000) })
+  if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.error || '下载失败') }
+  await fs.writeFile(result.filePath, Buffer.from(await response.arrayBuffer()))
+  return describeBook(result.filePath)
+})
+
+ipcMain.handle('cloud:store-update-category', async (_event, payload) => (await cloudRequest(`/v1/store/books/${encodeURIComponent(String(payload?.id || ''))}`, { method: 'PATCH', body: { category: payload?.category } })).result)
+ipcMain.handle('cloud:store-delete', async (_event, id) => (await cloudRequest(`/v1/store/books/${encodeURIComponent(String(id || ''))}`, { method: 'DELETE' })).result)
+ipcMain.handle('cloud:store-review', async (_event, payload) => (await cloudRequest(`/v1/store/books/${encodeURIComponent(String(payload?.id || ''))}/review`, { method: 'PUT', body: { rating: payload?.rating, comment: payload?.comment } })).result)
+ipcMain.handle('cloud:store-review-delete', async (_event, id) => (await cloudRequest(`/v1/store/books/${encodeURIComponent(String(id || ''))}/review`, { method: 'DELETE' })).result)
+
+const storeCoverCache = new Map()
+ipcMain.handle('cloud:store-cover', async (_event, id) => {
+  const key = String(id || '')
+  if (!/^[0-9a-f-]+$/.test(key)) return ''
+  if (storeCoverCache.has(key)) return storeCoverCache.get(key)
+  let dataUrl = ''
+  try {
+    const session = await readCloudSession()
+    const response = await net.fetch(`${validateCloudUrl(session.serverUrl)}/v1/store/books/${key}/cover`, { headers: { authorization: `Bearer ${session.token}` }, signal: AbortSignal.timeout(60_000) })
+    if (response.ok) dataUrl = `data:${response.headers.get('content-type') || 'image/jpeg'};base64,${Buffer.from(await response.arrayBuffer()).toString('base64')}`
+  } catch { /* 离线或无封面时回退占位样式 */ }
+  storeCoverCache.set(key, dataUrl)
+  while (storeCoverCache.size > 300) storeCoverCache.delete(storeCoverCache.keys().next().value)
+  return dataUrl
+})
+
+ipcMain.handle('cloud:thoughts-list', async (_event, bookKey) => (await cloudRequest(`/v1/thoughts?bookKey=${encodeURIComponent(String(bookKey || ''))}`)).result)
+ipcMain.handle('cloud:thought-create', async (_event, payload) => (await cloudRequest('/v1/thoughts', { method: 'POST', body: payload })).result)
+ipcMain.handle('cloud:thought-delete', async (_event, thoughtId) => (await cloudRequest(`/v1/thoughts/${encodeURIComponent(String(thoughtId || ''))}`, { method: 'DELETE' })).result)
+ipcMain.handle('cloud:thought-like', async (_event, thoughtId) => (await cloudRequest(`/v1/thoughts/${encodeURIComponent(String(thoughtId || ''))}/like`, { method: 'POST' })).result)
+ipcMain.handle('cloud:thought-reply', async (_event, payload) => (await cloudRequest(`/v1/thoughts/${encodeURIComponent(String(payload?.thoughtId || ''))}/replies`, { method: 'POST', body: { content: payload?.content } })).result)
+ipcMain.handle('cloud:thought-reply-delete', async (_event, payload) => (await cloudRequest(`/v1/thoughts/${encodeURIComponent(String(payload?.thoughtId || ''))}/replies/${encodeURIComponent(String(payload?.replyId || ''))}`, { method: 'DELETE' })).result)
+
 ipcMain.handle('ui:choose-background', async (_event, scope) => {
   if (!['home', 'reader'].includes(scope)) throw new Error('背景类型无效')
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -2197,6 +2672,67 @@ async function runProfileSelfTest(fixturePath) {
   app.exit(0)
 }
 
+const translationControllers = new Map()
+async function runTranslationRequest(input, mode) {
+  const config = await loadAiConfig()
+  const provider = config.providers.find((item) => item.id === (input?.providerId || config.activeProviderId)) || config.providers[0]
+  if (!provider) return { ok: false, error: { stage: 'setup', code: 'PROVIDER_NOT_FOUND', message: '请先设置并选择 AI 供应商' } }
+  const model = String(input?.model || provider.model || '').trim().slice(0, 160)
+  const glossary = (Array.isArray(input?.glossary) ? input.glossary : []).slice(0, 300).map((item) => `${String(item.source || '').slice(0,80)} => ${String(item.target || '').slice(0,80)}`).join('\n')
+  const target = input?.targetScript === 'traditional' ? '繁体中文' : '简体中文'
+  const profileRules = {
+    koreanWeb: '这是韩国 Web 网络小说。你精通韩语敬语层级、韩国姓名与称谓、财阀/猎人/回归/系统流等网文语境。中文译文要自然流畅、节奏明快；拟声词、技能名、等级与系统提示采用中文网文读者熟悉且前后一致的表达，避免生硬直译和韩式语序。',
+    japaneseLight: '这是日本轻小说。你精通日语人称省略、敬称、角色口癖、校园/异世界/转生/冒险语境。保留角色语气差异与轻小说节奏，称谓、魔法、技能、等级和专名采用中文轻小说通行表达，避免逐字翻译。',
+    englishWeb: '这是英文网络小说。你熟悉 LitRPG、奇幻、科幻、言情与连载网文表达。准确处理代词、俚语、技能、属性面板和世界观术语，译文符合中文网文阅读节奏，避免欧化长句。',
+    literature: '这是一般文学作品。优先保持叙述视角、时代感、修辞、潜台词和人物声音，中文表达准确克制，不擅自网文化或扩写。',
+    auto: '请根据文本自动判断作品语言、类型与文体，采用最适合中文读者的文学翻译策略。',
+  }
+  const profileRule = profileRules[input?.translationProfile] || profileRules.auto
+  const sourceText = String(mode === 'term' ? input?.term : input?.text || '').trim()
+  if (!sourceText) return { ok: false, error: { stage: 'translation', code: 'EMPTY_TEXT', message: '没有可翻译的文字' } }
+  const requestId = String(input?.requestId || '').slice(0,120)
+  const controller = new AbortController()
+  if (requestId) translationControllers.set(requestId, controller)
+  const batchTerms = mode === 'term' && (sourceText.length > 30 || /[\s。！？!?，,；;：:\n]/.test(sourceText))
+  const sourceParagraphs = mode === 'chapter' ? sourceText.split(/\r?\n+/).map((value) => value.trim()).filter(Boolean) : []
+  const messages = mode === 'term' ? [
+    { role: 'system', content: batchTerms
+      ? `你是文学翻译术语专家。${profileRule} 自动识别原文语言，从用户选中的句子或段落里提取所有值得固定译法的人名、地名、组织名、称号、技能与关键专名，并翻译成${target}。不要提取普通词。只输出严格 JSON：{"terms":[{"source":"原文名词","target":"中文译名","type":"人名/地名/组织/称号/技能/专名"}]}，不要 Markdown。`
+      : `你是文学翻译术语专家。${profileRule} 自动识别原文语言，将指定专名准确翻译为${target}。只返回译名本身，不解释。` },
+    { role: 'user', content: `作品：${String(input?.bookTitle || '').slice(0,160)}\n上下文：${String(input?.context || '').slice(0,2400)}\n${batchTerms ? '请提取本段专名：' : '待固定名词：'}${sourceText}` },
+  ] : [
+    { role: 'system', content: `你是专业文学翻译。${profileRule} 自动识别输入语言并翻译成${target}。保持人物语气，逐项遵守术语库（用户术语库优先级最高）。输入是带 index 的原始段落数组；不得合并、拆分、改序或遗漏，只翻译 text。只输出严格 JSON：{"translations":[{"index":0,"translation":"译文"}]}，不要复述原文，不要 Markdown。` },
+    { role: 'user', content: `作品：${String(input?.bookTitle || '').slice(0,160)}\n章节：${String(input?.chapterLabel || '').slice(0,160)}\n术语库：\n${glossary || '（空）'}\n\n原文段落：\n${JSON.stringify(sourceParagraphs.map((text, index) => ({ index, text })))}` },
+  ]
+  try {
+    const parameter = provider.tokenParameter === 'max_tokens' ? 'max_tokens' : 'max_completion_tokens'
+    const response = await requestProviderStreaming(provider, 'chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, [parameter]: mode === 'term' ? 256 : Math.max(4096, Math.min(16000, Number(provider.maxTokens) || 8000)), stream: true, messages }),
+    }, 'translation', AbortSignal.any([controller.signal, AbortSignal.timeout(mode === 'term' ? 60_000 : 10 * 60_000)]))
+    const text = responseText(response?.choices?.[0]?.message).trim()
+    if (mode === 'term') {
+      if (!text) return { ok: false, error: { message: '模型没有返回译名' } }
+      if (!batchTerms) return { ok: true, terms: [{ source: sourceText, target: text.replace(/^['"“”]|['"“”]$/g, '').slice(0,120), type: '专名' }], providerName: provider.name, model }
+      const termJson = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+      const parsed = JSON.parse(termJson)
+      const terms = (Array.isArray(parsed?.terms) ? parsed.terms : []).slice(0,50).map((item) => ({ source: String(item?.source || '').trim().slice(0,80), target: String(item?.target || '').trim().slice(0,120), type: String(item?.type || '专名').slice(0,20) })).filter((item) => item.source && item.target)
+      return terms.length ? { ok: true, terms, providerName: provider.name, model } : { ok: false, error: { message: '这段文字里没有识别到需要固定的专名' } }
+    }
+    const jsonText = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+    const parsed = JSON.parse(jsonText)
+    const translated = new Map((Array.isArray(parsed?.translations) ? parsed.translations : []).map((item) => [Number(item?.index), String(item?.translation || '').trim()]))
+    const paragraphs = sourceParagraphs.map((original, index) => ({ original, translation: translated.get(index) || '' }))
+    return paragraphs.some((item) => item.translation) ? { ok: true, paragraphs, providerName: provider.name, model, complete: paragraphs.every((item) => item.translation) } : { ok: false, error: { message: '模型没有返回有效段落' } }
+  } catch (error) {
+    return { ok: false, error: error.aiError || { stage: 'translation', code: controller.signal.aborted ? 'CANCELLED' : error.name === 'TimeoutError' ? 'REQUEST_TIMEOUT' : 'TRANSLATION_FAILED', message: controller.signal.aborted ? '翻译已停止' : sanitizeAiErrorText(error.message || '翻译失败') } }
+  } finally { if (requestId && translationControllers.get(requestId) === controller) translationControllers.delete(requestId) }
+}
+
+ipcMain.handle('ai:translate-chapter', (_event, input) => runTranslationRequest(input, 'chapter'))
+ipcMain.handle('ai:translate-term', (_event, input) => runTranslationRequest(input, 'term'))
+ipcMain.handle('ai:cancel-translation', (_event, requestId) => { const controller = translationControllers.get(String(requestId || '')); if (controller) controller.abort(); return Boolean(controller) })
+
 ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((resolve) => {
   // 自动化测试钩子：设置 MOYU_TEST_MENU_ACTION 时直接返回指定动作，不弹原生菜单。
   if (process.env.MOYU_TEST_MENU_ACTION) { resolve(process.env.MOYU_TEST_MENU_ACTION); return }
@@ -2208,9 +2744,11 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
       { label: '复制', role: 'copy', click: () => finish('copy') },
       { type: 'separator' },
       { label: '收藏句子', click: () => finish('note') },
+      ...(options.showThoughts === false ? [] : [{ label: '写想法', click: () => finish('thought') }]),
       { label: '分享这段文字（生成图片）', click: () => finish('share') },
       { label: '字典百科（AI 解说这段文字）', click: () => finish('dictionary') },
       { label: '改写（按要求重写这段文字）', click: () => finish('rewrite') },
+      { label: '名词固定', click: () => finish('fix-term') },
     )
     if (options.canLookupEntity) {
       template.push(
@@ -2220,6 +2758,15 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
       )
     }
   }
+  if (options.readerActions) {
+    if (template.length) template.push({ type: 'separator' })
+    template.push(
+      { label: options.translationRunning ? '停止翻译' : options.translationActive ? '隐藏译文' : '翻译当前章节', click: () => finish(options.translationRunning ? 'stop-translation' : options.translationActive ? 'cancel-translation' : 'translate') },
+      ...(options.hasTranslationCache ? [{ label: '重新翻译当前章节', click: () => finish('retranslate') }] : []),
+      { label: '翻译设置', click: () => finish('translation-settings') },
+      { label: '名词库', click: () => finish('term-library') },
+    )
+  }
   if (!template.length) return finish('cancel')
   const menu = Menu.buildFromTemplate(template)
   menu.on('menu-will-close', () => setTimeout(() => finish('cancel'), 0))
@@ -2227,6 +2774,14 @@ ipcMain.handle('reader:selection-menu', (event, options = {}) => new Promise((re
 }))
 
 ipcMain.on('window:minimize', () => mainWindow?.minimize())
+
+ipcMain.handle('app:open-external', async (_event, url) => {
+  let target
+  try { target = new URL(String(url || '')) } catch { throw new Error('链接无效') }
+  if (target.protocol !== 'https:') throw new Error('只允许打开 HTTPS 链接')
+  await shell.openExternal(target.toString())
+  return true
+})
 ipcMain.on('window:maximize', () => {
   if (!mainWindow) return
   mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()

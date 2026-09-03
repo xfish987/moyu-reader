@@ -1,0 +1,53 @@
+download.oetnn.cn {
+  encode zstd gzip
+
+  handle_path /moyu-reader-cloud/* {
+    reverse_proxy moyu-cloud:8787
+  }
+
+  @apk path /catdice-trpg-*.apk
+  handle @apk {
+    root * /srv/downloads
+    header Cache-Control "public, max-age=31536000, immutable"
+    file_server
+  }
+
+  handle {
+    reverse_proxy app:3000
+  }
+}
+
+modu.cxnnn.cn {
+  encode zstd gzip
+
+  handle_path /moyu-reader-cloud/* {
+    reverse_proxy moyu-cloud:8787
+  }
+
+  @moyu path /MoyuReader-*.exe /MoyuReader-*.msi
+  handle @moyu {
+    root * /srv/downloads
+    header Cache-Control "public, max-age=3600"
+    file_server
+  }
+
+  # Web 版书城（静态 SPA + 同域 API，由 moyu-cloud 托管）
+  handle {
+    reverse_proxy moyu-cloud:8787
+  }
+}
+
+dice.cxnnn.cn {
+  encode zstd gzip
+
+  @apk path /catdice-trpg-*.apk
+  handle @apk {
+    root * /srv/downloads
+    header Cache-Control "public, max-age=31536000, immutable"
+    file_server
+  }
+
+  handle {
+    reverse_proxy app:3000
+  }
+}

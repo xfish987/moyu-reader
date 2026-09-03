@@ -11,6 +11,7 @@ export default function AddCustomNoteModal({ book, availableTags = [], available
   const [text, setText] = useState('')
   const [title, setTitle] = useState('')
   const [source, setSource] = useState(`《${book.title}》`)
+  const [author, setAuthor] = useState(book.author || '')
   const [tags, setTags] = useState([])
   const [highlights, setHighlights] = useState([])
 
@@ -20,7 +21,7 @@ export default function AddCustomNoteModal({ book, availableTags = [], available
   const save = () => {
     const content = text.trim()
     if (!content) return
-    onSave({ text: content, title: title.trim(), source: source.trim(), tags, highlights })
+    onSave({ text: content, title: title.trim(), source: source.trim(), author: author.trim(), tags, highlights })
   }
 
   return (
@@ -30,8 +31,9 @@ export default function AddCustomNoteModal({ book, availableTags = [], available
         {step === 1 ? (
           <div className="add-custom-fields">
             <label>摘录正文<textarea autoFocus rows={7} placeholder="粘贴或写下你想留存的段落，可自由分段" value={text} onChange={(event) => changeText(event.target.value)} /></label>
-            <label>标题（可留空）<input value={title} maxLength={60} placeholder="如：小哥初见" onChange={(event) => setTitle(event.target.value)} /></label>
+            <label>备注（可留空）<textarea value={title} rows={2} placeholder="如：小哥初见" onChange={(event) => setTitle(event.target.value)} /></label>
             <label>出处<SourceEditor value={source} availableSources={availableSources} onSavePreset={onSavePreset} maxLength={60} placeholder="如：《钓王》" onChange={setSource} /></label>
+            <label>作者<input value={author} maxLength={60} placeholder="作者姓名" onChange={(event) => setAuthor(event.target.value)} /></label>
             <label>标签<TagEditor tags={tags} availableTags={availableTags} onChange={setTags} /></label>
           </div>
         ) : (

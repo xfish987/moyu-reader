@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import TextReader, { truncateCompanionText } from './TextReader'
 
-const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollectIntent, onShareIntent, notes = [], onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite }, ref) {
+const LargeTextReader = forwardRef(function LargeTextReader({ book, source, settings, savedProgress, onProgress, onChapters, onCollectIntent, onShareIntent, onThoughtIntent, notes = [], thoughts = [], onOpenThoughts, onLookupEntity, onCheckEntityProfile, hasAnyProfile, dictEntries = [], onLookupDict, onOpenDictEntry, rewrites = [], onRewrite, onOpenRewrite, onFixTerm }, ref) {
   const readerRefs = useRef(new Map())
   const pageHintsRef = useRef(new Map([[source.start, savedProgress?.page || 0]]))
   const currentChunkRef = useRef(source)
@@ -279,11 +279,15 @@ const LargeTextReader = forwardRef(function LargeTextReader({ book, source, sett
               onProgress={(local) => updateProgress(layer, local)}
               onChapters={() => {}}
               onCollectIntent={(selection) => active && onCollectIntent?.({ ...selection, chunkOffset: layer.start })}
+              onThoughtIntent={(selection) => active && onThoughtIntent?.({ ...selection, chunkOffset: layer.start })}
               onShareIntent={(selection) => active && onShareIntent?.(selection)}
               notes={notes.filter((note) => note.chunkOffset === layer.start)}
+              thoughts={thoughts.filter((thought) => thought.anchor?.chunkOffset === layer.start)}
+              onOpenThoughts={onOpenThoughts}
               onLookupEntity={(selection, mode) => active && onLookupEntity?.({ ...selection, chunkOffset: layer.start, chunkEnd: layer.end, readPosition: Math.max(layer.start, Math.round(layer.start + selection.localTextFraction * (layer.end - layer.start))) }, mode)}
               onLookupDict={(selection) => active && onLookupDict?.({ ...selection, chunkOffset: layer.start })}
               onRewrite={(selection) => active && onRewrite?.({ ...selection, chunkOffset: layer.start })}
+              onFixTerm={(selection) => active && onFixTerm?.({ ...selection, chunkOffset: layer.start })}
               dictEntries={dictEntries.filter((entry) => entry.anchor?.chunkOffset === layer.start)}
               rewrites={rewrites.filter((entry) => entry.anchor?.chunkOffset === layer.start)}
               onOpenRewrite={onOpenRewrite}

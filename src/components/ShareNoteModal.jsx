@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Image, X } from 'lucide-react'
+import { ArrowRight, Download, Image, X } from 'lucide-react'
 import { segmentByHighlights } from '../noteHighlights'
+import HighlightTextEditor from './HighlightTextEditor'
 
 const CARD_THEMES = [
   {
@@ -72,9 +73,16 @@ const MOBILE_TYPE = {
   lightFont: MOBILE_LIGHT_FONT,
   boldFont: MOBILE_BOLD_FONT,
 }
+const MOBILE_NOTE_TYPE = {
+  fontSize: 21,
+  lineHeight: 34,
+  paragraphGap: 17,
+  lightFont: `500 21px ${DISPLAY}`,
+  boldFont: `600 21px ${DISPLAY}`,
+}
 
 // 把文本按高亮分段后排版成行：首行缩进两字符，逐字测宽（带缓存）。
-function layoutRichText(context, text, highlights, width, type = MOBILE_TYPE) {
+function layoutRichText(context, text, highlights, width, type = MOBILE_TYPE, indentFirstLine = true) {
   const cache = new Map()
   const measure = (character, hl) => {
     const key = `${hl ? 1 : 0}${character}`
@@ -100,7 +108,7 @@ function layoutRichText(context, text, highlights, width, type = MOBILE_TYPE) {
     const lines = []
     let line = []
     let lineWidth = 0
-    let available = width - type.fontSize * 2
+    let available = width - (indentFirstLine ? type.fontSize * 2 : 0)
     for (const item of items) {
       if (lineWidth + item.width > available && line.length && !PROHIBITED_LINE_START.has(item.character)) {
         const carry = []
@@ -115,7 +123,7 @@ function layoutRichText(context, text, highlights, width, type = MOBILE_TYPE) {
       lineWidth += item.width
     }
     lines.push({ items: line, width: lineWidth })
-    paragraphs.push({ lines })
+    paragraphs.push({ lines, indentFirstLine })
   }
   return paragraphs
 }
@@ -131,7 +139,7 @@ function drawRichText(context, paragraphs, x, top, width, ink, type = MOBILE_TYP
   context.textBaseline = 'alphabetic'
   paragraphs.forEach((paragraph, paragraphIndex) => {
     paragraph.lines.forEach((line, lineIndex) => {
-      const indent = lineIndex === 0 ? type.fontSize * 2 : 0
+      const indent = lineIndex === 0 && paragraph.indentFirstLine ? type.fontSize * 2 : 0
       const baseline = cursor + type.fontSize + Math.round(type.fontSize * .2)
       const isLastLine = lineIndex === paragraph.lines.length - 1
       let dx = x + indent
@@ -184,24 +192,23 @@ function createMobileShareImage(note, book, author, theme) {
   let context = canvas.getContext('2d')
   const quote = note.text?.trim() || ' '
   const paragraphs = layoutRichText(context, quote, note.highlights, MOBILE_CONTENT_WIDTH)
-  const title = note.title ? (note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title) : ''
+  const title = note.title?.trim() || ''
+  const titleParagraphs = title ? layoutRichText(context, title, [], MOBILE_CONTENT_WIDTH, MOBILE_NOTE_TYPE, false) : []
   const sourceTitle = sourceLine(note, book)
-  const authorLine = note.source ? '' : (author || '佚名')
+  const authorLine = author || note.author || book.author || '佚名'
 
-  const contentTop = 148 + MOBILE_SOURCE_GAP + (title ? 56 : 0)
+  const titleHeight = titleParagraphs.length ? richTextHeight(titleParagraphs, MOBILE_NOTE_TYPE) + 34 : 0
+  const titleTop = 148 + MOBILE_SOURCE_GAP
+  const contentTop = titleTop + titleHeight
   const textBottom = contentTop + richTextHeight(paragraphs)
   const sourceBaseline = textBottom + MOBILE_SOURCE_GAP
-  const canvasHeight = sourceBaseline + 34 + 84
+  const canvasHeight = sourceBaseline + 58 + 84
   canvas.height = canvasHeight
   context = canvas.getContext('2d')
 
   drawMobileChrome(context, theme, canvasHeight, 'READING NOTE')
 
-  if (title) {
-    context.fillStyle = theme.muted
-    context.font = `600 21px ${DISPLAY}`
-    context.fillText(title, MOBILE_CONTENT_X, 148 + 62)
-  }
+  if (titleParagraphs.length) drawRichText(context, titleParagraphs, MOBILE_CONTENT_X, titleTop, MOBILE_CONTENT_WIDTH, theme.muted, MOBILE_NOTE_TYPE)
 
   // 引号装饰 + 正文
   context.fillStyle = theme.accent
@@ -218,7 +225,9 @@ function createMobileShareImage(note, book, author, theme) {
   context.fillText(`—— ${sourceTitle}`, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline)
   context.fillStyle = theme.muted
   context.font = `500 15px ${DISPLAY}`
-  context.fillText(`${authorLine ? `${authorLine} · ` : ''}${formatDate(note.createdAt)}`, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline + 32)
+  context.fillText(authorLine, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline + 30)
+  context.font = `500 13px ${DISPLAY}`
+  context.fillText(formatDate(note.createdAt), MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline + 54)
   context.textAlign = 'left'
   return canvas.toDataURL('image/png')
 }
@@ -236,11 +245,11 @@ function createMobileMultiShareImage(items, theme) {
   let context = canvas.getContext('2d')
   const blocks = items.map(({ note, book }) => {
     const paragraphs = layoutRichText(context, note.text?.trim() || ' ', note.highlights, MOBILE_CONTENT_WIDTH)
-    const title = note.title ? (note.title.length > 30 ? `${note.title.slice(0, 30)}…` : note.title) : ''
-    return { paragraphs, source: sourceLine(note, book, 34), title }
+    const titleParagraphs = note.title?.trim() ? layoutRichText(context, note.title.trim(), [], MOBILE_CONTENT_WIDTH, MOBILE_NOTE_TYPE, false) : []
+    return { paragraphs, source: sourceLine(note, book, 34), author: note.author || book.author || '佚名', titleParagraphs }
   })
   // 单块高度 = 标题(56) + 正文 + 出处(2 倍行距 + 20)
-  const measureBlock = (block) => (block.title ? 56 : 0) + richTextHeight(block.paragraphs) + MOBILE_SOURCE_GAP + 20
+  const measureBlock = (block) => (block.titleParagraphs.length ? richTextHeight(block.titleParagraphs, MOBILE_NOTE_TYPE) + 34 : 0) + richTextHeight(block.paragraphs) + MOBILE_SOURCE_GAP + 54
   const canvasHeight = 148 + MOBILE_SOURCE_GAP + blocks.reduce((sum, block) => sum + measureBlock(block), 0) + 64
   canvas.height = canvasHeight
   context = canvas.getContext('2d')
@@ -249,11 +258,8 @@ function createMobileMultiShareImage(items, theme) {
 
   let y = 148 + MOBILE_SOURCE_GAP
   blocks.forEach((block) => {
-    if (block.title) {
-      context.fillStyle = theme.muted
-      context.font = `600 21px ${DISPLAY}`
-      context.fillText(block.title, MOBILE_CONTENT_X, y + 26)
-      y += 56
+    if (block.titleParagraphs.length) {
+      y = drawRichText(context, block.titleParagraphs, MOBILE_CONTENT_X, y, MOBILE_CONTENT_WIDTH, theme.muted, MOBILE_NOTE_TYPE) + 34
     }
     const textBottom = drawRichText(context, block.paragraphs, MOBILE_CONTENT_X, y, MOBILE_CONTENT_WIDTH, theme.ink)
     const sourceBaseline = textBottom + MOBILE_SOURCE_GAP
@@ -261,20 +267,25 @@ function createMobileMultiShareImage(items, theme) {
     context.fillStyle = theme.muted
     context.font = `500 17px ${DISPLAY}`
     context.fillText(`—— ${block.source}`, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline)
+    context.font = `500 15px ${DISPLAY}`
+    context.fillText(block.author, MOBILE_CARD_WIDTH - MOBILE_CONTENT_X, sourceBaseline + 28)
     context.textAlign = 'left'
-    y = sourceBaseline + 20
+    y = sourceBaseline + 54
   })
   return canvas.toDataURL('image/png')
 }
 
-export default function ShareNoteModal({ note, book, items, appearanceTheme = 'mist', onClose }) {
+export default function ShareNoteModal({ note, book, items, appearanceTheme = 'mist', selectHighlights = false, onClose }) {
   const isMulti = Array.isArray(items) && items.length > 1
   const preferredTheme = appearanceTheme === 'night' ? 'dark' : 'light'
-  const [author, setAuthor] = useState(book.author || '佚名')
+  const [author, setAuthor] = useState(note.author || book.author || '佚名')
+  const [highlights, setHighlights] = useState(note.highlights || [])
+  const [choosingHighlights, setChoosingHighlights] = useState(selectHighlights)
   const [themeId, setThemeId] = useState(preferredTheme)
   const [imageUrl, setImageUrl] = useState('')
   const [savedPath, setSavedPath] = useState('')
   const theme = useMemo(() => CARD_THEMES.find((item) => item.id === themeId) || CARD_THEMES[0], [themeId])
+  const renderedNote = useMemo(() => ({ ...note, author, highlights }), [author, highlights, note])
 
   useEffect(() => {
     let cancelled = false
@@ -290,12 +301,12 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
       if (!cancelled) {
         setImageUrl(isMulti
           ? createMobileMultiShareImage(items, theme)
-          : createMobileShareImage(note, book, author.trim() || '佚名', theme))
+          : createMobileShareImage(renderedNote, book, author.trim() || '佚名', theme))
       }
     }
     render()
     return () => { cancelled = true }
-  }, [author, book, isMulti, items, note, theme])
+  }, [author, book, isMulti, items, renderedNote, theme])
 
   useEffect(() => {
     const handleKeyDown = (event) => { if (event.key === 'Escape') onClose() }
@@ -315,6 +326,16 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
 
   const selectTheme = (id) => { setSavedPath(''); setThemeId(id) }
 
+  if (choosingHighlights) return (
+    <div className="manager-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="collect-modal" role="dialog" aria-modal="true" aria-label="选择分享高亮">
+        <header><div><Image size={15} /><strong>分享摘录 · 选择高亮</strong><span>划选文字后右键标记高亮</span></div><button onClick={onClose} aria-label="关闭"><X size={16} /></button></header>
+        <HighlightTextEditor text={note.text} highlights={highlights} onChange={setHighlights} />
+        <footer><span>至少选择一处重点文字</span><div><button onClick={onClose}>取消</button><button className="primary-command" disabled={!highlights.length} onClick={() => setChoosingHighlights(false)}>下一步：生成分享图 <ArrowRight size={13} /></button></div></footer>
+      </section>
+    </div>
+  )
+
   return (
     <div className="manager-backdrop share-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="share-modal" role="dialog" aria-modal="true" aria-label="分享摘录">
@@ -332,7 +353,7 @@ export default function ShareNoteModal({ note, book, items, appearanceTheme = 'm
               ))}
             </div>
             {isMulti ? null : <label>出处<input value={note.source || `《${book.title}》`} readOnly /></label>}
-            {isMulti || note.source ? null : <label>作者<input value={author} maxLength={30} onChange={(event) => { setSavedPath(''); setAuthor(event.target.value) }} /></label>}
+            {isMulti ? null : <label>作者<input value={author} maxLength={60} onChange={(event) => { setSavedPath(''); setAuthor(event.target.value) }} /></label>}
             <button className="save-share" disabled={!imageUrl} onClick={save}><Download size={16} /> {imageUrl ? '保存 PNG' : '正在生成'}</button>
             {savedPath ? <p title={savedPath}>已保存到 {savedPath}</p> : null}
           </div>

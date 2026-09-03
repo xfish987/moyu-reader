@@ -62,6 +62,7 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
 
 function BookManager({ book, targets, categories, isCategorySelected, onAssign, onRemove, onDeleteSource, onRelocate, onClose }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleteCloud, setDeleteCloud] = useState(false)
   const multi = targets.length > 1
   return (
     <div className="manager-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -85,10 +86,10 @@ function BookManager({ book, targets, categories, isCategorySelected, onAssign, 
         <footer className={confirmingDelete ? 'confirming-delete' : ''}>
           {confirmingDelete ? (
             <div className="delete-choice">
-              <div><strong>{multi ? `要如何删除这 ${targets.length} 本书？` : '要如何删除这本书？'}</strong><span>删除源文件会将它移入 Windows 回收站。</span></div>
+              <div><strong>{multi ? `要如何删除这 ${targets.length} 本书？` : '要如何删除这本书？'}</strong><span>删除源文件会将它移入 Windows 回收站。</span><label className="delete-cloud-choice"><input type="checkbox" checked={deleteCloud} onChange={(event) => setDeleteCloud(event.target.checked)} /><i><Check size={12} /></i><span><b>同时删除云端个人书库副本</b><small>其他设备将无法再下载；不会影响书城里的公共书籍</small></span></label></div>
               <div>
-                <button onClick={() => { onRemove(); onClose() }}>仅移出书架</button>
-                <button className="delete-source" onClick={async () => { if (await onDeleteSource() !== false) onClose() }}>删除源文件</button>
+                <button onClick={async () => { if (await onRemove({ deleteCloud }) !== false) onClose() }}>仅移出书架</button>
+                <button className="delete-source" onClick={async () => { if (await onDeleteSource({ deleteCloud }) !== false) onClose() }}>删除源文件</button>
                 <button className="cancel-delete" onClick={() => setConfirmingDelete(false)}>取消</button>
               </div>
             </div>
@@ -225,7 +226,7 @@ function LibraryBottomDock({ onOpenVirtualHome, onAddBooks, onToggleTheme, onNot
       <button className="is-theme-toggle" onClick={onToggleTheme} title="切换深浅主题" aria-label="切换深浅主题"><span className="v-theme-moon-mark"><MoonStar /></span></button>
       <div className="v-dock-side is-right">{[
         { id: 'notes', label: '阅读笔记', icon: notesDockIcon, onClick: onNotes },
-        { id: 'appearance', label: '主题与背景', icon: appearanceDockIcon, onClick: onOpenAppearance },
+        { id: 'appearance', label: '用户数据', icon: appearanceDockIcon, onClick: onOpenAppearance },
       ].map(action)}</div>
     </nav>
   )
@@ -541,8 +542,8 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
             categories={categories}
             isCategorySelected={(category) => managedTargets.every((item) => (tagsMap[item.id]?.[0] || '') === category)}
             onAssign={(category) => setTagsMap((current) => { const next = { ...current }; managedTargets.forEach((item) => { next[item.id] = category ? [category] : [] }); return next })}
-            onRemove={() => managedTargets.forEach(onRemove)}
-            onDeleteSource={async () => { for (const item of managedTargets) { if (await onDeleteSource(item) === false) return false } return true }}
+            onRemove={async (options) => { for (const item of managedTargets) { if (await onRemove(item, options) === false) return false } return true }}
+            onDeleteSource={async (options) => { for (const item of managedTargets) { if (await onDeleteSource(item, options) === false) return false } return true }}
             onRelocate={async () => { if (await onRelocate(managedBook)) setManagedBook(null) }}
             onClose={() => setManagedBook(null)}
           />

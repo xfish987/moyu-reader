@@ -1,4 +1,4 @@
-import { AlignJustify, Eye, EyeOff, Minus, Plus, RotateCcw, Type } from 'lucide-react'
+import { AlignJustify, Eye, EyeOff, MessageCircle, Minus, Plus, RotateCcw, Type } from 'lucide-react'
 import { getNearestReaderFontWeight, getReaderFontFaceOptions, normalizeEpubFontOverride, normalizeReaderFontFamily, READER_FONT_OPTIONS } from '../readerFonts'
 
 function Stepper({ value, min, max, step, onChange, suffix }) {
@@ -117,6 +117,10 @@ export default function ReaderSettings({ settings, onChange, encoding, onEncodin
       <section className="setting-row">
         <div><Type size={15} /><span>字号</span></div>
         <Stepper value={settings.fontSize} min={14} max={36} step={1} onChange={(value) => set('fontSize', value)} suffix="" />
+      </section>
+      <section className="setting-row">
+        <div>{settings.showReaderThoughts !== false ? <MessageCircle size={15} /> : <EyeOff size={15} />}<span>显示读者想法</span></div>
+        <button className={`setting-toggle ${settings.showReaderThoughts !== false ? 'active' : ''}`} role="switch" aria-checked={settings.showReaderThoughts !== false} onClick={() => set('showReaderThoughts', settings.showReaderThoughts === false)}><span /></button>
       </section>
       <section className="setting-row">
         <div><AlignJustify size={15} /><span>行距</span></div>
