@@ -14,7 +14,10 @@ const txtPath = path.join(fixtureDir, 'packaged-reader-smoke.txt')
 const epubPath = path.join(fixtureDir, 'packaged-reader-smoke.epub')
 const shelfTxtPath = path.join(fixtureDir, 'packaged-shelf-second-book.txt')
 const koreanEpubPath = path.join(path.dirname(root), '怪谈 完 .epub')
-const executable = path.join(root, 'release', 'win-unpacked', '墨读阅读器.exe')
+const configuredExecutable = process.env.MOYU_E2E_EXECUTABLE
+const executable = configuredExecutable
+  ? path.resolve(root, configuredExecutable)
+  : path.join(root, 'release', 'win-unpacked', '墨读阅读器.exe')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 if (!fs.existsSync(executable)) throw new Error(`找不到打包桌面程序：${executable}`)
