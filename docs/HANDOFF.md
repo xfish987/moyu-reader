@@ -66,6 +66,7 @@
 - 修复点击书籍后空白的回归，并增加隔离用户数据的 Electron 冒烟测试。测试会真实打开横向双栏 TXT，确认正文、返回按钮和工具栏存在，同时断言标题栏接缝为 0px。
 - 桌面构建前必须先保持 Vite 开发服务运行，再执行 `node scripts/verify-reader-titlebar.mjs`；冒烟测试失败时禁止构建和发布。
 - 已完成正式构建：`MoyuReader-2.5.0.exe` 与 `MoyuReader-2.5.0-Setup.msi` 均已生成。`npm test`、`node cloud-server/test-cloud.mjs` 和 Electron 冒烟测试均通过；生产 `/health` 返回 200，`moyu-cloud` 容器为 healthy。
+- 修复打包版 EPUB 阅读器白屏：`EpubReader` 漏接收 `onDismissPanel`，在初始化时触发 `ReferenceError` 并使阅读视图卸载。已增加 `scripts/verify-packaged-readers.mjs`，它启动 `release/win-unpacked/墨读阅读器.exe`，分别以隔离用户数据真实打开 TXT 和 EPUB，断言正文并保存截图；2026-09-03 已双格式通过。发布前必须运行此脚本，不能以浏览器测试替代。
 
 ## 开发与验证
 

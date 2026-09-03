@@ -24,3 +24,4 @@ test-results/
 kimi-debug-session_*.zip
 design-reference/
 .e2e-user-data/
+.e2e-packaged-reader-data/
