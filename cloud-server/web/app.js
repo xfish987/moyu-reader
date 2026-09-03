@@ -731,7 +731,6 @@ async function renderBookDetail(app, bookId) {
         '<button class="btn primary" id="save-meta">保存修改</button>' +
         '<label class="btn" for="cover-input">上传 / 更换封面</label>' +
         '<input type="file" id="cover-input" accept="image/jpeg,image/png,image/webp" hidden>' +
-        '<button class="btn danger" id="delete-book">删除书籍</button>' +
       '</div>' +
       '<div id="files-editor" class="files-editor"></div>' +
       '<div id="append-files-box" class="append-files-box" style="display:none"></div>' +
@@ -764,6 +763,7 @@ async function renderBookDetail(app, bookId) {
         '<div class="btn-row">' +
           '<button class="btn primary" id="download-all-btn">下载全部</button>' +
           (book.canManage ? '<button class="btn" id="append-btn">追加新卷</button>' : '') +
+          '<button class="btn danger" id="delete-book">删除书籍</button>' +
         '</div>' +
       '</div>' +
     '</div>' +
@@ -929,16 +929,6 @@ async function renderBookDetail(app, bookId) {
       } catch (error) { toast(error.message, true) }
     })
 
-    $('#delete-book').addEventListener('click', async () => {
-      if (!window.confirm('确定删除《' + book.title + '》吗？此操作不可恢复。')) return
-      if (!window.confirm('再次确认：书籍文件与封面将从书城移除。')) return
-      try {
-        await api('/v1/store/books/' + book.id, { method: 'DELETE' })
-        toast('书籍已删除')
-        location.hash = '#/'
-      } catch (error) { toast(error.message, true) }
-    })
-
     // 追加新卷
     $('#append-btn').addEventListener('click', () => {
       const box = $('#append-files-box')
@@ -1020,6 +1010,20 @@ async function renderBookDetail(app, bookId) {
       }
     })
   }
+
+  $('#delete-book')?.addEventListener('click', async () => {
+    if (!window.confirm('确定从书城删除《' + book.title + '》吗？所有用户都将无法再下载，此操作不可恢复。')) return
+    if (!window.confirm('再次确认：书籍全部分卷与封面将永久移除。')) return
+    const button = $('#delete-book')
+    button.disabled = true
+    button.textContent = '删除中…'
+    try {
+      await api('/v1/store/books/' + book.id, { method: 'DELETE' })
+      state.books = state.books.filter((item) => item.id !== book.id)
+      toast('书籍已从书城删除')
+      location.hash = '#/'
+    } catch (error) { toast(error.message, true); button.disabled = false; button.textContent = '删除书籍' }
+  })
 }
 
 /* ---------------- 视图：上传 ---------------- */

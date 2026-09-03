@@ -692,8 +692,7 @@ const TextReader = forwardRef(function TextReader({ content, settings, initialPa
   const titleFontFamily = getReaderFontStack(titleFont)
   const bodyFontWeight = getNearestReaderFontWeight(bodyFont, settings.fontWeight, 400)
   const titleFontWeight = getNearestReaderFontWeight(titleFont, settings.titleFontWeight, 700)
-  // 双页不是两张独立纸卡：让两栏在同一连续画布上相接。
-  const columnGap = 0
+  const columnGap = settings.layoutMode === 'landscape' ? 56 : 0
 
   return (
     <div className="text-reader-shell" ref={shellRef} style={{ '--page-padding': `${pagePadding}px` }}>

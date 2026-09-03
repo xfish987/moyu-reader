@@ -17,7 +17,7 @@ const { selectSummaryExcerpts } = require('./excerptSelect.cjs')
 
 // Keep the legacy profile directory so existing UI B users retain all local data.
 app.setName('墨读阅读器')
-app.setPath('userData', path.join(app.getPath('appData'), 'MoyuReaderUIB'))
+app.setPath('userData', process.env.MOYU_E2E_USER_DATA ? path.resolve(process.env.MOYU_E2E_USER_DATA) : path.join(app.getPath('appData'), 'MoyuReaderUIB'))
 
 let mainWindow
 let profilesWindow = null

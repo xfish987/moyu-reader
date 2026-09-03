@@ -347,6 +347,7 @@ function publicBook(book, currentUserId) {
     uploaderAvatar: book.uploaderAvatar || '',
     hasCover: Boolean(book.coverFileName),
     canManage: book.uploaderId === currentUserId,
+    canDelete: true,
     ratingCount: rated.length,
     averageRating,
     status: book.status || 'completed',
@@ -1176,7 +1177,6 @@ async function handle(request, response) {
 
   if (request.method === 'DELETE' && bookMatch) {
     if (!book) return json(response, 404, { error: '书籍不存在' })
-    if (book.uploaderId !== user.id) return json(response, 403, { error: '只能删除自己上传的书籍' })
     database.books = database.books.filter((entry) => entry.id !== book.id)
     await removeBookFiles(book)
     await saveUsers(database)
