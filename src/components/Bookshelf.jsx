@@ -39,9 +39,9 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
   const sizeLabel = Number.isFinite(book.size) && book.size > 0 ? formatBytes(book.size) : book.format
 
   return (
-    <div data-book-id={book.id} className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''} ${highlighted ? 'is-selected' : ''}`} onContextMenu={(event) => { event.preventDefault(); onManage(book) }} onPointerDown={reordering ? (event) => onPointerDownStart(event, book.id) : undefined} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
-      {selecting ? <button className={`book-select ${selected ? 'selected' : ''}`} onClick={() => onToggle(book.id)} aria-label={selected ? `取消选择 ${book.title}` : `选择 ${book.title}`}><Check size={13} /></button> : null}
-      <button className="book-open" onClick={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); onToggleSelect?.(book.id); return } onOpen(book) }}>
+    <div data-book-id={book.id} className={`book-item ${dragging ? 'is-dragging' : ''} ${dropPosition ? `is-drop-${dropPosition}` : ''} ${highlighted ? 'is-selected' : ''}`} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onManage(book) }} onPointerDown={reordering ? (event) => onPointerDownStart(event, book.id) : undefined} onDragOverCapture={reordering ? (event) => onDragOver(event, book.id) : undefined} onDropCapture={reordering ? (event) => onDrop(event, book.id) : undefined} onPointerMove={reordering ? (event) => onPointerMove(event, book.id) : undefined} onPointerUp={reordering ? (event) => onPointerUp(event, book.id) : undefined}>
+      {selecting ? <button type="button" className={`book-select ${selected ? 'selected' : ''}`} onClick={(event) => { event.stopPropagation(); onToggle(book.id) }} aria-label={selected ? `取消选择 ${book.title}` : `选择 ${book.title}`}><Check size={13} /></button> : null}
+      <button type="button" className="book-open" onClick={(event) => { event.stopPropagation(); if (event.ctrlKey || event.metaKey) { event.preventDefault(); onToggleSelect?.(book.id); return } onOpen(book) }}>
         <span className={`book-cover ${coverSource ? 'has-image' : ''} ${!displayCover && defaultCover ? 'is-default' : ''}`} style={{ '--cover': COVER_COLORS[index % COVER_COLORS.length] }}>
           {coverSource ? <img src={coverSource} alt="" /> : <><span className="cover-rule" /><strong>{book.title}</strong><small>{book.format}</small></>}
         </span>
@@ -53,17 +53,27 @@ function BookCover({ book, index, progress, category, customCover, defaultCover,
           {progress ? <i className="manager-book-progress" style={{ '--progress': `${Math.round(progress * 100)}%` }}><b>阅读进度</b><em>{Math.round(progress * 100)}%</em></i> : null}
         </span>
       </button>
-      <button className="cover-edit" onClick={() => onEditCover(book)} title="设置封面"><ImagePlus size={14} /></button>
-      <button className="book-manage" onClick={() => onManage(book)} title="整理书籍"><Tags size={14} /></button>
+      <button type="button" className="cover-edit" onClick={(event) => { event.stopPropagation(); onEditCover(book) }} title="设置封面"><ImagePlus size={14} /></button>
+      <button type="button" className="book-manage" onClick={(event) => { event.stopPropagation(); onManage(book) }} title="整理书籍"><Tags size={14} /></button>
       {category ? <span className="book-tag">{category}</span> : null}
     </div>
   )
 }
 
-function BookManager({ book, targets, categories, isCategorySelected, onAssign, onRemove, onDeleteSource, onRelocate, onClose }) {
+function BookManager({ book, targets, categories, isCategorySelected, onAssign, onCreateCategory, onRemove, onDeleteSource, onRelocate, onClose }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleteCloud, setDeleteCloud] = useState(false)
+  const [categoryDraft, setCategoryDraft] = useState('')
+  const [categoryMessage, setCategoryMessage] = useState('')
   const multi = targets.length > 1
+  const createAndAssignCategory = () => {
+    const value = categoryDraft.trim().slice(0, 12)
+    if (!value) return
+    const created = onCreateCategory(value)
+    onAssign(value)
+    setCategoryDraft('')
+    setCategoryMessage(created ? `已创建并归入“${value}”` : `已归入“${value}”`)
+  }
   return (
     <div className="manager-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="book-manager" role="dialog" aria-modal="true" aria-label="整理书籍">
@@ -81,7 +91,11 @@ function BookManager({ book, targets, categories, isCategorySelected, onAssign, 
               </button>
             ))}
           </div>
-          {!categories.length ? <p className="category-tip">请先在书架左侧创建分类，再把书放进去。</p> : null}
+          <div className="manager-category-create">
+            <input value={categoryDraft} maxLength={12} placeholder="新建分类" aria-label="新建分类名称" onChange={(event) => { setCategoryDraft(event.target.value); setCategoryMessage('') }} onKeyDown={(event) => { if (event.nativeEvent?.isComposing) return; if (event.key === 'Enter') createAndAssignCategory() }} />
+            <button type="button" disabled={!categoryDraft.trim()} onClick={createAndAssignCategory} title="创建分类并归入" aria-label="创建分类并归入"><Check size={15} /></button>
+          </div>
+          {categoryMessage ? <p className="category-tip" role="status">{categoryMessage}</p> : null}
         </div>
         <footer className={confirmingDelete ? 'confirming-delete' : ''}>
           {confirmingDelete ? (
@@ -205,8 +219,8 @@ function CategorySidebar({ categories, active, counts, onSelect, onCreate, onDel
         {creating ? (
           <div className="category-create-inline">
             <input autoFocus value={name} maxLength={12} aria-label="新分类名称" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submit(); if (event.key === 'Escape') cancelCreate() }} />
-            <button onClick={cancelCreate} title="取消" aria-label="取消新建分类"><X size={14} /></button>
-            <button onClick={submit} disabled={!name.trim()} title="确认" aria-label="确认新建分类"><Check size={14} /></button>
+            <button type="button" onClick={cancelCreate} title="取消" aria-label="取消新建分类"><X size={14} /></button>
+            <button type="button" onClick={submit} disabled={!name.trim()} title="确认" aria-label="确认新建分类"><Check size={14} /></button>
           </div>
         ) : null}
       </nav>
@@ -343,7 +357,10 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
   })
 
   const createCategory = (category) => {
-    setCategories((current) => current.includes(category) ? current : [...current, category])
+    const value = String(category || '').trim().slice(0, 12)
+    if (!value || categories.includes(value)) return false
+    setCategories((current) => current.includes(value) ? current : [...current, value])
+    return true
   }
 
   const deleteCategory = (category) => {
@@ -509,7 +526,9 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
       ) : null}
 
       {view === 'notes' ? <NotesLibrary books={books} bookMetadata={bookMetadata} notesMap={notesMap} sourcePresetsMap={sourcePresetsMap} onSaveSourcePreset={onSaveSourcePreset} appearanceTheme={appearanceTheme} onOpenNote={onOpenNote} onAddNote={onAddNote} onUpdateNote={onUpdateNote} onDeleteNote={onDeleteNote} onCreateGroup={onCreateNoteGroup} onMoveNote={onMoveNote} onExportNotes={onExportNotes} /> : books.length ? (
-        <div className="library-catalog" onPointerDown={bookMarquee.onPointerDown}>
+        <div className="library-catalog" onPointerDown={bookMarquee.onPointerDown} onClick={(event) => {
+          if (!event.target.closest('.book-item, button, input, textarea, select, a')) setSelectedIds([])
+        }}>
           <CategorySidebar categories={categories} active={activeCategory} counts={counts} onSelect={selectCategory} onCreate={createCategory} onDelete={deleteCategory} onReorder={onReorderCategories} onRename={renameCategory} />
           <section className="category-books">
             {selectedIds.length ? <div className="selection-count" role="status">已选 {selectedIds.length} 本书</div> : null}
@@ -542,6 +561,7 @@ export default function Bookshelf({ books, directory, progressMap, loading, tags
             categories={categories}
             isCategorySelected={(category) => managedTargets.every((item) => (tagsMap[item.id]?.[0] || '') === category)}
             onAssign={(category) => setTagsMap((current) => { const next = { ...current }; managedTargets.forEach((item) => { next[item.id] = category ? [category] : [] }); return next })}
+            onCreateCategory={createCategory}
             onRemove={async (options) => { for (const item of managedTargets) { if (await onRemove(item, options) === false) return false } return true }}
             onDeleteSource={async (options) => { for (const item of managedTargets) { if (await onDeleteSource(item, options) === false) return false } return true }}
             onRelocate={async () => { if (await onRelocate(managedBook)) setManagedBook(null) }}

@@ -11,12 +11,14 @@ const userData = path.join(root, '.e2e-packaged-reader-data')
 const fixtureDir = path.join(userData, 'fixtures')
 const txtPath = path.join(fixtureDir, 'packaged-reader-smoke.txt')
 const epubPath = path.join(fixtureDir, 'packaged-reader-smoke.epub')
+const shelfTxtPath = path.join(fixtureDir, 'packaged-shelf-second-book.txt')
 const executable = path.join(root, 'release', 'win-unpacked', '墨读阅读器.exe')
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 if (!fs.existsSync(executable)) throw new Error(`找不到打包桌面程序：${executable}`)
 fs.mkdirSync(fixtureDir, { recursive: true })
 fs.writeFileSync(txtPath, '第1章 打包 TXT 验证\n\n打包后的 Electron 程序必须显示这段 TXT 正文，而不是白屏。\n')
+fs.writeFileSync(shelfTxtPath, '第1章 书架交互验证\n\n用于验证书架空白点击和分类整理。\n')
 
 const epub = new JSZip()
 epub.file('mimetype', 'application/epub+zip', { compression: 'STORE' })
@@ -81,6 +83,20 @@ async function capture(page, name) {
   if (image.data) fs.writeFileSync(path.join(root, 'output', name), Buffer.from(image.data, 'base64'))
 }
 
+async function mouseClick(page, point, button = 'left') {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error('找不到桌面交互目标')
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button, clickCount: 1 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button, clickCount: 1 })
+}
+
+async function pointFor(page, expression, label) {
+  const point = await page.evaluate(expression)
+  if (!point) throw new Error(`找不到 ${label}`)
+  return point
+}
+
+const centerOf = (selector) => `(() => { const element = ${selector}; if (!element) return null; const rect = element.getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } })()`
+
 const launch = (dataDirectory) => spawn(executable, [`--remote-debugging-port=${debugPort}`], {
   cwd: path.dirname(executable),
   windowsHide: true,
@@ -139,6 +155,61 @@ try {
     app = null
     await sleep(800)
   }
+  const shelfDataDirectory = path.join(userData, 'shelf-interactions')
+  fs.rmSync(shelfDataDirectory, { recursive: true, force: true })
+  app = launch(shelfDataDirectory)
+  let page = await connect()
+  const shelfBooks = await page.evaluate(`(async () => {
+    const books = await window.readerAPI.describeBookPaths(${JSON.stringify([txtPath, shelfTxtPath])})
+    await window.readerAPI.setStoredValue('reader:directory', '')
+    await window.readerAPI.setStoredValue('reader:manual-books', books)
+    await window.readerAPI.setStoredValue('reader:hidden-books', [])
+    await window.readerAPI.setStoredValue('reader:recent-books', [])
+    await window.readerAPI.setStoredValue('reader:tags', {})
+    await window.readerAPI.setStoredValue('reader:shelf-book-order', {})
+    return books.map(({ id, title }) => ({ id, title }))
+  })()`)
+  if (shelfBooks.length !== 2) throw new Error('无法准备书架交互测试书')
+  await page.evaluate('location.reload()')
+  await sleep(1000)
+  page = await connect()
+  await mouseClick(page, await pointFor(page, centerOf(`[...document.querySelectorAll('button')].find((item) => item.textContent.includes('打开完整书架'))`), '打开完整书架按钮'))
+  await waitFor(page, 'Boolean(document.querySelector(\'.library-catalog\'))', '管理书架')
+
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('[aria-label="批量管理书籍"]')`), '批量管理按钮'))
+  await waitFor(page, 'document.querySelectorAll(\'.book-select\').length === 2', '书籍多选控件')
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('.book-select')`), '第一本书选择控件'))
+  await waitFor(page, 'Boolean(document.querySelector(\'.selection-count\'))', '已选择一本书')
+  const blankPoint = await pointFor(page, `(() => {
+    const cards = [...document.querySelectorAll('.book-item')].map((item) => item.getBoundingClientRect())
+    if (cards.length < 2) return null
+    const left = cards[0]
+    const right = cards[1]
+    if (right.left - left.right < 4) return null
+    return { x: (left.right + right.left) / 2, y: Math.min(left.top, right.top) + 4 }
+  })()`, '两本书之间的空白区域')
+  await mouseClick(page, blankPoint)
+  await waitFor(page, '!document.querySelector(\'.selection-count\') && !document.querySelector(\'.reader-view\')', '空白点击取消多选且不打开书')
+
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('[aria-label="批量管理书籍"]')`), '退出批量管理按钮'))
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('[aria-label="新建分类"]')`), '顶部新建分类按钮'))
+  await waitFor(page, 'Boolean(document.querySelector(\'[aria-label="新分类名称"]\'))', '顶部分类输入框')
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('[aria-label="新分类名称"]')`), '顶部分类输入框'))
+  await page.send('Input.insertText', { text: '顶部分类' })
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('[aria-label="确认新建分类"]')`), '顶部分类确认按钮'))
+  await waitFor(page, `[...document.querySelectorAll('.category-row button')].some((item) => item.textContent.includes('顶部分类'))`, '顶部新建的分类')
+
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('.book-item')`), '第一本书卡片'), 'right')
+  await waitFor(page, 'Boolean(document.querySelector(\'.book-manager\'))', '右键整理窗口')
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('[aria-label="新建分类名称"]')`), '整理窗口分类输入框'))
+  await page.send('Input.insertText', { text: '右键分类' })
+  await mouseClick(page, await pointFor(page, centerOf(`document.querySelector('[aria-label="创建分类并归入"]')`), '整理窗口创建并归入按钮'))
+  await waitFor(page, `document.querySelector('.category-tip')?.textContent.includes('右键分类') && [...document.querySelectorAll('.category-checklist button')].some((item) => item.textContent.includes('右键分类'))`, '右键创建并归类')
+  await capture(page, 'packaged-shelf-interactions.png')
+  if (page.errors.length) throw new Error(`桌面渲染报错：${page.errors.join('\n')}`)
+  console.log('PASS packaged shelf: blank click, selection cancel, category creation, and right-click classification')
+  stop(app)
+  app = null
   console.log('Packaged TXT and EPUB desktop reader smoke test passed')
 } finally {
   stop(app)

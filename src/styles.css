@@ -748,6 +748,11 @@ button:focus-visible, input:focus-visible {
 .category-checklist { min-height: 56px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .category-checklist button { height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--r-sm); display: flex; align-items: center; justify-content: space-between; background: transparent; color: var(--ink-2); font-size: var(--text-xs); cursor: pointer; }
 .category-checklist button.selected { border-color: var(--accent-tint); background: var(--accent-bg); color: var(--accent-tint); }
+.manager-category-create { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1fr) 36px; }
+.manager-category-create input { min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-right: 0; border-radius: var(--r-sm) 0 0 var(--r-sm); outline: none; background: var(--surface); color: var(--ink); font: inherit; font-size: var(--text-xs); }
+.manager-category-create input:focus { border-color: var(--accent-tint); }
+.manager-category-create button { height: 36px; padding: 0; border: 1px solid var(--accent-tint); border-radius: 0 var(--r-sm) var(--r-sm) 0; display: grid; place-items: center; background: var(--accent-bg); color: var(--accent-tint); cursor: pointer; }
+.manager-category-create button:disabled { opacity: .45; cursor: default; }
 .category-tip { margin: 12px 0 0; color: var(--ink-3); font-size: var(--text-xs); line-height: 1.6; }
 .tag-create { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1fr) 64px; }
 .tag-create input { height: 36px; padding: 0 11px; border: 1px solid var(--line); border-right: 0; border-radius: var(--r-sm) 0 0 4px; background: var(--surface); color: var(--ink); font-size: var(--text-sm); }

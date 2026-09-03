@@ -1000,7 +1000,7 @@
 .ui-b .library-design-view .continue-reading .continue-bar i { height: 100%; opacity: .15; background: #e8ecef; }
 .ui-b .library-design-view .continue-reading em { color: #1c2b48; font: 500 8px/1 var(--font-ui); }
 .ui-b .library-catalog { width: min(1320px, 100%); margin: 0 auto; }
-.ui-b .library-design-view .category-sidebar { position: static; min-width: 0; margin-bottom: 19.2px; display: flex; align-items: center; gap: 8px; }
+.ui-b .library-design-view .category-sidebar { position: relative; min-width: 0; margin-bottom: 19.2px; display: flex; align-items: center; gap: 8px; }
 .ui-b .library-design-view .category-sidebar-title { position: relative; width: 18px; height: 24px; flex: 0 0 18px; padding: 0; display: flex; background: url("./assets/dark-shelf/manager-tag.svg") center / 12px 12px no-repeat; }
 .ui-b .library-design-view .category-sidebar-title span { display: none; }
 .ui-b .library-design-view .category-sidebar-title button { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
@@ -1039,6 +1039,8 @@
 .ui-b .library-design-view .batch-bar { margin: 0 0 12px; border: 1px solid rgba(115,148,183,.35); background: rgba(28,43,72,.86); }
 .ui-b .library-design-view .batch-bar span { color: #ccd4e7; }
 .ui-b .library-design-view .batch-bar button { border-color: rgba(190,211,226,.35); background: rgba(115,148,183,.18); color: #e8ecef; }
+.ui-b .book-manager .manager-category-create input { border-color: rgba(190,211,226,.45); background: rgba(232,236,239,.94); color: #1c2b48; }
+.ui-b .book-manager .manager-category-create button { border-color: #7394b7; background: #7394b7; color: #fff; }
 .ui-b .library-design-view .category-books .book-grid { max-width: none; margin: 0; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 29px 30px; }
 .ui-b .library-design-view .book-cover { width: 100%; max-width: none; aspect-ratio: 73 / 97.3; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: 2px 3px 6px rgba(0,0,0,.34); }
 .ui-b .library-design-view .book-cover.has-image { background: transparent; }
